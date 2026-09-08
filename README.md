@@ -1,6 +1,6 @@
 # Arduino Practice Sketches
 
-This repo conatins simple Arduino examples for learning and experimentation.
+This repo contains simple Arduino examples for learning and experimentation.
 
 ## Sketches
 
