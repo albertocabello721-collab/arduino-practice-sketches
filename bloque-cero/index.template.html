@@ -92,11 +92,35 @@
   #topbar .t { padding: 6px 18px; font-family: var(--display); font-weight: 700; font-size: 28px; letter-spacing: 0.04em; }
   #topbar .m { padding: 9px 14px; font-family: var(--display); font-size: 13px; letter-spacing: 0.22em; text-transform: uppercase; color: var(--muted); border-left: 1px solid var(--line); display: flex; align-items: center; }
   #prompt { position: absolute; left: 50%; top: 62%; transform: translateX(-50%); font-family: var(--display); font-size: 18px; letter-spacing: 0.08em; text-transform: uppercase; text-shadow: 0 1px 3px #000; }
-  #hints { position: absolute; right: clamp(16px, 3vw, 40px); top: 84px; max-width: 250px; padding: 10px 12px; background: var(--panel); font-size: 12.5px; line-height: 1.7; color: #d4dae0; }
+  #hints { position: absolute; left: clamp(16px, 3vw, 40px); top: 100px; max-width: 250px; padding: 10px 12px; background: var(--panel); font-size: 12.5px; line-height: 1.7; color: #d4dae0; }
   #hints b { font-family: var(--display); letter-spacing: .06em; }
   #perf { position: absolute; left: 50%; bottom: 8px; transform: translateX(-50%); padding: 4px 10px; background: rgba(0,0,0,.6); font: 12px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace; color: #b8f3b8; white-space: pre; }
   #toast { position: absolute; left: 50%; top: 22%; transform: translateX(-50%); font-family: var(--display); font-weight: 700; font-size: 30px; letter-spacing: 0.12em; text-transform: uppercase; text-shadow: 0 2px 10px rgba(0,0,0,.8); opacity: 0; transition: opacity .25s; }
   #pausehint { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); padding: 14px 22px; background: var(--panel); border: 1px solid var(--line); font-family: var(--display); font-size: 20px; letter-spacing: 0.1em; text-transform: uppercase; pointer-events: auto; cursor: pointer; }
+  #killfeed { position: absolute; right: clamp(16px, 3vw, 40px); top: 84px; display: flex; flex-direction: column; align-items: flex-end; gap: 4px; }
+  #killfeed .k { display: flex; align-items: center; gap: 8px; padding: 4px 10px; background: rgba(8, 10, 13, 0.72); font-family: var(--display); font-size: 16px; font-weight: 600; letter-spacing: 0.03em; transition: opacity .4s; }
+  #killfeed .k .a { color: var(--orange); } #killfeed .k .d { color: var(--blue); }
+  #killfeed .k .me { color: #fff; text-decoration: underline; text-underline-offset: 3px; }
+  #killfeed .k .w { font-size: 12px; letter-spacing: 0.12em; text-transform: uppercase; color: rgba(255,255,255,.65); }
+  #killfeed .k .hs { color: var(--red); font-weight: 800; }
+  #killfeed .k.down { font-style: italic; opacity: .9; }
+  #killfeed .k.mine { box-shadow: inset 0 0 0 1px rgba(255,255,255,.35); }
+  #dmgdirs { position: absolute; left: 50%; top: 50%; width: 0; height: 0; }
+  #dmgdirs i { position: absolute; left: -46px; top: -150px; width: 92px; height: 26px; border-top: 5px solid rgba(229, 72, 58, 0.95); border-radius: 50% 50% 0 0 / 100% 100% 0 0; transform-origin: 46px 150px; opacity: 0; filter: drop-shadow(0 0 4px rgba(229,72,58,.8)); }
+  #hpbar { width: 180px; height: 6px; background: rgba(255,255,255,.14); margin-top: 6px; }
+  #hpbar i { display: block; height: 100%; width: 100%; background: #f2f4f6; transition: width .15s; }
+  #hpbar.low i { background: var(--red); }
+  #downed { position: absolute; left: 50%; top: 58%; transform: translateX(-50%); width: min(460px, 86vw); text-align: center; text-shadow: 0 1px 4px #000; }
+  #downed .t { font-family: var(--display); font-weight: 800; font-size: 34px; letter-spacing: 0.16em; text-transform: uppercase; color: var(--red); }
+  #downed .s { margin-top: 4px; font-size: 14px; color: #f1d6d3; letter-spacing: 0.04em; }
+  #downed .bar, #revive .bar { margin-top: 10px; height: 5px; background: rgba(255,255,255,.18); }
+  #downed .bar i { display: block; height: 100%; background: var(--red); }
+  #revive { position: absolute; left: 50%; top: 64%; transform: translateX(-50%); width: min(320px, 80vw); text-align: center; font-family: var(--display); font-size: 16px; letter-spacing: 0.12em; text-transform: uppercase; text-shadow: 0 1px 3px #000; }
+  #revive .bar i { display: block; height: 100%; background: var(--blue); width: 0; }
+  #death { position: absolute; inset: 0; display: grid; place-items: center; background: radial-gradient(ellipse at center, rgba(40,0,0,.25), rgba(0,0,0,.72)); }
+  #death .box { text-align: center; }
+  #death .t { font-family: var(--display); font-weight: 800; font-size: 52px; letter-spacing: 0.14em; text-transform: uppercase; }
+  #death .s { margin-top: 8px; font-size: 15px; color: #c9d1d9; }
   @media (max-width: 900px) { #hints { display: none; } }
   @media (max-width: 640px) { .setting { grid-template-columns: 1fr 110px 40px; } }
   @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
@@ -163,12 +187,14 @@
   <div id="topbar"><div class="t" id="hud-title">Campo de pruebas</div><div class="m" id="hud-mode">Fase 1</div></div>
   <div id="where"><div class="lbl">Ubicación</div><div class="loc" id="hud-loc">—</div></div>
   <div id="hints">
-    <b>Prueba:</b> dispara al pladur y mira cómo se agujerea bala a bala. El ladrillo del frente y el hormigón del sótano no ceden. Con la escopeta (<kbd>3</kbd>) abres huecos grandes. <kbd>G</kbd> hace volar un boquete de brecha donde miras.
+    <b>Campo de pruebas:</b> maniquís dentro de la villa (uno dispara). Tiro a la cabeza = baja; al torso, derribo. <kbd>F</kbd> reanima a tu compañero (<kbd>J</kbd> lo derriba), <kbd>K</kbd> reinicia el campo, <kbd>G</kbd> abre un boquete, <kbd>1</kbd>–<kbd>4</kbd> armas, <kbd>L</kbd> cambia de arsenal.
   </div>
+  <div id="killfeed"></div>
+  <div id="dmgdirs"><i></i><i></i><i></i><i></i></div>
   <div id="crosshair"><i class="d"></i><i class="l"></i><i class="r"></i><i class="t"></i><i class="b"></i></div>
   <div id="hitmark"><i></i><i></i><i></i><i></i></div>
   <div id="vitals">
-    <div class="hp" id="hud-hp">100<small>Salud</small></div>
+    <div><div class="hp" id="hud-hp">100<small>Salud</small></div><div id="hpbar"><i></i></div></div>
     <div class="stance"><span id="hud-stance">De pie</span><div id="lean"><i></i><i></i><i></i></div></div>
   </div>
   <div id="weapon">
@@ -177,6 +203,9 @@
     <div class="ammo" id="hud-ammo">30<small>150</small></div>
   </div>
   <div id="prompt"></div>
+  <div id="downed" class="hidden"><div class="t">Derribado</div><div class="s" id="downed-s">Te desangras. Mantén F para presionar la herida.</div><div class="bar"><i id="downed-bar"></i></div></div>
+  <div id="revive" class="hidden"><div id="revive-t">Reanimando</div><div class="bar"><i id="revive-bar"></i></div></div>
+  <div id="death" class="hidden"><div class="box"><div class="t">Has caído</div><div class="s" id="death-s">Pulsa R para volver a empezar</div></div></div>
   <div id="toast"></div>
   <div id="perf" class="hidden"></div>
   <div id="pausehint" class="hidden">Clic para seguir jugando</div>

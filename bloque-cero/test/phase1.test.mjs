@@ -49,7 +49,7 @@ test('cada bala agujerea una pared blanda (vóxel a vóxel)', () => {
     void before;
   }
   assert.ok(holes >= 5, 'al menos 5 de 6 balas abren agujero, abrieron ' + holes);
-  op.alive = false;
+  game.removeOperator(op);
 });
 
 test('el ladrillo y el hormigón paran la bala sin romperse', () => {
@@ -60,7 +60,7 @@ test('el ladrillo y el hormigón paran la bala sin romperse', () => {
   assert.ok(res.hit && (res.hit.mat === MAT.BRICK || res.hit.mat === MAT.STONE), 'impacta en ladrillo: ' + (res.hit && res.hit.mat));
   assert.equal(res.destroyed.length, 0);
   void eye;
-  op.alive = false;
+  game.removeOperator(op);
 });
 
 test('no se atraviesan paredes intactas; sí un boquete grande', () => {
@@ -74,7 +74,7 @@ test('no se atraviesan paredes intactas; sí un boquete grande', () => {
   run(op, 2.0, { moveZ: 1 });
   assert.ok(op.body.pos.z > 13.8, 'cruza el boquete: z=' + op.body.pos.z.toFixed(3) + ' (antes ' + z0.toFixed(3) + ')');
   op.intent.moveZ = 0;
-  op.alive = false;
+  game.removeOperator(op);
 });
 
 test('asomarse no mete la cabeza en la pared', () => {
@@ -89,7 +89,7 @@ test('asomarse no mete la cabeza en la pared', () => {
   run(op, 0.5, { lean: 1 });
   assert.ok(op.leanAllowed > 0.95, 'asomado completo en abierto: ' + op.leanAllowed.toFixed(2));
   run(op, 0.1, { lean: 0 });
-  op.alive = false;
+  game.removeOperator(op);
 });
 
 test('la escalera principal sube a la planta alta', () => {
@@ -97,7 +97,7 @@ test('la escalera principal sube a la planta alta', () => {
   run(op, 3.5, { moveZ: 1 });
   assert.ok(op.body.pos.y > 3.4, 'llega arriba: y=' + op.body.pos.y.toFixed(2) + ' z=' + op.body.pos.z.toFixed(2));
   op.intent.moveZ = 0;
-  op.alive = false;
+  game.removeOperator(op);
 });
 
 test('el cristal de una ventana se rompe entero', () => {
@@ -124,5 +124,5 @@ test('saltar obstáculo: vaultea un alféizar hacia fuera', () => {
   op.intent.vault = true;
   run(op, 1.5);
   assert.ok(op.body.pos.x < -0.2, 'ha salido por la ventana: x=' + op.body.pos.x.toFixed(2));
-  op.alive = false;
+  game.removeOperator(op);
 });

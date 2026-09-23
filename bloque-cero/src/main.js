@@ -16,7 +16,11 @@ import { raycastFirst } from './world/raycast.js';
 import { breachRect, explodeSphere } from './world/destruction.js';
 import { MATS, SOLID, SOUND } from './world/materials.js';
 import { lineOfSight } from './world/raycast.js';
-import { DEG, damp, clamp } from './core/math.js';
+import { DEG, damp, clamp, angleDiff } from './core/math.js';
+import { CharacterRenderer, defaultLook } from './render/character.js';
+import { spawnRangeDummies, driveDummies, resetDummies } from './sim/dummies.js';
+import { BONE } from './sim/skeleton.js';
+import { WEAPONS } from './sim/weapons.js';
 
 const $ = (id) => document.getElementById(id);
 const nextFrame = () => new Promise((r) => requestAnimationFrame(() => r()));
@@ -65,6 +69,7 @@ async function boot() {
   const camera = new THREE.PerspectiveCamera(settings.fov, window.innerWidth / window.innerHeight, 0.03, 1200);
   camera.rotation.order = 'YXZ';
   const effects = new Effects(scene, world, wr);
+  const chars = new CharacterRenderer(scene, wr.uniforms);
   const vm = new ViewModel();
   vm.initEnvironment(renderer);
   const post = new PostFX(renderer, scene, camera, vm.scene, vm.camera, settings.quality, wr.prepassMat);
@@ -100,7 +105,37 @@ async function boot() {
   // ---------------------------------------------------------------- simulación
   const game = new Game({ world, map, seed: 20260923 });
   const spawn = { x: 15.5, y: 0, z: -4.5, yaw: Math.PI };
-  const player = game.addOperator(new Operator('jugador', { name: 'Tú', x: spawn.x, y: spawn.y, z: spawn.z, yaw: spawn.yaw, loadout: ['ar', 'pistol', 'shotgun'] }));
+  // arsenales del campo de pruebas (L cambia entre ellos)
+  const LOADOUTS = [['ar', 'pistol', 'shotgun', 'smg'], ['ar2', 'revolver', 'lmg', 'dmr'], ['smg2', 'mpistol', 'shotgun2', 'ar']];
+  let loadoutIdx = 0;
+  const player = game.addOperator(new Operator('jugador', { name: 'Tú', team: 0, x: spawn.x, y: spawn.y, z: spawn.z, yaw: spawn.yaw, loadout: LOADOUTS[0], armor: 2 }));
+  const dummies = spawnRangeDummies(game);
+  chars.add(player, defaultLook(0, 0));
+  dummies.forEach((d, i) => chars.add(d, defaultLook(d.team, i)));
+  function setLoadout(i) {
+    loadoutIdx = i % LOADOUTS.length;
+    player.weapons = LOADOUTS[loadoutIdx].map((k) => new (player.weapons[0].constructor)(WEAPONS[k]));
+    player.weaponIndex = 0;
+    player.weapon.equipT = player.weapon.def.equip;
+    chars.remove(player); chars.add(player, defaultLook(0, 0));
+    hud.toast(LOADOUTS[loadoutIdx].map((k) => WEAPONS[k].name).join(' · '), 2.2);
+  }
+  function respawnPlayer() {
+    player.state = 'alive'; player.hp = player.maxHp; player.deathT = 0; player.bleedT = 0;
+    player.pose.dead = 0; player.pose.downed = 0;
+    player.stance = 'stand'; player.body.height = 1.8; stanceWanted = 'stand';
+    for (const w of player.weapons) w.refill();
+    window.__bc.place(spawn.x, spawn.y, spawn.z, spawn.yaw, 0);
+    audio.stopDowned();
+    hud.setDeath(false); hud.setDowned(false);
+  }
+  function resetRange() {
+    world.resetToPristine();
+    effects.clearAll();
+    resetDummies(dummies);
+    respawnPlayer();
+    hud.toast('Campo reiniciado');
+  }
   let stanceWanted = 'stand';
   let leanWanted = 0;
   const prevEye = player.eyePos(), curEye = player.eyePos();
@@ -109,15 +144,22 @@ async function boot() {
   // ---------------------------------------------------------------- eventos → audio/efectos
   const tmpV = new THREE.Vector3();
   const muzzleWorld = (op) => {
+    if (op !== player && op.rig[BONE.gun]) {
+      const g = op.rig[BONE.gun], R = g.R;
+      const long = op.weapon.def.cls !== 'pistol';
+      const lx = 0, ly = 0.04, lz = long ? -0.62 : -0.17;
+      return { x: g.p.x + R.x.x * lx + R.y.x * ly + R.z.x * lz, y: g.p.y + R.x.y * lx + R.y.y * ly + R.z.y * lz, z: g.p.z + R.x.z * lx + R.y.z * ly + R.z.z * lz };
+    }
     const e = op.eyePos(); const f = op.viewDir();
     const rx = Math.cos(op.yaw), rz = -Math.sin(op.yaw);
     const hip = 1 - op.ads;
     return { x: e.x + f.x * 0.55 + rx * 0.12 * hip, y: e.y + f.y * 0.55 - 0.1 * hip - 0.03, z: e.z + f.z * 0.55 + rz * 0.12 * hip };
   };
   let shake = 0;
+  let damageFlash = 0;
   game.on('shot', (op, w, eye, fwd, results) => {
     const local = op === player;
-    audio.gunshot(w.def.sound, eye, local);
+    audio.gunshot(w.def.sound, eye, local, local ? 0 : occlusion(eye));
     const m = muzzleWorld(op);
     effects.flash(m.x, m.y, m.z, 9, 5.4, 2.4, 5.5, 0.06);
     if (local) { vm.onShot(); shake = Math.min(1, shake + (w.def.pellets > 1 ? 0.8 : 0.25)); }
@@ -139,6 +181,39 @@ async function boot() {
     }
   });
   game.on('voxels', (list, cause, point, dir) => effects.voxelsDestroyed(list, cause, point, dir));
+  const nameHtml = (op) => op ? `<span class="${op === player ? 'me' : op.team === 0 ? 'a' : 'd'}">${op.name}</span>` : '';
+  game.on('damaged', (target, ev) => {
+    chars.flashHit(target);
+    if (ev.point) effects.bloodHit(ev.point, ev.dir, ev.zone === 'head');
+    if (ev.point) audio.hitFlesh(ev.point, ev.zone === 'head', target === player ? 0 : occlusion(ev.point));
+    if (ev.by === player && target !== player) { hud.hitmarker('hit'); audio.hitConfirm('hit'); }
+    if (target === player) {
+      audio.hurt(ev.amount);
+      damageFlash = Math.min(1, damageFlash + ev.amount / 60);
+      if (ev.by) {
+        const b = ev.by.body.pos, p = player.body.pos;
+        const ang = Math.atan2(-(b.x - p.x), -(b.z - p.z));
+        hud.damageFrom(-angleDiff(player.yaw, ang));
+      }
+    }
+  });
+  game.on('downed', (target, ev) => {
+    hud.feed(`${nameHtml(ev.by)} <span class="w">derriba a</span> ${nameHtml(target)}`, 'down' + (ev.by === player || target === player ? ' mine' : ''));
+    if (ev.by === player) { hud.hitmarker('kill'); audio.hitConfirm('kill'); }
+    if (target === player) { audio.startDowned(); stanceWanted = 'prone'; }
+  });
+  game.on('killed', (target, ev) => {
+    const w = ev.weapon ? ev.weapon.name : ev.zone === 'bleed' ? 'desangrado' : ev.zone === 'fall' ? 'caída' : '';
+    hud.feed(`${nameHtml(ev.by || null)} <span class="w">${w}</span> ${nameHtml(target)}${ev.headshot ? ' <span class="hs">⌖</span>' : ''}`, (ev.by === player || target === player) ? 'mine' : '');
+    if (ev.by === player && target !== player) { hud.hitmarker(ev.headshot ? 'head' : 'kill'); audio.hitConfirm(ev.headshot ? 'head' : 'kill'); }
+    audio.bodyFall(target.body.pos, target === player ? 0 : occlusion(target.body.pos));
+    if (target === player) { audio.stopDowned(); hud.setDowned(false); hud.setDeath(true, 'Pulsa R para volver a empezar'); }
+  });
+  game.on('revived', (target, by) => {
+    hud.feed(`${nameHtml(by)} <span class="w">reanima a</span> ${nameHtml(target)}`, (by === player || target === player) ? 'mine' : '');
+    audio.reviveDone();
+    if (target === player) { audio.stopDowned(); hud.setDowned(false); stanceWanted = 'crouch'; }
+  });
   game.on('footstep', (op, snd, loud) => {
     const p = op.body.pos;
     audio.footstep(snd, { x: p.x, y: p.y + 0.05, z: p.z }, loud, op === player, op === player ? 0 : occlusion(p));
@@ -281,6 +356,13 @@ async function boot() {
     const m = input.consumeMouse();
     if (m.wheel) I.switchTo = (player.weaponIndex + (m.wheel > 0 ? 1 : player.weapons.length - 1)) % player.weapons.length;
     if (input.pressed('gadget')) testBreach();
+    I.interact = input.isDown('interact');
+    I.holdWound = player.state === 'downed' && input.isDown('interact');
+    if (input.down.has('Digit4') && input.pressedQ.has('Digit4')) { input.pressedQ.delete('Digit4'); I.switchTo = 3; }
+    if (input.pressedQ.has('KeyJ')) { input.pressedQ.delete('KeyJ'); const mate = dummies.find((d) => d.team === 0); if (mate && mate.state === 'alive') game.damage(mate, mate.hp, { by: null, zone: 'body' }); }
+    if (input.pressedQ.has('KeyK')) { input.pressedQ.delete('KeyK'); resetRange(); }
+    if (input.pressedQ.has('KeyL')) { input.pressedQ.delete('KeyL'); setLoadout(loadoutIdx + 1); }
+    if (player.state === 'dead' && I.reload) { I.reload = false; respawnPlayer(); }
     if (input.pressed('perf')) { settings.showPerf = !settings.showPerf; $('set-perf').checked = settings.showPerf; saveSettings(settings); }
     // mirar con el ratón (inmediato, fuera del tick fijo)
     const base = 0.0022 * settings.sensitivity * (1 - player.ads * (1 - settings.adsSensitivity / Math.max(1, player.weapon.def.adsZoom)));
@@ -317,6 +399,7 @@ async function boot() {
       let n = 0;
       while (acc >= TICK && n < 6) {
         prevEye.x = curEye.x; prevEye.y = curEye.y; prevEye.z = curEye.z;
+        driveDummies(game, dummies, player, TICK);
         game.tick(TICK);
         player.eyePos(curEye);
         acc -= TICK; n++;
@@ -355,6 +438,18 @@ async function boot() {
     wr.update(dt, camera.position, 6);
     wr.renderShadowIfNeeded();
     effects.update(dt, camera.position);
+    chars.update(dt, player, camera.position);
+    damageFlash = Math.max(0, damageFlash - dt * 1.4);
+    post.grade.uniforms.uDamage.value = Math.max(damageFlash, player.state === 'downed' ? 0.55 + Math.sin(performance.now() / 300) * 0.1 : 0, player.state === 'alive' && player.hp < player.maxHp * 0.3 ? 0.25 : 0);
+    if (state.mode === 'play') {
+      if (player.state === 'downed') hud.setDowned(true, player.bleedT, player.bleedT / 20); else hud.setDowned(false);
+      if (player.reviving) hud.setRevive(`Reanimando a ${player.reviving.name}`, player.reviving.reviveT / 4);
+      else if (player.state === 'downed' && player.reviveT > 0) hud.setRevive('Te están reanimando', player.reviveT / 4);
+      else {
+        const near = player.state === 'alive' ? game.findRevivable(player) : null;
+        hud.setRevive(near ? `Mantén F para reanimar a ${near.name}` : null, 0);
+      }
+    }
     vm.update(dt, player, lightS, mouse.dx || 0, mouse.dy || 0);
     vm.root.visible = state.mode === 'play';
     post.render(dt);

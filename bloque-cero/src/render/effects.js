@@ -2,6 +2,7 @@
 // trazadoras, marcas de impacto y luces dinámicas de fogonazos/explosiones.
 import * as THREE from 'three';
 import { MATS, SOLID, MAT } from '../world/materials.js';
+import { raycastFirst } from '../world/raycast.js';
 import { VS } from '../world/voxelworld.js';
 import { TINTS } from './texgen.js';
 
@@ -349,6 +350,55 @@ export class Effects {
     if (changed) this.decalMesh.instanceMatrix.needsUpdate = true;
   }
 
+  // ------------------------------------------------------------ sangre
+  _initBlood() {
+    const cv = document.createElement('canvas');
+    cv.width = cv.height = 128;
+    const c = cv.getContext('2d');
+    let seed = 11;
+    const rnd = () => { seed = (seed * 16807) % 2147483647; return seed / 2147483647; };
+    for (let i = 0; i < 40; i++) {
+      const a = rnd() * Math.PI * 2, d = Math.pow(rnd(), 1.6) * 50, r = 2 + rnd() * 14 * (1 - d / 60);
+      c.fillStyle = `rgba(${90 + rnd() * 40}, ${8 + rnd() * 8}, ${6 + rnd() * 6}, ${0.55 + rnd() * 0.4})`;
+      c.beginPath(); c.ellipse(64 + Math.cos(a) * d, 64 + Math.sin(a) * d, r, r * (0.5 + rnd() * 0.5), a, 0, Math.PI * 2); c.fill();
+    }
+    const tex = new THREE.CanvasTexture(cv);
+    tex.colorSpace = THREE.SRGBColorSpace;
+    const mat = new THREE.MeshBasicMaterial({ map: tex, transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -4, color: 0x6a6a6a });
+    const mesh = new THREE.InstancedMesh(new THREE.PlaneGeometry(1, 1), mat, 80);
+    mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+    mesh.count = 0; mesh.frustumCulled = false; mesh.renderOrder = 2;
+    this.scene.add(mesh);
+    this.bloodMesh = mesh; this.bloodNext = 0;
+  }
+  bloodHit(p, dir, head) {
+    if (!this.bloodMesh) this._initBlood();
+    const light = this.lightAt(p.x, p.y, p.z);
+    const n = head ? 10 : 6;
+    for (let i = 0; i < n; i++) {
+      const sp = 0.6 + Math.random() * 1.6;
+      this.spawnDust(p.x, p.y, p.z, (dir ? dir.x * sp : 0) + (Math.random() - 0.5) * 0.8, (Math.random() - 0.2) * 0.8, (dir ? dir.z * sp : 0) + (Math.random() - 0.5) * 0.8,
+        0.07 + Math.random() * 0.08, [0.28 * light + 0.02, 0.02 * light, 0.015 * light], 0.35 + Math.random() * 0.3, 0.75);
+    }
+    // salpicadura en la pared de detrás
+    if (!dir) return;
+    const hit = raycastFirst(this.world, p.x, p.y, p.z, dir.x, dir.y, dir.z, 2.2, SOLID, true);
+    if (!hit) return;
+    const N = FACE_N[hit.face];
+    if (!N) return;
+    const hx = p.x + dir.x * hit.t, hy = p.y + dir.y * hit.t, hz = p.z + dir.z * hit.t;
+    const i = this.bloodNext; this.bloodNext = (i + 1) % 80;
+    this.bloodMesh.count = Math.max(this.bloodMesh.count, i + 1);
+    const T = this._dec || (this._dec = { p: new THREE.Vector3(), q: new THREE.Quaternion(), r: new THREE.Quaternion(), n: new THREE.Vector3(), z: new THREE.Vector3(0, 0, 1), s: new THREE.Vector3() });
+    T.p.set(hx + N[0] * 0.005, hy + N[1] * 0.005, hz + N[2] * 0.005);
+    T.q.setFromUnitVectors(T.z, T.n.set(N[0], N[1], N[2]));
+    T.q.multiply(T.r.setFromAxisAngle(T.z, Math.random() * Math.PI * 2));
+    const sz = (head ? 0.5 : 0.35) * (1 - hit.t / 3);
+    this._m4.compose(T.p, T.q, T.s.set(sz, sz, sz));
+    this.bloodMesh.setMatrixAt(i, this._m4);
+    this.bloodMesh.instanceMatrix.needsUpdate = true;
+  }
+
   // ------------------------------------------------------------ trazadoras
   _initTracers() {
     const g = new THREE.BufferGeometry();
@@ -443,6 +493,7 @@ export class Effects {
   }
 
   clearAll() {
+    if (this.bloodMesh) { this.bloodMesh.count = 0; this.bloodNext = 0; }
     this.dCount = 0; this.debrisMesh.count = 0;
     this.dust.length = 0; this.sparks.length = 0; this.tracers.length = 0; this.lights.length = 0;
     this._m4.makeScale(0, 0, 0);

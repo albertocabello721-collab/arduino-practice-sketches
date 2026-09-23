@@ -277,6 +277,80 @@ export class AudioEngine {
     else if (kind === 'land') { this._burst(out, t, { type: 'lowpass', freq: 300, q: 0.8, a: 0.003, peak: 0.9, d: 0.12 }); }
   }
 
+  // ------------------------------------------------------------ combate
+  // Impacto en un cuerpo (lo oye todo el mundo cerca): golpe sordo + chasquido del chaleco.
+  hitFlesh(pos, headshot = false, occl = 0) {
+    if (!this.ctx) return;
+    const t = this.ctx.currentTime;
+    const out = this._out(pos, { gain: headshot ? 0.9 : 0.6, ref: 2, rolloff: 1.3, occl, reverb: 0.15 });
+    this._burst(out, t, { type: 'lowpass', freq: 420, q: 1.2, a: 0.001, peak: 0.9, d: 0.08 });
+    this._burst(out, t + 0.002, { type: 'bandpass', freq: headshot ? 3000 : 1300, q: 2, a: 0.0005, peak: headshot ? 0.8 : 0.4, d: 0.03 });
+  }
+  // Confirmación para quien dispara (seca, sin posicionar).
+  hitConfirm(kind = 'hit') {
+    if (!this.ctx) return;
+    const t = this.ctx.currentTime;
+    const g = this.ctx.createGain(); g.gain.value = 0.35; g.connect(this.sfx);
+    if (kind === 'head') {
+      this._tone(g, t, { f0: 2900, f1: 2700, a: 0.001, peak: 0.5, d: 0.12, type: 'triangle' });
+      this._burst(g, t, { type: 'highpass', freq: 5000, q: 0.7, a: 0.0005, peak: 0.4, d: 0.03 });
+    } else if (kind === 'kill') {
+      this._tone(g, t, { f0: 1500, f1: 1400, a: 0.001, peak: 0.35, d: 0.09, type: 'triangle' });
+      this._tone(g, t + 0.06, { f0: 1100, f1: 1000, a: 0.001, peak: 0.3, d: 0.12, type: 'triangle' });
+    } else {
+      this._burst(g, t, { type: 'bandpass', freq: 2400, q: 3, a: 0.0005, peak: 0.45, d: 0.025 });
+    }
+  }
+  // Recibir daño: golpe grave y pitido si es fuerte.
+  hurt(amount) {
+    if (!this.ctx) return;
+    const t = this.ctx.currentTime;
+    const g = this.ctx.createGain(); g.gain.value = 0.5; g.connect(this.sfx);
+    this._tone(g, t, { f0: 140, f1: 60, a: 0.002, peak: Math.min(1, amount / 40), d: 0.18 });
+    this._burst(g, t, { type: 'lowpass', freq: 600, q: 0.8, a: 0.002, peak: 0.5, d: 0.1 });
+    if (amount > 35) this._tone(g, t + 0.02, { f0: 3800, f1: 3700, a: 0.05, peak: 0.07, d: 1.4 });
+  }
+  // Derribado: latido y respiración en bucle mientras dure.
+  startDowned() {
+    if (!this.ctx || this._downed) return;
+    const ctx = this.ctx;
+    const g = ctx.createGain(); g.gain.value = 0.0; g.connect(this.master);
+    g.gain.setTargetAtTime(0.55, ctx.currentTime, 0.3);
+    this._downed = { g, beat: 0 };
+    const loop = () => {
+      if (!this._downed) return;
+      const t = ctx.currentTime;
+      this._tone(g, t, { f0: 62, f1: 45, a: 0.01, peak: 0.9, d: 0.12 });
+      this._tone(g, t + 0.22, { f0: 55, f1: 42, a: 0.01, peak: 0.6, d: 0.12 });
+      if ((this._downed.beat++ & 1) === 0) this._burst(g, t + 0.1, { type: 'bandpass', freq: 700, q: 0.8, a: 0.25, peak: 0.12, d: 0.5, pink: true });
+      this._downed.timer = setTimeout(loop, 820);
+    };
+    loop();
+    // amortiguar el resto de la mezcla
+    this.sfx.gain.setTargetAtTime(0.45, ctx.currentTime, 0.2);
+  }
+  stopDowned() {
+    if (!this._downed) return;
+    clearTimeout(this._downed.timer);
+    this._downed.g.gain.setTargetAtTime(0, this.ctx.currentTime, 0.2);
+    this._downed = null;
+    this.sfx.gain.setTargetAtTime(1, this.ctx.currentTime, 0.3);
+  }
+  bodyFall(pos, occl = 0) {
+    if (!this.ctx) return;
+    const t = this.ctx.currentTime;
+    const out = this._out(pos, { gain: 0.8, ref: 2, rolloff: 1.3, occl, reverb: 0.2 });
+    this._burst(out, t + 0.35, { type: 'lowpass', freq: 260, q: 1, a: 0.004, peak: 0.9, d: 0.2, pink: true });
+    this._burst(out, t + 0.42, { type: 'bandpass', freq: 900, q: 1.5, a: 0.002, peak: 0.3, d: 0.08 });
+  }
+  reviveDone() {
+    if (!this.ctx) return;
+    const t = this.ctx.currentTime;
+    const g = this.ctx.createGain(); g.gain.value = 0.3; g.connect(this.sfx);
+    this._burst(g, t, { type: 'bandpass', freq: 2000, q: 2, a: 0.01, peak: 0.4, d: 0.12 });
+    this._tone(g, t + 0.05, { f0: 880, f1: 990, a: 0.01, peak: 0.25, d: 0.2, type: 'sine' });
+  }
+
   ui(kind = 'click') {
     if (!this.ctx) return;
     const t = this.ctx.currentTime;

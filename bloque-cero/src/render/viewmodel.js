@@ -38,61 +38,102 @@ function cyl(r, len, mat, x, y, z, parent, axis = 'z', seg = 12) {
   return m;
 }
 
+// Parámetros de cada arma larga en primera persona.
+const LONG = {
+  ar: { L: 1.0, mag: 'curved', optic: 'holo', stock: 'rifle', fore: 'rail', grip: true },
+  ar2: { L: 1.08, mag: 'box', optic: 'acog', stock: 'rifle', fore: 'thick', grip: true },
+  smg: { L: 0.78, mag: 'straight', optic: 'holo', stock: 'fold', fore: 'short', grip: false },
+  smg2: { L: 0.66, mag: 'straight', optic: 'reddot', stock: 'fold', fore: 'short', grip: true },
+  lmg: { L: 1.18, mag: 'drum', optic: 'acog', stock: 'rifle', fore: 'thick', grip: false, bipod: true },
+  dmr: { L: 1.3, mag: 'box', optic: 'scope', stock: 'rifle', fore: 'rail', grip: false },
+  shotgun: { L: 1.12, mag: 'tube', optic: 'bead', stock: 'wood', fore: 'pump', grip: false },
+  shotgun2: { L: 1.06, mag: 'tube', optic: 'reddot', stock: 'rifle', fore: 'pump', grip: false },
+};
+
 // Construye un arma apuntando hacia -Z con la mira en (0, sightY, *).
 function buildGun(kind) {
   const g = new THREE.Group();
   const info = { sightY: 0.075, muzzle: new THREE.Vector3(0, 0.035, -0.62), mag: null, grip: new THREE.Vector3(0, -0.06, 0.04), fore: new THREE.Vector3(0, -0.02, -0.26) };
-  if (kind === 'ar' || kind === 'smg') {
-    const L = kind === 'ar' ? 1 : 0.8;
-    box(0.055, 0.075, 0.34 * L, M.gun, 0, 0.02, -0.05, g);                   // cajón de mecanismos
-    box(0.06, 0.03, 0.42 * L, M.gunDark, 0, 0.065, -0.1, g);                  // riel superior
-    box(0.062, 0.062, 0.26 * L, M.poly, 0, 0.018, -0.3 * L, g);               // guardamanos
-    for (let i = 0; i < 4; i++) box(0.064, 0.012, 0.03, M.gunDark, 0, 0.05, -0.2 * L - i * 0.05 * L, g);
-    cyl(0.011, 0.22 * L, M.steel, 0, 0.035, -0.52 * L, g);                    // cañón
-    box(0.03, 0.03, 0.07, M.gunDark, 0, 0.035, -0.64 * L, g);                 // bocacha
-    box(0.035, 0.1, 0.045, M.poly, 0, -0.045, 0.05, g).rotation.x = -0.25;   // empuñadura
-    const mag = box(0.03, 0.13, 0.06, M.gunDark, 0, -0.07, -0.1, g);          // cargador
-    mag.rotation.x = kind === 'ar' ? 0.18 : 0.05;
+  const P = LONG[kind];
+  if (P) {
+    const L = P.L;
+    box(0.056, 0.078, 0.32, M.gun, 0, 0.02, -0.04, g);                                        // cajón de mecanismos
+    box(0.06, 0.028, 0.44 * L, M.gunDark, 0, 0.066, -0.1 - 0.05 * (L - 1), g);               // riel superior
+    const foreLen = P.fore === 'short' ? 0.18 : P.fore === 'thick' ? 0.32 * L : 0.27 * L;
+    const foreZ = -0.2 - foreLen / 2;
+    if (P.fore === 'pump') {
+      const pump = box(0.064, 0.058, 0.15, M.poly, 0, 0.0, -0.36 * L, g);
+      info.pump = pump;
+      cyl(0.017, 0.46 * L, M.gunDark, 0, 0.005, -0.34 * L, g);                                 // depósito tubular
+    } else {
+      box(P.fore === 'thick' ? 0.07 : 0.062, P.fore === 'thick' ? 0.07 : 0.062, foreLen, M.poly, 0, 0.018, foreZ, g);
+      for (let i = 0; i < 4; i++) box(0.066, 0.012, 0.03, M.gunDark, 0, 0.052, foreZ + foreLen / 2 - 0.03 - i * foreLen / 4.5, g);
+    }
+    const barLen = 0.2 * L + (kind === 'dmr' ? 0.12 : 0);
+    cyl(kind === 'shotgun' || kind === 'shotgun2' ? 0.016 : 0.011, barLen, M.steel, 0, P.fore === 'pump' ? 0.045 : 0.035, foreZ - foreLen / 2 - barLen / 2 + 0.02, g);
+    const muzZ = foreZ - foreLen / 2 - barLen + 0.02;
+    box(0.03, 0.03, 0.06, M.gunDark, 0, P.fore === 'pump' ? 0.045 : 0.035, muzZ - 0.02, g);   // bocacha
+    // empuñadura y cargador
+    box(0.035, 0.1, 0.045, M.poly, 0, -0.045, 0.05, g).rotation.x = -0.25;
+    let mag = null;
+    if (P.mag === 'curved') { mag = box(0.03, 0.14, 0.06, M.gunDark, 0, -0.07, -0.1, g); mag.rotation.x = 0.2; }
+    else if (P.mag === 'box') { mag = box(0.032, 0.11, 0.065, M.gunDark, 0, -0.06, -0.1, g); mag.rotation.x = 0.08; }
+    else if (P.mag === 'straight') { mag = box(0.028, 0.15, 0.045, M.gunDark, 0, -0.085, -0.07, g); }
+    else if (P.mag === 'drum') { mag = box(0.1, 0.1, 0.12, M.gunDark, -0.02, -0.06, -0.1, g); }
     info.mag = mag;
-    box(0.045, 0.06, 0.2, M.poly, 0, 0.0, 0.22, g);                           // culata
-    box(0.05, 0.085, 0.03, M.gunDark, 0, -0.005, 0.33, g);
-    // mira holográfica
-    box(0.04, 0.012, 0.05, M.gunDark, 0, 0.085, -0.02, g);
-    box(0.004, 0.045, 0.05, M.gunDark, -0.021, 0.11, -0.02, g);
-    box(0.004, 0.045, 0.05, M.gunDark, 0.021, 0.11, -0.02, g);
-    box(0.046, 0.004, 0.05, M.gunDark, 0, 0.134, -0.02, g);
-    const gl = box(0.036, 0.04, 0.002, M.glass, 0, 0.11, -0.02, g); gl.renderOrder = 2;
-    const dot = new THREE.Mesh(new THREE.SphereGeometry(0.0016, 6, 4), M.dot); dot.position.set(0, 0.11, -0.03); g.add(dot);
-    box(0.02, 0.02, 0.07, M.gunDark, 0, -0.025, -0.28 * L, g);               // empuñadura vertical
-    info.sightY = 0.11;
-    info.muzzle.set(0, 0.035, -0.68 * L);
-    info.fore.set(0, -0.03, -0.3 * L);
-  } else if (kind === 'shotgun') {
-    box(0.06, 0.07, 0.32, M.gun, 0, 0.02, -0.02, g);
-    cyl(0.017, 0.5, M.steel, 0, 0.045, -0.4, g);
-    cyl(0.016, 0.38, M.gunDark, 0, 0.005, -0.34, g);                        // tubo
-    const pump = box(0.06, 0.055, 0.14, M.poly, 0, 0.005, -0.32, g);
-    info.pump = pump;
-    box(0.035, 0.1, 0.045, M.poly, 0, -0.045, 0.09, g).rotation.x = -0.25;
-    box(0.046, 0.065, 0.24, M.wood, 0, -0.01, 0.26, g);
-    box(0.004, 0.02, 0.01, M.gunDark, 0, 0.07, -0.62, g);
-    box(0.02, 0.015, 0.03, M.gunDark, 0, 0.065, 0.02, g);
-    info.sightY = 0.07;
-    info.muzzle.set(0, 0.045, -0.66);
-    info.fore.set(0, -0.02, -0.32);
+    // culata
+    if (P.stock === 'wood') { box(0.046, 0.07, 0.24, M.wood, 0, -0.005, 0.24, g); }
+    else if (P.stock === 'fold') { box(0.02, 0.05, 0.16, M.gunDark, 0.03, 0.01, 0.18, g); box(0.04, 0.07, 0.02, M.gunDark, 0.03, -0.005, 0.26, g); }
+    else { box(0.045, 0.06, 0.2, M.poly, 0, 0.0, 0.22, g); box(0.05, 0.085, 0.03, M.gunDark, 0, -0.005, 0.33, g); }
+    if (P.grip) box(0.02, 0.022, 0.07, M.gunDark, 0, -0.025, foreZ + 0.02, g);               // empuñadura vertical
+    if (P.bipod) { box(0.008, 0.18, 0.008, M.gunDark, -0.025, -0.08, foreZ - foreLen / 2 + 0.03, g).rotation.x = 0.4; box(0.008, 0.18, 0.008, M.gunDark, 0.025, -0.08, foreZ - foreLen / 2 + 0.03, g).rotation.x = 0.4; }
+    // miras
+    if (P.optic === 'holo' || P.optic === 'reddot') {
+      const w = P.optic === 'holo' ? 0.046 : 0.034;
+      box(w - 0.006, 0.012, 0.05, M.gunDark, 0, 0.085, -0.02, g);
+      box(0.004, 0.045, 0.05, M.gunDark, -w / 2 + 0.002, 0.11, -0.02, g);
+      box(0.004, 0.045, 0.05, M.gunDark, w / 2 - 0.002, 0.11, -0.02, g);
+      box(w, 0.004, 0.05, M.gunDark, 0, 0.134, -0.02, g);
+      const gl = box(w - 0.01, 0.04, 0.002, M.glass, 0, 0.11, -0.02, g); gl.renderOrder = 2;
+      const dot = new THREE.Mesh(new THREE.SphereGeometry(0.0016, 6, 4), M.dot); dot.position.set(0, 0.11, -0.03); g.add(dot);
+      info.sightY = 0.11;
+    } else if (P.optic === 'acog' || P.optic === 'scope') {
+      const r = P.optic === 'scope' ? 0.021 : 0.019, len = P.optic === 'scope' ? 0.2 : 0.13;
+      box(0.03, 0.02, 0.05, M.gunDark, 0, 0.085, -0.03, g);
+      cyl(r, len, M.gunDark, 0, 0.112, -0.04, g, 'z', 14);
+      cyl(r + 0.006, 0.03, M.gunDark, 0, 0.112, -0.04 - len / 2, g, 'z', 14);
+      const gl = new THREE.Mesh(new THREE.CircleGeometry(r * 0.85, 14), M.glass); gl.position.set(0, 0.112, -0.04 + len / 2 + 0.001); g.add(gl);
+      const dot = new THREE.Mesh(new THREE.SphereGeometry(0.0012, 6, 4), M.dot); dot.position.set(0, 0.112, -0.04 + len / 2 - 0.01); g.add(dot);
+      info.sightY = 0.112;
+    } else {
+      box(0.004, 0.02, 0.01, M.gunDark, 0, 0.075, muzZ + 0.04, g);
+      info.sightY = 0.075;
+    }
+    info.muzzle.set(0, P.fore === 'pump' ? 0.045 : 0.035, muzZ - 0.05);
+    info.fore.set(0, -0.025, P.fore === 'pump' ? -0.36 * L : foreZ);
+    return { group: g, info };
+  }
+  // ---------------- armas cortas
+  if (kind === 'revolver') {
+    box(0.032, 0.11, 0.045, M.wood, 0, -0.055, 0.03, g).rotation.x = -0.25;
+    box(0.03, 0.05, 0.07, M.steel, 0, 0.02, -0.01, g);
+    cyl(0.022, 0.05, M.steel, 0, 0.022, -0.045, g, 'z', 8);
+    cyl(0.01, 0.17, M.steel, 0, 0.035, -0.16, g);
+    box(0.004, 0.014, 0.01, M.gunDark, 0, 0.052, -0.24, g);
+    info.sightY = 0.052; info.muzzle.set(0, 0.035, -0.25); info.mag = null;
   } else {
-    // pistola
-    box(0.03, 0.035, 0.19, M.gun, 0, 0.03, -0.06, g);                       // corredera
+    const auto = kind === 'mpistol';
+    box(0.03, 0.035, auto ? 0.21 : 0.19, M.gun, 0, 0.03, -0.06, g);
     box(0.028, 0.03, 0.15, M.poly, 0, 0.0, -0.05, g);
     const grip = box(0.03, 0.11, 0.045, M.poly, 0, -0.055, 0.02, g); grip.rotation.x = -0.2;
     box(0.004, 0.012, 0.008, M.gunDark, 0, 0.053, -0.15, g);
     box(0.02, 0.01, 0.008, M.gunDark, 0, 0.053, 0.025, g);
-    info.mag = box(0.024, 0.02, 0.035, M.gunDark, 0, -0.115, 0.03, g);
+    info.mag = box(0.024, auto ? 0.1 : 0.02, 0.035, M.gunDark, 0, auto ? -0.15 : -0.115, 0.03, g);
     info.sightY = 0.055;
-    info.muzzle.set(0, 0.03, -0.16);
-    info.grip.set(0, -0.05, 0.02);
-    info.fore.set(0, -0.06, 0.0);
+    info.muzzle.set(0, 0.03, auto ? -0.18 : -0.16);
   }
+  info.grip.set(0, -0.05, 0.02);
+  info.fore.set(0, -0.06, 0.0);
   return { group: g, info };
 }
 
@@ -132,7 +173,7 @@ export class ViewModel {
     this.root = new THREE.Group();
     this.scene.add(this.root);
     this.guns = {};
-    for (const k of ['ar', 'smg', 'shotgun', 'pistol']) {
+    for (const k of ['ar', 'ar2', 'smg', 'smg2', 'lmg', 'dmr', 'shotgun', 'shotgun2', 'pistol', 'revolver', 'mpistol']) {
       const g = buildGun(k);
       g.group.visible = false;
       this.root.add(g.group);
@@ -174,7 +215,8 @@ export class ViewModel {
 
   onShot() {
     const s = this.state;
-    s.kick = Math.min(1.4, s.kick + (this.current === 'shotgun' ? 1.3 : this.current === 'pistol' ? 0.8 : 0.45));
+    const heavy = this.current === 'shotgun' || this.current === 'shotgun2' || this.current === 'revolver' || this.current === 'dmr';
+    s.kick = Math.min(1.4, s.kick + (heavy ? 1.2 : this.current === 'pistol' ? 0.8 : 0.45));
     s.kickRot += (Math.random() - 0.5) * 0.03;
     s.flashT = 0.045;
     this.flash.rotation.z = Math.random() * Math.PI;

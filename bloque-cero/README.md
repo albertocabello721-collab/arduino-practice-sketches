@@ -12,7 +12,7 @@ Es un único archivo HTML autónomo: no necesita servidor ni conexión.
 | Fase | Contenido | Estado |
 | --- | --- | --- |
 | F1 | Motor de vóxeles, mapa Villa, materiales PBR, iluminación, movimiento FPS, asomarse, disparos que agujerean | ✅ |
-| F2 | Operadores tácticos, zonas de impacto, derribo con sangrado, arsenal | pendiente |
+| F2 | Operadores tácticos, zonas de impacto, derribo con sangrado, reanimación, arsenal de 11 armas | ✅ |
 | F3 | Rondas 5v5, 3 ubicaciones de sitios (los defensores eligen), desactivador, HUD con reloj y 10 retratos | pendiente |
 | F4 | Preparación: refuerzos, barricadas, trampillas, drones, cámaras | pendiente |
 | F5 | Bots: navegación, percepción, combate, tácticas | pendiente |
@@ -32,8 +32,10 @@ Es un único archivo HTML autónomo: no necesita servidor ni conexión.
 | Espacio | Saltar obstáculo (alféizares, mesas, muros bajos) |
 | Clic / clic derecho | Disparar / apuntar |
 | R | Recargar |
-| 1 / 2 / 3, rueda | Cambiar de arma |
+| 1–4, rueda | Cambiar de arma |
+| F | Reanimar a un compañero (mantener) / presionar la herida si estás derribado |
 | G | (Campo de pruebas) carga de brecha en la pared que miras |
+| J / K / L | (Campo de pruebas) derribar al compañero / reiniciar el campo / cambiar de arsenal |
 | F3 | Medidor de rendimiento |
 | Esc | Pausa |
 

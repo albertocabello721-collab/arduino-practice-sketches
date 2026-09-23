@@ -1,15 +1,21 @@
 // Operador: el cuerpo que controla un jugador o un bot. Movimiento táctico,
 // posturas (de pie, agachado, cuerpo a tierra), asomarse, saltar obstáculos,
-// trepar escaleras de mano y manejo del arma. Recibe "intenciones" cada tick
+// trepar escaleras de mano, manejo del arma y estado de combate
+// (vivo → derribado con sangrado → muerto). Recibe "intenciones" cada tick
 // (del teclado o de la IA) y emite eventos para render, audio e IA.
 import { Body, STANCES, stepBody, tryResize, findVault, boxFree } from './physics.js';
 import { WeaponState, WEAPONS } from './weapons.js';
+import { makePoseState, computePose, BONE_COUNT } from './skeleton.js';
 import { clamp, damp, DEG } from '../core/math.js';
 import { SOUND } from '../world/materials.js';
 
-const LEAN_DIST = 0.38;      // desplazamiento lateral de la cabeza al asomarse (m)
-const LEAN_ROLL = 13 * DEG;  // giro de cámara al asomarse
-const SPEED = { walk: 3.3, sprint: 5.4, crouch: 1.85, prone: 0.8, adsMul: 0.62, leanMul: 0.9 };
+export const LEAN_DIST = 0.38;      // desplazamiento lateral de la cabeza al asomarse (m)
+const LEAN_ROLL = 13 * DEG;         // giro de cámara al asomarse
+const SPEED = { walk: 3.3, sprint: 5.4, crouch: 1.85, prone: 0.8, crawl: 0.5, adsMul: 0.62, leanMul: 0.9 };
+export const ARMOR_HP = { 1: 100, 2: 110, 3: 125 };
+export const BLEED_TIME = 20;       // segundos que aguanta un derribado sin ayuda
+export const REVIVE_TIME = 4;       // segundos manteniendo F para reanimar
+const DOWNED_EYE = 0.48;
 
 export function makeIntent() {
   return {
@@ -19,7 +25,8 @@ export function makeIntent() {
     lean: 0,                  // -1 izquierda, 0, 1 derecha
     ads: false, fire: false, reload: false, vault: false,
     switchTo: -1,
-    climb: 0,
+    interact: false,          // mantener F (reanimar, más adelante: reforzar, plantar…)
+    holdWound: false,         // derribado: presionar la herida (sangra más despacio)
   };
 }
 
@@ -28,7 +35,9 @@ export class Operator {
     this.id = id;
     this.name = opts.name || 'Operador';
     this.team = opts.team ?? 0;
-    this.speedMul = opts.speedMul ?? 1;
+    this.armor = opts.armor ?? 2;               // 1..3 (más blindaje, menos velocidad)
+    this.speedMul = opts.speedMul ?? (this.armor === 1 ? 1.08 : this.armor === 3 ? 0.92 : 1);
+    this.maxHp = ARMOR_HP[this.armor] || 100;
     this.body = new Body(opts.x || 0, opts.y || 0, opts.z || 0);
     this.yaw = opts.yaw || 0;
     this.pitch = 0;
@@ -46,12 +55,30 @@ export class Operator {
     this.recoilPending = { pitch: 0, yaw: 0 };
     this.stepDist = 0;
     this.moveSpeed = 0;
-    this.alive = true;
-    this.hp = 100;
-    this.stats = { shots: 0, hits: 0 };
+    // combate
+    this.state = 'alive';    // 'alive' | 'downed' | 'dead'
+    this.hp = this.maxHp;
+    this.bleedT = 0;
+    this.reviveT = 0;        // progreso de quien me reanima (0..REVIVE_TIME)
+    this.reviving = null;    // a quién estoy reanimando
+    this.lastHitBy = null;
+    this.downedBy = null;
+    this.stats = { shots: 0, hits: 0, kills: 0, downs: 0, headshots: 0, damage: 0, revives: 0, deaths: 0 };
+    this.isBot = !!opts.bot;
+    this.meta = opts.meta || {};
+    // pose (compartida por zonas de impacto y render)
+    this.pose = makePoseState();
+    this.rig = new Array(BONE_COUNT);
+    this.walkPhase = 0;
+    this.deathT = 0;
+    this.hitFlinch = 0;
+    this.updatePose(0);
   }
 
   get weapon() { return this.weapons[this.weaponIndex]; }
+  get alive() { return this.state !== 'dead'; }
+  get downed() { return this.state === 'downed'; }
+  get active() { return this.state === 'alive'; }
 
   eyePos(out = { x: 0, y: 0, z: 0 }) {
     const b = this.body.pos;
@@ -68,18 +95,65 @@ export class Operator {
     return out;
   }
   get roll() { return -this.leanAllowed * LEAN_ROLL; }
+  // centro del torso (para la IA y el sonido)
+  center(out = { x: 0, y: 0, z: 0 }) {
+    const b = this.body.pos;
+    out.x = b.x; out.z = b.z; out.y = b.y + (this.state === 'downed' ? 0.3 : this.stance === 'prone' ? 0.25 : this.stance === 'crouch' ? 0.75 : 1.15);
+    return out;
+  }
 
   maxSpeed() {
+    if (this.state === 'downed') return SPEED.crawl;
     let s = this.stance === 'prone' ? SPEED.prone : this.stance === 'crouch' ? SPEED.crouch : (this.sprinting ? SPEED.sprint : SPEED.walk);
     if (!this.sprinting) s *= 1 - (1 - SPEED.adsMul) * this.ads;
     if (Math.abs(this.leanAllowed) > 0.3) s *= SPEED.leanMul;
     return s * this.speedMul;
   }
 
+  // ------------------------------------------------------------ transiciones de combate
+  becomeDowned(game, by) {
+    this.state = 'downed';
+    this.hp = 20;
+    this.bleedT = BLEED_TIME;
+    this.downedBy = by || null;
+    this.ads = 0; this.sprinting = false; this.lean = 0; this.leanAllowed = 0;
+    this.stance = 'prone';
+    this.body.height = STANCES.prone.height;
+    this.reviveT = 0;
+    this.vault = null;
+    this.weapon.reloadT = 0;
+  }
+  becomeDead() {
+    this.state = 'dead';
+    this.hp = 0;
+    this.deathT = 0;
+    this.ads = 0; this.lean = 0; this.leanAllowed = 0; this.sprinting = false;
+    this.vault = null;
+    this.reviving = null;
+    this.stats.deaths++;
+  }
+  revive() {
+    this.state = 'alive';
+    this.hp = 20;
+    this.bleedT = 0;
+    this.reviveT = 0;
+    this.stance = 'crouch';
+    tryResizeSafe(this);
+  }
+
   update(dt, game) {
     const I = this.intent;
     const world = game.world;
     const b = this.body;
+    if (this.state === 'dead') {
+      this.deathT += dt;
+      // el cuerpo cae al suelo
+      b.vel.x = 0; b.vel.z = 0;
+      stepBody(world, b, dt, { bounds: game.bounds });
+      this.updatePose(dt);
+      return;
+    }
+    this.hitFlinch = Math.max(0, this.hitFlinch - dt * 3);
     // ---------------- salto de obstáculo en curso
     if (this.vault) {
       const v = this.vault;
@@ -94,70 +168,131 @@ export class Operator {
       this.eyeHeight = damp(this.eyeHeight, STANCES.crouch.eye, 14, dt);
       if (k >= 1) { this.vault = null; b.onGround = false; }
       this._weaponTick(dt, game, true);
+      this.updatePose(dt);
       return;
     }
+    const downed = this.state === 'downed';
+    // ---------------- derribado: sangrado
+    if (downed) {
+      this.bleedT -= dt * (I.holdWound ? 0.55 : 1);
+      if (this.bleedT <= 0) { game.kill(this, { by: this.downedBy, weapon: null, zone: 'bleed', bleed: true }); return; }
+    }
     // ---------------- postura
-    let want = I.stance;
-    if (I.sprint && I.moveZ > 0.3 && want !== 'prone') want = 'stand';
+    let want = downed ? 'prone' : I.stance;
+    if (!downed && I.sprint && I.moveZ > 0.3 && want !== 'prone') want = 'stand';
     if (want !== this.stance) {
       if (tryResize(world, b, STANCES[want].height)) this.stance = want;
     } else if (b.height !== STANCES[this.stance].height) tryResize(world, b, STANCES[this.stance].height);
-    this.sprinting = I.sprint && I.moveZ > 0.3 && this.stance === 'stand' && !I.ads && b.onGround;
+    this.sprinting = !downed && I.sprint && I.moveZ > 0.3 && this.stance === 'stand' && !I.ads && b.onGround;
     // ---------------- apuntar
     const w = this.weapon;
-    const adsWanted = I.ads && !this.sprinting && w.ready && this.stance !== 'prone' ? 1 : (I.ads && this.stance === 'prone' && w.ready ? 1 : 0);
+    const canAds = !downed && w.ready && !this.sprinting;
     const adsRate = 1 / Math.max(0.1, w.def.adsTime);
-    this.ads = clamp(this.ads + (adsWanted ? adsRate : -adsRate * 1.5) * dt, 0, 1);
+    this.ads = clamp(this.ads + (I.ads && canAds ? adsRate : -adsRate * 1.5) * dt, 0, 1);
     // ---------------- asomarse (Q/E)
-    const leanTarget = this.sprinting || this.stance === 'prone' ? 0 : I.lean;
+    const leanTarget = this.sprinting || this.stance === 'prone' || downed ? 0 : I.lean;
     this.lean = damp(this.lean, leanTarget, 12, dt);
     this.leanAllowed = this._clampLean(world, this.lean);
     // ---------------- movimiento
+    const busy = !!this.reviving;
     const f = Math.hypot(I.moveX, I.moveZ);
-    const mx = f > 1 ? I.moveX / f : I.moveX, mz = f > 1 ? I.moveZ / f : I.moveZ;
+    const mx = busy ? 0 : f > 1 ? I.moveX / f : I.moveX, mz = busy ? 0 : f > 1 ? I.moveZ / f : I.moveZ;
     const sy = Math.sin(this.yaw), cy = Math.cos(this.yaw);
-    // adelante = (-sin, -cos); derecha = (cos, -sin)
     const wishX = mx * cy - mz * sy, wishZ = -mx * sy - mz * cy;
-    const maxS = this.maxSpeed();
+    const maxS = this.maxSpeed() * (this.hitFlinch > 0 ? 0.75 : 1);
     const tx = wishX * maxS, tz = wishZ * maxS;
     const accel = b.onGround || b.onLadder ? (f > 0.01 ? 26 : 32) : 3;
     const ddx = tx - b.vel.x, ddz = tz - b.vel.z;
     const dl = Math.hypot(ddx, ddz), maxD = accel * dt;
     if (dl > maxD) { b.vel.x += ddx / dl * maxD; b.vel.z += ddz / dl * maxD; } else { b.vel.x = tx; b.vel.z = tz; }
-    // salto de obstáculo
-    if (I.vault && b.onGround && this.stance !== 'prone') {
-      const hx = -sy, hz = -cy;
-      const t = findVault(world, b, hx, hz);
+    if (I.vault && !downed && b.onGround && this.stance !== 'prone') {
+      const t = findVault(world, b, -sy, -cy);
       if (t) {
         this.vault = { t: 0, dur: 0.42 + (t.top - b.pos.y) * 0.25, from: { x: b.pos.x, y: b.pos.y, z: b.pos.z }, to: t };
         this.stance = 'crouch'; b.height = STANCES.crouch.height;
         game.emit('vault', this);
         I.vault = false;
+        this.updatePose(dt);
         return;
       }
     }
     I.vault = false;
-    const prevY = b.pos.y;
-    const r = stepBody(world, b, dt, { bounds: game.bounds, climbInput: b.onLadder || this._nearLadder ? I.moveZ : 0 });
+    const r = stepBody(world, b, dt, { bounds: game.bounds, climbInput: !downed && (b.onLadder || this._nearLadder) ? I.moveZ : 0 });
     this._nearLadder = b.onLadder;
-    if (r.landed && r.impactSpeed > 3) game.emit('land', this, r.impactSpeed);
-    // suavizado de altura de ojos (postura + escalones)
+    if (r.landed && r.impactSpeed > 3) {
+      game.emit('land', this, r.impactSpeed);
+      // caída desde gran altura: daño
+      if (r.impactSpeed > 11) game.damage(this, (r.impactSpeed - 11) * 12, { by: null, zone: 'fall', noDown: false });
+    }
     if (b.lastStep > 0) this.eyeHeight -= b.lastStep;
-    this.eyeHeight = damp(this.eyeHeight, STANCES[this.stance].eye, 13, dt);
+    this.eyeHeight = damp(this.eyeHeight, downed ? DOWNED_EYE : STANCES[this.stance].eye, 13, dt);
     // pasos
     this.moveSpeed = Math.hypot(b.vel.x, b.vel.z);
-    if ((b.onGround || b.onLadder) && this.moveSpeed > 0.4) {
+    if ((b.onGround || b.onLadder) && this.moveSpeed > 0.3) {
       this.stepDist += this.moveSpeed * dt;
-      const stride = this.sprinting ? 1.9 : this.stance === 'crouch' ? 1.05 : this.stance === 'prone' ? 0.9 : 1.45;
+      this.walkPhase += this.moveSpeed * dt * (this.sprinting ? 3.3 : 4.3);
+      const stride = downed ? 0.7 : this.sprinting ? 1.9 : this.stance === 'crouch' ? 1.05 : this.stance === 'prone' ? 0.9 : 1.45;
       if (this.stepDist >= stride) {
         this.stepDist = 0;
         const mat = world.getWorld(b.pos.x, b.pos.y - 0.06, b.pos.z);
-        const loud = this.sprinting ? 1.0 : this.stance === 'crouch' ? 0.28 : this.stance === 'prone' ? 0.18 : 0.55;
+        const loud = downed ? 0.2 : this.sprinting ? 1.0 : this.stance === 'crouch' ? 0.28 : this.stance === 'prone' ? 0.18 : 0.55;
         game.emit('footstep', this, SOUND[mat] || 3, loud * (this.ads > 0.5 ? 0.7 : 1));
       }
+    } else if (this.moveSpeed < 0.1) {
+      this.walkPhase = damp(this.walkPhase, Math.round(this.walkPhase / Math.PI) * Math.PI, 6, dt);
     }
+    // ---------------- reanimar a un compañero (mantener F)
+    this._reviveTick(dt, game);
     // ---------------- arma
-    this._weaponTick(dt, game, false);
+    this._weaponTick(dt, game, downed || busy);
+    this.updatePose(dt);
+  }
+
+  _reviveTick(dt, game) {
+    const I = this.intent;
+    if (this.state !== 'alive') { this.reviving = null; return; }
+    let target = this.reviving;
+    if (I.interact) {
+      if (!target) target = game.findRevivable(this);
+      if (target && target.state === 'downed' && dist2(target.body.pos, this.body.pos) < 1.6 * 1.6) {
+        if (!this.reviving) game.emit('reviveStart', this, target);
+        this.reviving = target;
+        target.reviveT += dt;
+        if (target.reviveT >= REVIVE_TIME) {
+          target.revive();
+          this.stats.revives++;
+          game.emit('revived', target, this);
+          this.reviving = null;
+        }
+        return;
+      }
+    }
+    if (this.reviving) { this.reviving.reviveT = 0; game.emit('reviveCancel', this, this.reviving); }
+    this.reviving = null;
+  }
+
+  updatePose(dt) {
+    const p = this.pose, b = this.body.pos;
+    p.x = b.x; p.y = b.y; p.z = b.z;
+    p.yaw = this.yaw; p.pitch = this.pitch;
+    const k = 1 - Math.exp(-dt * 10);
+    const downed = this.state === 'downed', dead = this.state === 'dead';
+    p.crouch += ((this.stance === 'crouch' || (this.vault ? 1 : 0) ? 1 : 0) - p.crouch) * k;
+    p.prone += ((this.stance === 'prone' && !downed && !dead ? 1 : 0) - p.prone) * k;
+    p.downed += ((downed ? 1 : 0) - p.downed) * (1 - Math.exp(-dt * 6));
+    p.dead = dead ? Math.min(1, this.deathT / 0.7) : 0;
+    p.dead = p.dead * p.dead * (3 - 2 * p.dead);
+    p.lean = this.leanAllowed;
+    p.walkPhase = this.walkPhase;
+    p.walkAmount += (Math.min(1, this.moveSpeed / 3.3) - p.walkAmount) * k;
+    p.sprint += ((this.sprinting ? 1 : 0) - p.sprint) * k;
+    p.ads = this.ads;
+    const w = this.weapon;
+    p.reload = w.reloadT > 0 ? 1 - w.reloadT / w.reloadTotal : 0;
+    p.weaponCls = w.def.cls;
+    p.eyeHeight = this.eyeHeight;
+    p.crawl = downed ? Math.min(1, this.moveSpeed / 0.4) : 0;
+    computePose(p, null, this.rig);
   }
 
   _clampLean(world, lean) {
@@ -178,7 +313,6 @@ export class Operator {
   _weaponTick(dt, game, busy) {
     const I = this.intent;
     const w = this.weapon;
-    // aplicar retroceso pendiente de forma rápida pero no instantánea
     const k = 1 - Math.exp(-dt * 38);
     const rp = this.recoilPending.pitch * k, ry = this.recoilPending.yaw * k;
     this.pitch = clamp(this.pitch + rp, -1.52, 1.52);
@@ -188,9 +322,9 @@ export class Operator {
     if (w.cooldown > 0) w.cooldown -= dt;
     if (w.equipT > 0) w.equipT -= dt;
     w.bloom = Math.max(0, w.bloom - dt * 3.5);
-    // cambio de arma
+    if (this.state !== 'alive') { I.switchTo = -1; I.reload = false; return; }
     if (I.switchTo >= 0 && I.switchTo !== this.weaponIndex && I.switchTo < this.weapons.length) {
-      w.reloadT = 0; // cancelar recarga
+      w.reloadT = 0;
       this.weaponIndex = I.switchTo;
       this.weapon.equipT = this.weapon.def.equip;
       this.ads = 0;
@@ -239,10 +373,9 @@ export class Operator {
     w.shotsInBurst++;
     this.stats.shots++;
     const eye = this.eyePos();
-    const spread = this.currentSpread() * DEG;
+    const spread = this.currentSpread() * DEG * (this.aimSpreadMul || 1);
     const dir = { x: 0, y: 0, z: 0 };
     const fwd = this.viewDir({ x: 0, y: 0, z: 0 });
-    // base ortonormal de la vista: derecha y arriba (= derecha × adelante)
     const rx = Math.cos(this.yaw), rz = -Math.sin(this.yaw);
     const sp = Math.sin(this.pitch);
     const up = { x: Math.sin(this.yaw) * sp, y: Math.cos(this.pitch), z: Math.cos(this.yaw) * sp };
@@ -257,13 +390,16 @@ export class Operator {
       dir.x /= l; dir.y /= l; dir.z /= l;
       results.push(game.fireBullet(this, eye, { x: dir.x, y: dir.y, z: dir.z }, w));
     }
-    // retroceso: arriba siempre, lateral aleatorio con sesgo
     const first = w.shotsInBurst === 1 ? d.recoilFirst : 1;
     const adsK = 1 - this.ads * 0.25;
     const stanceK = this.stance === 'crouch' ? 0.85 : this.stance === 'prone' ? 0.7 : 1;
-    this.recoilPending.pitch += d.recoilUp * DEG * first * adsK * stanceK;
-    this.recoilPending.yaw += (game.rng.next() - 0.4) * d.recoilSide * DEG * adsK * stanceK;
+    const ctrl = this.recoilControl || 0; // los bots compensan parte del retroceso
+    this.recoilPending.pitch += d.recoilUp * DEG * first * adsK * stanceK * (1 - ctrl);
+    this.recoilPending.yaw += (game.rng.next() - 0.4) * d.recoilSide * DEG * adsK * stanceK * (1 - ctrl * 0.6);
     w.bloom = Math.min(4, w.bloom + d.bloom);
     game.emit('shot', this, w, eye, fwd, results);
   }
 }
+
+function dist2(a, b) { const dx = a.x - b.x, dy = a.y - b.y, dz = a.z - b.z; return dx * dx + dy * dy + dz * dz; }
+function tryResizeSafe(op) { op.body.height = STANCES.crouch.height; }
