@@ -1,0 +1,185 @@
+<title>Bloque Cero</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700;800&family=Barlow:wght@400;500;600&display=swap">
+<style>
+  :root {
+    --ink: #0b0d10;
+    --panel: rgba(12, 15, 19, 0.72);
+    --panel-solid: #12161b;
+    --line: rgba(255, 255, 255, 0.14);
+    --text: #eef1f4;
+    --muted: #93a0ad;
+    --blue: #3d9be9;
+    --orange: #f0892b;
+    --red: #e5483a;
+    --yellow: #f2c14e;
+    --display: "Barlow Condensed", "Arial Narrow", "Roboto Condensed", sans-serif;
+    --ui: "Barlow", "Segoe UI", system-ui, sans-serif;
+    color-scheme: dark;
+  }
+  html, body { height: 100%; margin: 0; background: var(--ink); color: var(--text); overflow: hidden; font-family: var(--ui); -webkit-font-smoothing: antialiased; }
+  #game { position: fixed; inset: 0; display: block; width: 100%; height: 100%; outline: none; }
+  .hidden { display: none !important; }
+  button { font-family: inherit; }
+
+  /* ---------------- carga ---------------- */
+  #loading { position: fixed; inset: 0; z-index: 50; display: grid; place-items: center; background: radial-gradient(120% 90% at 50% 30%, #1a2129 0%, #07090b 70%); }
+  #loading .box { width: min(520px, 86vw); }
+  #loading .logo { font-family: var(--display); font-weight: 800; font-size: clamp(42px, 8vw, 76px); letter-spacing: 0.04em; line-height: 0.9; text-transform: uppercase; }
+  #loading .logo span { color: var(--orange); }
+  #loading .step { margin-top: 22px; font-size: 13px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--muted); }
+  #loading .bar { margin-top: 8px; height: 3px; background: rgba(255,255,255,.08); }
+  #loading .bar i { display: block; height: 100%; width: 0; background: var(--orange); transition: width .15s linear; }
+  #loading .err { margin-top: 18px; color: var(--red); font-size: 14px; line-height: 1.5; }
+
+  /* ---------------- menú ---------------- */
+  #menu { position: fixed; inset: 0; z-index: 30; display: flex; align-items: stretch; background: linear-gradient(90deg, rgba(6,8,10,.92) 0%, rgba(6,8,10,.78) 38%, rgba(6,8,10,.15) 70%, rgba(6,8,10,0) 100%); }
+  #menu .col { width: min(520px, 92vw); padding: clamp(24px, 6vh, 64px) clamp(16px, 4vw, 56px); display: flex; flex-direction: column; gap: 22px; overflow-y: auto; }
+  #menu .eyebrow { font-family: var(--display); font-weight: 600; letter-spacing: 0.3em; text-transform: uppercase; font-size: 13px; color: var(--orange); }
+  #menu h1 { margin: 0; font-family: var(--display); font-weight: 800; font-size: clamp(56px, 9vw, 104px); line-height: 0.86; letter-spacing: 0.02em; text-transform: uppercase; text-wrap: balance; }
+  #menu h1 span { color: var(--orange); }
+  #menu .lede { margin: 0; color: #c6ced6; font-size: 15px; line-height: 1.55; max-width: 44ch; }
+  .btns { display: flex; flex-direction: column; gap: 8px; }
+  .btn { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 14px 18px; background: rgba(255,255,255,.04); color: var(--text); border: 1px solid var(--line); border-left: 3px solid transparent; font-family: var(--display); font-size: 21px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; cursor: pointer; text-align: left; }
+  .btn small { font-family: var(--ui); font-size: 12px; font-weight: 500; letter-spacing: 0.04em; text-transform: none; color: var(--muted); }
+  .btn:hover, .btn:focus-visible { background: rgba(255,255,255,.08); border-left-color: var(--orange); outline: none; }
+  .btn.primary { background: var(--orange); color: #140a02; border-color: var(--orange); }
+  .btn.primary small { color: rgba(20,10,2,.7); }
+  .btn.primary:hover, .btn.primary:focus-visible { background: #ff9d43; }
+  .btn[disabled] { opacity: .45; cursor: not-allowed; }
+  .panel { border: 1px solid var(--line); background: rgba(255,255,255,.03); padding: 16px 18px; }
+  .panel h2 { margin: 0 0 12px; font-family: var(--display); font-size: 15px; font-weight: 700; letter-spacing: 0.22em; text-transform: uppercase; color: var(--muted); }
+  .setting { display: grid; grid-template-columns: 1fr 150px 44px; align-items: center; gap: 12px; padding: 6px 0; font-size: 14px; }
+  .setting input[type=range] { width: 100%; accent-color: var(--orange); }
+  .setting output { font-family: var(--display); font-size: 16px; font-weight: 600; text-align: right; font-variant-numeric: tabular-nums; }
+  .setting select { background: #1a1f25; color: var(--text); border: 1px solid var(--line); padding: 4px 6px; font-family: var(--ui); }
+  .toggle { display: flex; align-items: center; gap: 10px; font-size: 14px; padding: 6px 0; cursor: pointer; }
+  .toggle input { accent-color: var(--orange); width: 16px; height: 16px; }
+  .keys { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px 18px; font-size: 13px; color: #c9d1d9; }
+  .keys div { display: flex; gap: 10px; align-items: baseline; }
+  kbd { display: inline-block; min-width: 22px; text-align: center; padding: 2px 6px; border: 1px solid rgba(255,255,255,.25); border-bottom-width: 2px; font-family: var(--display); font-weight: 700; font-size: 13px; color: var(--text); background: rgba(255,255,255,.05); }
+  .note { font-size: 12px; color: var(--muted); line-height: 1.5; }
+
+  /* ---------------- HUD ---------------- */
+  #hud { position: fixed; inset: 0; z-index: 10; pointer-events: none; font-variant-numeric: tabular-nums; }
+  #crosshair { position: absolute; left: 50%; top: 50%; width: 0; height: 0; }
+  #crosshair i { position: absolute; background: rgba(255,255,255,.92); box-shadow: 0 0 2px rgba(0,0,0,.9); }
+  #crosshair .d { width: 2px; height: 2px; left: -1px; top: -1px; }
+  #crosshair .l, #crosshair .r { width: 9px; height: 2px; top: -1px; }
+  #crosshair .t, #crosshair .b { width: 2px; height: 9px; left: -1px; }
+  #hitmark { position: absolute; left: 50%; top: 50%; width: 22px; height: 22px; margin: -11px 0 0 -11px; opacity: 0; transform: rotate(45deg); }
+  #hitmark i { position: absolute; background: #fff; }
+  #hitmark i:nth-child(1) { left: 10px; top: 0; width: 2px; height: 7px; } #hitmark i:nth-child(2) { left: 10px; bottom: 0; width: 2px; height: 7px; }
+  #hitmark i:nth-child(3) { top: 10px; left: 0; height: 2px; width: 7px; } #hitmark i:nth-child(4) { top: 10px; right: 0; height: 2px; width: 7px; }
+  #weapon { position: absolute; right: clamp(16px, 3vw, 40px); bottom: clamp(16px, 3.5vh, 36px); text-align: right; text-shadow: 0 1px 3px rgba(0,0,0,.8); }
+  #weapon .name { font-family: var(--display); font-weight: 600; font-size: 15px; letter-spacing: 0.16em; text-transform: uppercase; color: rgba(255,255,255,.75); }
+  #weapon .ammo { font-family: var(--display); font-weight: 700; font-size: 52px; line-height: 0.95; }
+  #weapon .ammo small { font-size: 22px; font-weight: 600; color: rgba(255,255,255,.6); margin-left: 6px; }
+  #weapon .ammo.low { color: var(--red); }
+  #weapon .state { font-family: var(--display); font-size: 14px; letter-spacing: 0.2em; text-transform: uppercase; color: var(--yellow); height: 18px; }
+  #vitals { position: absolute; left: clamp(16px, 3vw, 40px); bottom: clamp(16px, 3.5vh, 36px); display: flex; align-items: flex-end; gap: 14px; text-shadow: 0 1px 3px rgba(0,0,0,.8); }
+  #vitals .hp { font-family: var(--display); font-weight: 700; font-size: 52px; line-height: 0.95; }
+  #vitals .hp small { display: block; font-size: 13px; letter-spacing: 0.2em; color: rgba(255,255,255,.6); }
+  #vitals .stance { display: flex; flex-direction: column; gap: 4px; padding-bottom: 6px; font-family: var(--display); font-size: 13px; letter-spacing: 0.14em; text-transform: uppercase; color: rgba(255,255,255,.7); }
+  #lean { display: flex; gap: 3px; }
+  #lean i { width: 18px; height: 4px; background: rgba(255,255,255,.2); }
+  #lean i.on { background: var(--yellow); }
+  #where { position: absolute; left: clamp(16px, 3vw, 40px); top: clamp(14px, 3vh, 30px); text-shadow: 0 1px 3px rgba(0,0,0,.9); }
+  #where .lbl { font-family: var(--display); font-size: 12px; letter-spacing: 0.26em; text-transform: uppercase; color: rgba(255,255,255,.6); }
+  #where .loc { font-family: var(--display); font-weight: 700; font-size: 22px; letter-spacing: 0.06em; text-transform: uppercase; }
+  #topbar { position: absolute; top: clamp(10px, 2vh, 20px); left: 50%; transform: translateX(-50%); display: flex; align-items: stretch; background: var(--panel); border-bottom: 2px solid var(--orange); }
+  #topbar .t { padding: 6px 18px; font-family: var(--display); font-weight: 700; font-size: 28px; letter-spacing: 0.04em; }
+  #topbar .m { padding: 9px 14px; font-family: var(--display); font-size: 13px; letter-spacing: 0.22em; text-transform: uppercase; color: var(--muted); border-left: 1px solid var(--line); display: flex; align-items: center; }
+  #prompt { position: absolute; left: 50%; top: 62%; transform: translateX(-50%); font-family: var(--display); font-size: 18px; letter-spacing: 0.08em; text-transform: uppercase; text-shadow: 0 1px 3px #000; }
+  #hints { position: absolute; right: clamp(16px, 3vw, 40px); top: 84px; max-width: 250px; padding: 10px 12px; background: var(--panel); font-size: 12.5px; line-height: 1.7; color: #d4dae0; }
+  #hints b { font-family: var(--display); letter-spacing: .06em; }
+  #perf { position: absolute; left: 50%; bottom: 8px; transform: translateX(-50%); padding: 4px 10px; background: rgba(0,0,0,.6); font: 12px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace; color: #b8f3b8; white-space: pre; }
+  #toast { position: absolute; left: 50%; top: 22%; transform: translateX(-50%); font-family: var(--display); font-weight: 700; font-size: 30px; letter-spacing: 0.12em; text-transform: uppercase; text-shadow: 0 2px 10px rgba(0,0,0,.8); opacity: 0; transition: opacity .25s; }
+  #pausehint { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); padding: 14px 22px; background: var(--panel); border: 1px solid var(--line); font-family: var(--display); font-size: 20px; letter-spacing: 0.1em; text-transform: uppercase; pointer-events: auto; cursor: pointer; }
+  @media (max-width: 900px) { #hints { display: none; } }
+  @media (max-width: 640px) { .setting { grid-template-columns: 1fr 110px 40px; } }
+  @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+
+<canvas id="game" tabindex="0"></canvas>
+
+<div id="loading">
+  <div class="box">
+    <div class="logo">Bloque <span>Cero</span></div>
+    <div class="step" id="loadstep">Preparando…</div>
+    <div class="bar"><i id="loadbar"></i></div>
+    <div class="err hidden" id="loaderr"></div>
+  </div>
+</div>
+
+<div id="menu" class="hidden">
+  <div class="col">
+    <div>
+      <div class="eyebrow">Shooter táctico · 5 contra 5 · por rondas</div>
+      <h1>Bloque <span>Cero</span></h1>
+    </div>
+    <p class="lede">Villa de dos plantas con sótano. Cada bala abre un agujero en el pladur, las cargas abren boquetes y el ladrillo aguanta. Asómate con Q/E, controla el retroceso y escucha los pasos a través de las paredes.</p>
+    <div class="btns">
+      <button class="btn primary" id="btn-play">Campo de pruebas <small>Fase 1 · motor, destrucción y movimiento</small></button>
+      <button class="btn" id="btn-match" disabled>Partida rápida 5v5 <small>Llega con la fase de rondas</small></button>
+    </div>
+    <div class="panel">
+      <h2>Ajustes</h2>
+      <label class="setting">Sensibilidad <input type="range" id="set-sens" min="0.2" max="3" step="0.05"><output id="out-sens"></output></label>
+      <label class="setting">Sensibilidad apuntando <input type="range" id="set-adssens" min="0.3" max="1.5" step="0.05"><output id="out-adssens"></output></label>
+      <label class="setting">Campo de visión <input type="range" id="set-fov" min="60" max="90" step="1"><output id="out-fov"></output></label>
+      <label class="setting">Volumen <input type="range" id="set-vol" min="0" max="1" step="0.05"><output id="out-vol"></output></label>
+      <label class="setting">Calidad
+        <select id="set-quality"><option value="baja">Baja</option><option value="media">Media</option><option value="alta">Alta</option></select><span></span>
+      </label>
+      <label class="toggle"><input type="checkbox" id="set-lean"> Asomarse alterna (Q/E), como en Siege</label>
+      <label class="toggle"><input type="checkbox" id="set-crouch"> Agacharse alterna (C)</label>
+      <label class="toggle"><input type="checkbox" id="set-invert"> Invertir eje vertical</label>
+      <label class="toggle"><input type="checkbox" id="set-perf"> Mostrar rendimiento (F3)</label>
+    </div>
+    <div class="panel">
+      <h2>Controles</h2>
+      <div class="keys">
+        <div><kbd>WASD</kbd> Moverse</div>
+        <div><kbd>Mayús</kbd> Correr</div>
+        <div><kbd>C</kbd> Agacharse</div>
+        <div><kbd>Z</kbd> Cuerpo a tierra</div>
+        <div><kbd>Q</kbd><kbd>E</kbd> Asomarse</div>
+        <div><kbd>Espacio</kbd> Saltar obstáculo</div>
+        <div><kbd>Clic</kbd> Disparar</div>
+        <div><kbd>Clic der.</kbd> Apuntar</div>
+        <div><kbd>R</kbd> Recargar</div>
+        <div><kbd>1</kbd><kbd>2</kbd><kbd>3</kbd> Armas</div>
+        <div><kbd>F3</kbd> Rendimiento</div>
+        <div><kbd>Esc</kbd> Pausa</div>
+      </div>
+    </div>
+    <p class="note">Los ajustes se guardan en este navegador si lo permite; si no, el juego usa los valores por defecto.</p>
+  </div>
+</div>
+
+<div id="hud" class="hidden">
+  <div id="topbar"><div class="t" id="hud-title">Campo de pruebas</div><div class="m" id="hud-mode">Fase 1</div></div>
+  <div id="where"><div class="lbl">Ubicación</div><div class="loc" id="hud-loc">—</div></div>
+  <div id="hints">
+    <b>Prueba:</b> dispara al pladur y mira cómo se agujerea bala a bala. El ladrillo del frente y el hormigón del sótano no ceden. Con la escopeta (<kbd>3</kbd>) abres huecos grandes. <kbd>G</kbd> hace volar un boquete de brecha donde miras.
+  </div>
+  <div id="crosshair"><i class="d"></i><i class="l"></i><i class="r"></i><i class="t"></i><i class="b"></i></div>
+  <div id="hitmark"><i></i><i></i><i></i><i></i></div>
+  <div id="vitals">
+    <div class="hp" id="hud-hp">100<small>Salud</small></div>
+    <div class="stance"><span id="hud-stance">De pie</span><div id="lean"><i></i><i></i><i></i></div></div>
+  </div>
+  <div id="weapon">
+    <div class="state" id="hud-state"></div>
+    <div class="name" id="hud-wname">—</div>
+    <div class="ammo" id="hud-ammo">30<small>150</small></div>
+  </div>
+  <div id="prompt"></div>
+  <div id="toast"></div>
+  <div id="perf" class="hidden"></div>
+  <div id="pausehint" class="hidden">Clic para seguir jugando</div>
+</div>
+
+<script>/*__SCRIPT__*/</script>
