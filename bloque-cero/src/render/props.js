@@ -168,6 +168,27 @@ function defuserModel() {
   return b.build();
 }
 
+// Granadas (gadgets lanzables): fragmentación, humo, cegadora e impacto.
+function grenadeModel(kind) {
+  const b = new Builder();
+  if (kind === 'frag') {
+    b.add(Sph(0.045), { at: [0, 0, 0], color: '#4b5236', rough: 0.7 });
+    b.add(Cyl(0.014, 0.014, 0.03, 8), { at: [0, 0.05, 0], color: '#6c6f6a', rough: 0.4, metal: 0.6 });
+    b.add(Box(0.012, 0.06, 0.02), { at: [0.03, 0.03, 0], color: '#77796f', rough: 0.4, metal: 0.6 });
+  } else if (kind === 'smoke') {
+    b.add(Cyl(0.032, 0.032, 0.12, 12), { at: [0, 0, 0], color: '#8b9096', rough: 0.55, metal: 0.3 });
+    b.add(Cyl(0.034, 0.034, 0.02, 12), { at: [0, 0.02, 0], color: '#d9dcd7', rough: 0.6 });
+  } else if (kind === 'flash') {
+    b.add(Cyl(0.03, 0.03, 0.12, 12), { at: [0, 0, 0], color: '#23262a', rough: 0.5, metal: 0.4 });
+    b.add(Cyl(0.032, 0.032, 0.016, 12), { at: [0, -0.02, 0], color: '#f2f2ec', rough: 0.4, glow: 0.3 });
+  } else {
+    b.add(Cyl(0.028, 0.028, 0.09, 10), { at: [0, 0, 0], color: '#d0651c', rough: 0.5 });
+    b.add(Sph(0.028), { at: [0, 0.045, 0], color: '#d0651c', rough: 0.5 });
+    b.add(Sph(0.028), { at: [0, -0.045, 0], color: '#30302c', rough: 0.5 });
+  }
+  return b.build();
+}
+
 export class PropRenderer {
   constructor(scene, wr) {
     this.scene = scene;
@@ -177,6 +198,7 @@ export class PropRenderer {
     this.geo = {
       droneBody: [droneBody('#3d9be9'), droneBody('#f0892b')], droneWheels: droneWheels(),
       camBase: camBase(), camHead: camHead(), hatch: hatchPlate(this.steelLayer), defuser: defuserModel(),
+      grenade: { frag: grenadeModel('frag'), smoke: grenadeModel('smoke'), flash: grenadeModel('flash'), impact: grenadeModel('impact') },
     };
     this.panelGeo = new Map();   // "w×h" → {plate, pistons}
     this.items = new Map();      // clave → {group, kind, meshes, ...}
@@ -310,6 +332,15 @@ export class PropRenderer {
       const it = this._get('defuser', () => { const group = new THREE.Group(); const m = this._mesh(this.geo.defuser); group.add(m); return { group, kind: 'defuser', m }; });
       it.group.position.set(P.x, P.y + 0.005, P.z);
       it.m.material.uniforms.uGlow.value = 0.5 + 0.5 * Math.sin(this.time * (6 + (s.defuser.urgency || 0) * 14));
+    }
+    // ---------------- granadas en vuelo o en el suelo
+    for (const g of s.gadgets || []) {
+      if (!g.alive || !this.geo.grenade[g.kind]) continue;
+      const it = this._get('g:' + g.id, () => { const group = new THREE.Group(); const m = this._mesh(this.geo.grenade[g.kind]); group.add(m); return { group, kind: 'grenade', m, spin: 0 }; });
+      it.group.position.set(g.pos.x, g.pos.y + (g.rest ? 0.03 : 0), g.pos.z);
+      if (!g.rest) it.spin += dt * 14;
+      it.m.rotation.set(g.rest ? Math.PI / 2 : it.spin, g.rest ? 0.7 : it.spin * 0.6, 0);
+      if (g.kind === 'flash') it.m.material.uniforms.uGlow.value = g.t > 1.1 ? 1 : 0.3;
     }
     // borrar lo que ya no existe
     for (const [k, it] of this.items) if (!this.seen.has(k)) { this._dispose(it); this.items.delete(k); }

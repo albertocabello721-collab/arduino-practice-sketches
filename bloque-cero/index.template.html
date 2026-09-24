@@ -168,7 +168,7 @@
   #spectate b { color: var(--blue); }
   #prepinfo { position: absolute; left: 50%; bottom: 196px; transform: translateX(-50%); width: min(560px, 90vw); padding: 12px 16px; background: var(--panel); border-left: 3px solid var(--blue); font-size: 14px; line-height: 1.5; text-align: left; }
   #prepinfo b { font-family: var(--display); letter-spacing: .08em; text-transform: uppercase; }
-  #carry { position: absolute; left: clamp(16px, 3vw, 40px); bottom: calc(clamp(16px, 3.5vh, 36px) + 162px); display: flex; align-items: center; gap: 8px; font-family: var(--display); font-size: 14px; letter-spacing: .14em; text-transform: uppercase; color: var(--yellow); text-shadow: 0 1px 3px #000; }
+  #carry { position: absolute; left: clamp(16px, 3vw, 40px); bottom: calc(clamp(16px, 3.5vh, 36px) + 180px); display: flex; align-items: center; gap: 8px; font-family: var(--display); font-size: 14px; letter-spacing: .14em; text-transform: uppercase; color: var(--yellow); text-shadow: 0 1px 3px #000; }
   #carry i { width: 14px; height: 14px; background: var(--yellow); clip-path: polygon(50% 0, 100% 50%, 50% 100%, 0 50%); }
 
   /* banner de fin de ronda */
@@ -296,11 +296,15 @@
   #gear { position: absolute; left: clamp(16px, 3vw, 40px); bottom: calc(clamp(16px, 3.5vh, 36px) + 136px); max-width: 330px; display: flex; flex-wrap: wrap; column-gap: 14px; row-gap: 3px; font-family: var(--display); font-size: 14px; letter-spacing: .14em; text-transform: uppercase; color: rgba(255,255,255,.8); text-shadow: 0 1px 3px #000; }
   #gear b { color: var(--yellow); font-weight: 700; }
   #gear .ord { flex-basis: 100%; order: -1; }
+  #kit { position: absolute; right: clamp(16px, 3vw, 40px); bottom: calc(clamp(16px, 3.5vh, 36px) + 98px); display: flex; gap: 14px; justify-content: flex-end; font-family: var(--display); font-size: 14px; letter-spacing: .14em; text-transform: uppercase; color: rgba(255,255,255,.82); text-shadow: 0 1px 3px #000; }
+  #kit b { color: var(--yellow); font-weight: 700; }
+  #kit kbd { font-size: 11px; padding: 0 4px; min-width: 16px; margin-right: 4px; }
+  #kit .off { opacity: .45; }
   .mk.spot .ic { background: var(--red); color: #fff; width: 22px; height: 22px; font-size: 13px; clip-path: polygon(0 0, 100% 0, 50% 100%); }
   .mk.spot .lb { color: #ffb4a8; font-size: 11px; }
   .mk.ping .ic { width: 16px; height: 16px; background: var(--yellow); box-shadow: 0 0 0 2px rgba(0,0,0,.35); }
   .mk.ping .lb { color: #ffe9a3; font-size: 11px; }
-  #chat { position: absolute; left: clamp(16px, 3vw, 40px); bottom: calc(clamp(16px, 3.5vh, 36px) + 186px); width: min(420px, 60vw); display: flex; flex-direction: column; align-items: flex-start; gap: 3px; pointer-events: none; }
+  #chat { position: absolute; left: clamp(16px, 3vw, 40px); bottom: calc(clamp(16px, 3.5vh, 36px) + 206px); width: min(420px, 60vw); display: flex; flex-direction: column; align-items: flex-start; gap: 3px; pointer-events: none; }
   #chat .cl { padding: 3px 9px; background: rgba(8, 10, 13, 0.66); font-size: 14px; line-height: 1.35; color: #e8edf2; text-shadow: 0 1px 2px #000; }
   #chat .cl b { font-family: var(--display); font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--blue); margin-right: 4px; }
   #chat .cl.me b { color: #fff; }
@@ -378,6 +382,7 @@
         <div><kbd>Clic der.</kbd> Apuntar</div>
         <div><kbd>R</kbd> Recargar</div>
         <div><kbd>B</kbd> Modo de disparo</div>
+        <div><kbd>G</kbd> Gadget secundario (granadas, cargas…)</div>
         <div><kbd>F</kbd> Reforzar / plantar / inutilizar / recoger / reanimar</div>
         <div><kbd>T</kbd> o botón central: marcar enemigo / marca de posición</div>
         <div><kbd>H</kbd> Órdenes a los aliados (mantén, elige con el ratón y suelta)</div>
@@ -412,6 +417,7 @@
   <div id="prepinfo" class="hidden"></div>
   <div id="carry" class="hidden"><i></i>Llevas el desactivador</div>
   <div id="gear" class="hidden"></div>
+  <div id="kit" class="hidden"></div>
   <div id="feedui" class="hidden">
     <div class="fr tl"></div><div class="fr tr"></div><div class="fr bl"></div><div class="fr br"></div>
     <div class="fh"><b id="fd-title">Dron</b><span id="fd-sub"></span></div>

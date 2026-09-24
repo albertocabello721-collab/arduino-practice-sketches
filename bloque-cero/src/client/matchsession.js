@@ -6,6 +6,7 @@ import { bindGameFx } from './fx.js';
 import { FeedController } from './feeds.js';
 import { TeamChat } from './chat.js';
 import { OrderWheel, ORDERS } from '../ui/wheel.js';
+import { GADGETS } from '../sim/operators.js';
 import { Match } from '../sim/match.js';
 import { BotSquad } from '../sim/bots.js';
 import { operatorLook } from '../render/character.js';
@@ -339,6 +340,7 @@ export class MatchSession extends Session {
     const m = this.match, { hud, input, audio } = this.ctx;
     this.ui.tick(dt);
     this.chat.tick(dt);
+    this._smokeFx(dt);
     if (m.phase === 'select') { this.ui.updateSelect(m); return; }
     if (!m.running) { this.ui.updateMarkers([]); this.ui.showScoreboard(m, false); this.feed.frame(dt); return; }
     this._feedRules();
@@ -351,7 +353,7 @@ export class MatchSession extends Session {
     // objetos 3D (drones, cámaras, refuerzos, desactivador) y motores de dron
     const def = m.defuser;
     if (def && def.planted) def.urgency = 1 - m.timeLeft / m.rules.fuseTime;
-    this.syncProps(dt, alpha, { recon: m.recon, fort: m.fort, defuser: def, feed: this.feed, myTeam: 0 });
+    this.syncProps(dt, alpha, { recon: m.recon, fort: m.fort, defuser: def, feed: this.feed, myTeam: 0, gadgets: m.gadgets });
     // vista remota
     const found = m.objectiveFound;
     this.feed.frame(dt, {
@@ -409,16 +411,45 @@ export class MatchSession extends Session {
     }
   }
 
+  // Nubes de humo: partículas grandes y grises mientras duran.
+  _smokeFx(dt) {
+    const G = this.match.gadgets, fx = this.ctx.effects;
+    if (!G || !G.smokes.length) return;
+    this.smokeAcc = (this.smokeAcc || 0) + dt;
+    const n = Math.floor(this.smokeAcc * 26);
+    if (!n) return;
+    this.smokeAcc -= n / 26;
+    for (const s of G.smokes) {
+      const r = G.smokeRadius(s);
+      if (r <= 0.2) continue;
+      for (let i = 0; i < n; i++) {
+        const a = Math.random() * Math.PI * 2, d = Math.sqrt(Math.random()) * r * 0.85;
+        const g = 0.55 + Math.random() * 0.1;
+        fx.spawnDust(s.x + Math.cos(a) * d, s.y - 0.9 + Math.random() * 2.2, s.z + Math.sin(a) * d, (Math.random() - 0.5) * 0.3, 0.05 + Math.random() * 0.12, (Math.random() - 0.5) * 0.3, 1.1 + Math.random() * 0.9, [g, g + 0.01, g + 0.02], 2.6 + Math.random() * 1.2, 0.5);
+      }
+    }
+  }
+
   _gear(p, side) {
     const el = document.getElementById('gear');
-    if (!p || p.state === 'dead' || this.feed.active) { if (this._gearHtml !== '') { this._gearHtml = ''; el.classList.add('hidden'); } return; }
+    if (!p || p.state === 'dead' || this.feed.active) {
+      if (this._gearHtml !== '') { this._gearHtml = ''; el.classList.add('hidden'); }
+      if (this._kitHtml !== '') { this._kitHtml = ''; document.getElementById('kit').classList.add('hidden'); }
+      return;
+    }
     const m = this.match;
     const ord = this.activeOrder();
     const orders = `<span class="ord">H órdenes${ord ? ` · <b>${ORDERS[ord].label}</b>` : ''}</span>`;
     const html = side === 'atk'
       ? `<span>Drones <b>${m.recon.dronesLeft(p)}</b></span><span>5 dron · V golpe</span>${orders}`
-      : `<span>Refuerzos <b>${m.fort.remaining(p)}</b></span><span>5 cámaras · V golpe</span>${orders}`;
+      : `<span>5 cámaras · V golpe</span>${orders}`;
     if (this._gearHtml !== html) { this._gearHtml = html; el.innerHTML = html; el.classList.remove('hidden'); }
+    // abajo a la derecha, junto a la munición: gadget secundario y refuerzos (documento, sección 19)
+    const g = p.gadget && GADGETS[p.gadget.id];
+    const kit = (g ? `<span class="${p.gadget.left ? '' : 'off'}"><kbd>G</kbd>${g.short} <b>×${p.gadget.left}</b></span>` : '')
+      + (side === 'def' ? `<span><kbd>F</kbd>Refuerzos <b>${m.fort.remaining(p)}</b></span>` : '');
+    const ke = document.getElementById('kit');
+    if (this._kitHtml !== kit) { this._kitHtml = kit; ke.innerHTML = kit; ke.classList.toggle('hidden', !kit); }
   }
 
   _markers(view) {
@@ -464,5 +495,6 @@ export class MatchSession extends Session {
     this.ctx.audio.stopDowned();
     this.ctx.hud.setRevive(null, 0);
     document.getElementById('gear').classList.add('hidden');
+    document.getElementById('kit').classList.add('hidden');
   }
 }

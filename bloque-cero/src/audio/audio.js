@@ -575,6 +575,54 @@ export class AudioEngine {
     for (let i = 0; i < 4; i++) this._burst(out, t + 0.05 + Math.random() * 0.25, { type: 'bandpass', freq: 3000 + Math.random() * 3000, q: 3, a: 0.001, peak: 0.25, d: 0.02 });
   }
 
+  // ------------------------------------------------------------ gadgets
+  // Explosión: golpe grave, crujido de metralla y cola larga. size 1 = granada.
+  explosion(pos, size = 1, occl = 0) {
+    if (!this.ctx) return;
+    const t = this.ctx.currentTime;
+    const out = this._out(pos, { gain: 2.2 * size, ref: 4, rolloff: 0.9, occl, reverb: 0.8 });
+    this._tone(out, t, { f0: 140, f1: 32, a: 0.002, peak: 1.4, d: 0.9 });
+    this._burst(out, t, { type: 'lowpass', freq: 900, q: 0.6, a: 0.002, peak: 1.3, d: 0.8, pink: true });
+    this._burst(out, t, { type: 'bandpass', freq: 2600, q: 0.8, a: 0.0008, peak: 0.9, d: 0.12 });
+    for (let i = 0; i < 6; i++) this._burst(out, t + 0.05 + Math.random() * 0.5, { type: 'bandpass', freq: 1500 + Math.random() * 3500, q: 3, a: 0.001, peak: 0.25, d: 0.04 });
+  }
+  // Cegadora: estallido seco y agudo.
+  flashbang(pos, occl = 0) {
+    if (!this.ctx) return;
+    const t = this.ctx.currentTime;
+    const out = this._out(pos, { gain: 2.4, ref: 4, rolloff: 0.9, occl, reverb: 0.7 });
+    this._burst(out, t, { type: 'highpass', freq: 1800, q: 0.6, a: 0.0005, peak: 1.6, d: 0.18 });
+    this._tone(out, t, { f0: 220, f1: 60, a: 0.001, peak: 0.9, d: 0.35 });
+  }
+  // Pitido en los oídos tras una cegadora (strength 0..1).
+  ringing(strength = 1) {
+    if (!this.ctx) return;
+    const t = this.ctx.currentTime;
+    const g = this.ctx.createGain(); g.gain.value = 0.12 * strength; g.connect(this.master);
+    this._tone(g, t, { f0: 3900, f1: 3850, a: 0.05, peak: 0.6, d: 2.8 * strength + 0.4, type: 'sine' });
+  }
+  // Siseo del humo al abrirse.
+  smokeHiss(pos, occl = 0) {
+    if (!this.ctx) return;
+    const t = this.ctx.currentTime;
+    const out = this._out(pos, { gain: 0.8, ref: 2, rolloff: 1.2, occl, reverb: 0.3 });
+    this._burst(out, t, { type: 'highpass', freq: 3000, q: 0.5, a: 0.05, peak: 0.6, d: 2.5 });
+  }
+  // Lanzamiento (silbido corto) y golpe metálico de la granada al rebotar.
+  throwWhoosh(pos, local = false) {
+    if (!this.ctx) return;
+    const t = this.ctx.currentTime;
+    const out = this._out(local ? null : pos, { gain: local ? 0.35 : 0.5, ref: 2, rolloff: 1.4, reverb: 0.1, direct: local });
+    this._burst(out, t, { type: 'bandpass', freq: 900, q: 1.2, a: 0.02, peak: 0.5, d: 0.16 });
+  }
+  grenadeClink(pos, occl = 0) {
+    if (!this.ctx) return;
+    const t = this.ctx.currentTime;
+    const out = this._out(pos, { gain: 0.6, ref: 1.5, rolloff: 1.4, occl, reverb: 0.25 });
+    this._tone(out, t, { f0: 2600, f1: 2400, a: 0.0005, peak: 0.35, d: 0.12, type: 'triangle' });
+    this._burst(out, t, { type: 'bandpass', freq: 1800, q: 2, a: 0.0005, peak: 0.5, d: 0.04 });
+  }
+
   // Pitido del desactivador plantado (posicional; se acelera al final).
   defuserBeep(pos, urgency = 0, occl = 0) {
     if (!this.ctx) return;

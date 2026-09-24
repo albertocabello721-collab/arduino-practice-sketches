@@ -27,6 +27,7 @@ import { boxFree } from './physics.js';
 import { SOLID } from '../world/materials.js';
 import { Fortify } from './fortify.js';
 import { Recon, rayAABB } from './recon.js';
+import { Gadgets } from './gadgets.js';
 
 export const RULES = {
   selectTime: 25,     // selección de operador
@@ -96,6 +97,7 @@ export class Match extends Emitter {
     // fortificación de la defensa y reconocimiento (drones y cámaras) — Fase 4
     this.fort = new Fortify(this.game, { canFortify: (op) => op.side === 'def' && (this.phase === 'prep' || this.phase === 'action' || this.phase === 'planted') });
     this.recon = new Recon(this.game, { cameras: map.cameras || [] });
+    this.gadgets = new Gadgets(this.game);
     this._bindGame();
   }
   get objectiveFound() { return this.recon.objectiveFound; }
@@ -161,6 +163,7 @@ export class Match extends Emitter {
     this.game.targets = this.game.targets.filter((t) => t.kind !== 'defuser');
     this.fort.reset();
     this.recon.reset({ defTeam: this.teamOfSide('def'), site: null });
+    this.gadgets.reset();
     for (const s of this.slots) { s.op = null; s.ready = !s.human; }
     // cada bot mantiene su operador si sigue siendo del bando; si no, elige otro libre
     for (const s of this.slots) {
@@ -237,6 +240,7 @@ export class Match extends Emitter {
     // preparación: fortificación limpia, cámaras operativas y un dron por atacante en el suelo
     this.fort.reset();
     this.recon.reset({ defTeam: this.teamOfSide('def'), site: this.site });
+    this.gadgets.reset();
     for (const op of atk) this.recon.deployDrone(op, { thrown: false });
     this.emit('roundStart', this.round);
     if (this.rules.prepTime <= 0) this._beginAction();
@@ -305,7 +309,7 @@ export class Match extends Emitter {
       return;
     }
     this.game.tick(dt);
-    if (this.phase === 'prep' || this.phase === 'action' || this.phase === 'planted') this._buildingTick(dt);
+    if (this.phase === 'prep' || this.phase === 'action' || this.phase === 'planted') { this._buildingTick(dt); this.gadgets.tick(dt); }
     if (this.phase === 'roundEnd') {
       this.timer -= dt;
       if (this.timer <= 0) this._afterRound();

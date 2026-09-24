@@ -351,6 +351,10 @@ async function boot() {
     if (!s) props.clear();
     ctx.damageFlash = Math.max(0, ctx.damageFlash - dt * 1.4);
     post.grade.uniforms.uDamage.value = v ? Math.max(ctx.damageFlash, v.state === 'downed' ? 0.55 + Math.sin(performance.now() / 300) * 0.1 : 0, v.state === 'alive' && v.hp < v.maxHp * 0.3 ? 0.25 : 0) : 0;
+    // humo alrededor de la cámara y cegadora del operador visto
+    const G = s && s.game ? s.game.gadgets : null;
+    post.grade.uniforms.uSmoke.value = G ? G.smokeAt(camera.position) : 0;
+    post.grade.uniforms.uBlind.value = v && v.blindT > 0 ? Math.min(1, v.blindT / 1.2) : 0;
     if (s) s.frame(dt, acc / TICK);
     if (v) vm.update(dt, v, lightS, v === s.player ? mouse.dx || 0 : 0, v === s.player ? mouse.dy || 0 : 0);
     vm.root.visible = !!v && v.state !== 'dead';

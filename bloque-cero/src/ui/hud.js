@@ -2,7 +2,7 @@
 import { FIRE_MODE_NAME } from '../sim/weapons.js';
 const STANCE_NAME = { stand: 'De pie', crouch: 'Agachado', prone: 'Cuerpo a tierra' };
 const RANGE_HINTS = '<b>Campo de pruebas:</b> maniquís dentro de la villa (uno dispara). <kbd>F</kbd> refuerza la pared que miras, pone barricadas y reanima (<kbd>J</kbd> derriba a tu compañero). <kbd>V</kbd> golpe, <kbd>5</kbd> dron, <kbd>G</kbd> boquete, <kbd>K</kbd> reinicia, <kbd>1</kbd>–<kbd>4</kbd> armas, <kbd>L</kbd> arsenal.';
-const MATCH_HINTS = '<b>Partida:</b> el ataque planta el desactivador en A o B (mantén <kbd>F</kbd> dentro del sitio, 7 s); la defensa lo inutiliza (<kbd>F</kbd> junto a él). <kbd>F</kbd> también reanima. <kbd>T</kbd> marca al enemigo que miras o pone una marca de posición. Mantén <kbd>H</kbd> para dar órdenes a tus aliados. <kbd>Tab</kbd> marcador.';
+const MATCH_HINTS = '<b>Partida:</b> el ataque planta el desactivador en A o B (mantén <kbd>F</kbd> dentro del sitio, 7 s); la defensa lo inutiliza (<kbd>F</kbd> junto a él). <kbd>F</kbd> también reanima. <kbd>T</kbd> marca al enemigo que miras o pone una marca de posición. <kbd>G</kbd> gadget secundario. Mantén <kbd>H</kbd> para dar órdenes a tus aliados. <kbd>Tab</kbd> marcador.';
 
 export class HUD {
   constructor() {

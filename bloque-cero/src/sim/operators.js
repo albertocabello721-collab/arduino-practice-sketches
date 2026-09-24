@@ -202,16 +202,16 @@ export const opsForSide = (side) => OPERATORS.filter((o) => o.side === side);
 // Gadgets secundarios (sección 13).
 export const GADGETS = {
   // ataque
-  frag: { name: 'Granada de fragmentación', count: 2, side: 'atk' },
-  breach: { name: 'Carga de brecha', count: 2, side: 'atk' },
-  smoke: { name: 'Granada de humo', count: 2, side: 'atk' },
-  flash: { name: 'Granada cegadora', count: 3, side: 'atk' },
-  claymore: { name: 'Claymore', count: 1, side: 'atk' },
+  frag: { name: 'Granada de fragmentación', short: 'Fragmentación', count: 2, side: 'atk' },
+  breach: { name: 'Carga de brecha', short: 'Brecha', count: 2, side: 'atk' },
+  smoke: { name: 'Granada de humo', short: 'Humo', count: 2, side: 'atk' },
+  flash: { name: 'Granada cegadora', short: 'Cegadora', count: 3, side: 'atk' },
+  claymore: { name: 'Claymore', short: 'Claymore', count: 1, side: 'atk' },
   // defensa
-  barbed: { name: 'Alambre de púas', count: 2, side: 'def' },
-  shield: { name: 'Escudo desplegable', count: 1, side: 'def' },
-  impact: { name: 'Granada de impacto', count: 2, side: 'def' },
-  c4: { name: 'C4 remoto', count: 1, side: 'def' },
-  bpcam: { name: 'Cámara blindada', count: 1, side: 'def' },
-  alarm: { name: 'Alarma de proximidad', count: 2, side: 'def' },
+  barbed: { name: 'Alambre de púas', short: 'Alambre', count: 2, side: 'def' },
+  shield: { name: 'Escudo desplegable', short: 'Escudo', count: 1, side: 'def' },
+  impact: { name: 'Granada de impacto', short: 'Impacto', count: 2, side: 'def' },
+  c4: { name: 'C4 remoto', short: 'C4', count: 1, side: 'def' },
+  bpcam: { name: 'Cámara blindada', short: 'Cám. blindada', count: 1, side: 'def' },
+  alarm: { name: 'Alarma de proximidad', short: 'Alarma', count: 2, side: 'def' },
 };

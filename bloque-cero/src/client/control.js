@@ -43,6 +43,7 @@ export class PlayerControl {
     if (input.pressed('reload')) I.reload = true;
     if (input.pressed('melee')) I.melee = true;
     if (input.pressed('fireMode')) I.fireMode = true;
+    if (op.gadget && input.pressed('gadget')) I.gadget = true;     // gadget secundario (G)
     if (input.pressed('vault')) I.vault = true;
     if (input.pressed('primary')) I.switchTo = 0;
     if (input.pressed('secondary')) I.switchTo = 1;

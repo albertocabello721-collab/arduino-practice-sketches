@@ -16,7 +16,7 @@ Es un único archivo HTML autónomo: no necesita servidor ni conexión.
 | F3 | Rondas 5v5, 3 ubicaciones de sitios (los defensores eligen), desactivador, HUD con reloj y 10 retratos | ✅ |
 | F4 | Preparación: refuerzos, barricadas, trampillas, drones, cámaras, cuerpo a cuerpo | ✅ |
 | F5 | Bots: navegación, percepción, combate, tácticas por bando, órdenes (H), marcas (T), chat de equipo, depuración (P) | ✅ |
-| F6 | Operadores 8 + 8 y contrajuego de gadgets | en curso: arsenal ✅ · plantilla de 16 ✅ · gadgets y habilidades en camino |
+| F6 | Operadores 8 + 8 y contrajuego de gadgets | en curso: arsenal ✅ · plantilla de 16 ✅ · granadas ✅ · resto de gadgets y habilidades en camino |
 | F7 | Animaciones en primera y tercera persona | pendiente |
 | F8 | Recarga por partes | pendiente |
 | F9 | Audio 3D con oclusión | pendiente |
@@ -78,6 +78,20 @@ Velocidad/blindaje, armas, gadget secundario a elegir y habilidad (tecla X):
 
 La selección muestra el papel, los números de la habilidad y sus contras. Los gadgets y las
 habilidades se activan en las siguientes rondas de la Fase 6.
+
+## Gadgets secundarios (Fase 6)
+
+Se usan con **G**; el que llevas y sus cargas salen abajo a la derecha, junto a la munición.
+
+- **Granada de fragmentación** (×2): rebota; a los 3 s explota: letal a 1,5 m y daño hasta 3 m.
+  Las paredes duras protegen; el material blando atenúa y se rompe cerca.
+- **Granada de humo** (×2): se abre al pararse; nube de 4 m de radio durante 10 s que tapa la
+  vista (también a los bots) y deja un velo gris si estás dentro.
+- **Granada cegadora** (×3): a los 1,5 s ciega hasta 3,5 s a quien la ve de frente (menos de
+  lado o de espaldas), con pitido en los oídos. Un bot cegado no ve nada mientras dura.
+- **Granada de impacto** (×2, defensa): explota al tocar; abre 1 m de pared blanda.
+- Carga de brecha, claymore, C4, alambre, escudo desplegable, cámara blindada y alarma de
+  proximidad: en la siguiente ronda.
 
 ## Partida rápida 5v5 (Fase 3)
 
@@ -212,6 +226,7 @@ Reglas de Siege, contra bots:
 | Clic / clic derecho | Disparar / apuntar |
 | R | Recargar |
 | B | Modo de disparo (automático, ráfaga, tiro a tiro) |
+| G | Gadget secundario (granadas, cargas…) |
 | 1–4, rueda | Cambiar de arma |
 | F | Reforzar, poner barricada, plantar / inutilizar el desactivador, reanimar (mantener) / presionar la herida si estás derribado |
 | V | Golpe cuerpo a cuerpo (rompe barricadas y pladur) |

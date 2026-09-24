@@ -74,6 +74,26 @@ export function bindGameFx(ctx, game, view) {
     }
   });
   on('voxels', (list, cause, point, dir) => effects.voxelsDestroyed(list, cause, point, dir));
+  // ---------------- gadgets lanzables
+  on('gadgetThrown', (op, it) => audio.throwWhoosh(it.pos, op === viewer()));
+  on('gadgetEmpty', (op) => { if (op === me()) { audio.ping('deny'); hud.toast('Sin gadgets', 1.2); } });
+  on('gadgetBounce', (it) => audio.grenadeClink(it.pos, occlusion(it.pos)));
+  on('explosion', (kind, p, spec) => {
+    const big = kind === 'frag' ? 1 : 0.7;
+    effects.flash(p.x, p.y + 0.2, p.z, 60 * big, 34 * big, 14 * big, 10, 0.3);
+    for (let i = 0; i < 40 * big; i++) effects.spawnSpark(p.x, p.y + 0.1, p.z, (Math.random() - 0.5) * 12, Math.random() * 7, (Math.random() - 0.5) * 12, 1);
+    for (let i = 0; i < 14; i++) effects.spawnDust(p.x + (Math.random() - 0.5) * 0.8, p.y + 0.2 + Math.random() * 0.6, p.z + (Math.random() - 0.5) * 0.8, (Math.random() - 0.5) * 2.5, Math.random() * 1.6, (Math.random() - 0.5) * 2.5, 0.5 + Math.random() * 0.6, [0.42, 0.4, 0.37], 2.5 + Math.random() * 1.5, 0.55);
+    audio.explosion(p, big, occlusion(p));
+    const e = ctx.camEye, d = Math.hypot(p.x - e.x, p.y - e.y, p.z - e.z);
+    if (d < spec.radius * 4) ctx.shake = Math.min(2, ctx.shake + (1 - d / (spec.radius * 4)) * 1.6);
+  });
+  on('flashbang', (p, hitList) => {
+    effects.flash(p.x, p.y + 0.2, p.z, 220, 220, 200, 14, 0.12);
+    audio.flashbang(p, occlusion(p));
+    const v = viewer();
+    if (v && hitList.includes(v)) audio.ringing(Math.min(1, v.blindT / 3.5));
+  });
+  on('smoke', (s) => { audio.smokeHiss(s, occlusion(s)); ctx.smokes = ctx.smokes || []; ctx.smokes.push(s); });
   on('damaged', (target, ev) => {
     chars.flashHit(target);
     if (ev.point) effects.bloodHit(ev.point, ev.dir, ev.zone === 'head');

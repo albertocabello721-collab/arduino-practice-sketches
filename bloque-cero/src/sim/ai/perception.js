@@ -29,6 +29,9 @@ export class Perception {
     const vx = -Math.sin(op.yaw), vz = -Math.cos(op.yaw);
     const cosFov = Math.cos(D.fov);
     this.visible.length = 0;
+    if (op.blindT > 0) return true;              // cegado: no ve nada
+    const G = this.game.gadgets;
+    const smoke = G && G.smokes.length ? G : null;
     for (const t of enemies) {
       const c = t.center();
       const dx = c.x - e.x, dy = c.y - e.y, dz = c.z - e.z;
@@ -46,6 +49,7 @@ export class Perception {
       if (!seen) seen = lineOfSight(w, e.x, e.y, e.z, chest.x, chest.y, chest.z);
       if (!seen && t.state === 'downed') seen = lineOfSight(w, e.x, e.y, e.z, c.x, c.y, c.z);
       if (!seen) continue;
+      if (smoke && smoke.smokeBlocks(e, head) && smoke.smokeBlocks(e, chest)) continue;   // tras el humo
       // de lejos, alguien agachado o tumbado quieto cuesta más de ver
       if (dist > 18 && (t.stance === 'prone' || t.state === 'downed') && t.moveSpeed < 0.2 && !recentlySeen && this.game.rng.next() < 0.5) continue;
       this.visible.push(t);

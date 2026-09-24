@@ -48,12 +48,12 @@ export class Session {
   }
 
   // Objetos 3D del reconocimiento y la fortificación, y el motor de los drones.
-  syncProps(dt, alpha, { recon, fort, defuser = null, feed = null, myTeam = 0 }) {
+  syncProps(dt, alpha, { recon, fort, defuser = null, feed = null, myTeam = 0, gadgets = null }) {
     const { props, audio } = this.ctx;
     props.sync(dt, {
       drones: recon ? recon.drones : [], cams: recon ? recon.cams : [],
       panels: fort ? fort.panels : [], work: fort ? fort.work : null,
-      defuser, myTeam, alpha,
+      defuser, myTeam, alpha, gadgets: gadgets ? gadgets.items : [],
       hide: feed && feed.active ? (feed.drone || feed.cam) : null,
     });
     if (recon && audio.ctx) {
