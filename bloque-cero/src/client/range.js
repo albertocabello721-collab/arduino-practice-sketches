@@ -1,0 +1,120 @@
+// Campo de pruebas: la villa con maniquís (uno dispara), un compañero para
+// practicar la reanimación y arsenales intercambiables.
+import { Session } from './session.js';
+import { bindGameFx } from './fx.js';
+import { Game } from '../sim/game.js';
+import { Operator } from '../sim/operator.js';
+import { WeaponState, WEAPONS } from '../sim/weapons.js';
+import { spawnRangeDummies, driveDummies, resetDummies } from '../sim/dummies.js';
+import { defaultLook } from '../render/character.js';
+import { raycastFirst } from '../world/raycast.js';
+import { breachRect, explodeSphere } from '../world/destruction.js';
+import { MATS, SOLID } from '../world/materials.js';
+
+const SPAWN = { x: 15.5, y: 0, z: -4.5, yaw: Math.PI };
+const LOADOUTS = [['ar', 'pistol', 'shotgun', 'smg'], ['ar2', 'revolver', 'lmg', 'dmr'], ['smg2', 'mpistol', 'shotgun2', 'ar']];
+
+export class RangeSession extends Session {
+  constructor(ctx) {
+    super(ctx);
+    const { world, map, chars, hud } = ctx;
+    world.resetToPristine();
+    ctx.effects.clearAll();
+    this._game = new Game({ world, map, seed: 20260923 });
+    this.loadoutIdx = 0;
+    this._player = this._game.addOperator(new Operator('jugador', { name: 'Tú', team: 0, x: SPAWN.x, y: SPAWN.y, z: SPAWN.z, yaw: SPAWN.yaw, loadout: LOADOUTS[0], armor: 2 }));
+    this.dummies = spawnRangeDummies(this._game);
+    chars.clear();
+    chars.add(this._player, defaultLook(0, 0));
+    this.dummies.forEach((d, i) => chars.add(d, defaultLook(d.team, i)));
+    this.disposers.push(bindGameFx(ctx, this._game, {
+      viewer: () => this._player, me: () => this._player,
+      onMeDowned: () => { this.control.stance = 'prone'; },
+      onMeRevived: () => { this.control.stance = 'crouch'; },
+      onMeKilled: () => { hud.setDeath(true, 'Pulsa R para volver a empezar'); },
+    }));
+    hud.setMode('range');
+    hud.setDeath(false); hud.setDowned(false);
+  }
+  get player() { return this._player; }
+  get game() { return this._game; }
+
+  tick(dt) {
+    driveDummies(this._game, this.dummies, this._player, dt);
+    this._game.tick(dt);
+  }
+
+  onKey() {
+    const { input } = this.ctx;
+    const I = this._player.intent;
+    const take = (code) => { if (input.pressedQ.has(code)) { input.pressedQ.delete(code); return true; } return false; };
+    if (take('Digit3')) I.switchTo = 2;
+    if (take('Digit4')) I.switchTo = 3;
+    if (input.pressed('gadget')) this.testBreach();
+    if (take('KeyJ')) { const mate = this.dummies.find((d) => d.team === 0); if (mate && mate.state === 'alive') this._game.damage(mate, mate.hp, { by: null, zone: 'body' }); }
+    if (take('KeyK')) this.reset();
+    if (take('KeyL')) this.setLoadout(this.loadoutIdx + 1);
+    if (this._player.state === 'dead' && input.pressed('reload')) this.respawn();
+  }
+
+  frame() {
+    this.statusHud(this._player);
+    this.ctx.hud.hints(true);
+    this.ctx.hud.setTopbar('Campo de pruebas', 'Fase 3');
+  }
+
+  setLoadout(i) {
+    const p = this._player;
+    this.loadoutIdx = i % LOADOUTS.length;
+    p.weapons = LOADOUTS[this.loadoutIdx].map((k) => new WeaponState(WEAPONS[k]));
+    p.weaponIndex = 0;
+    p.weapon.equipT = p.weapon.def.equip;
+    this.ctx.chars.remove(p); this.ctx.chars.add(p, defaultLook(0, 0));
+    this.ctx.hud.toast(LOADOUTS[this.loadoutIdx].map((k) => WEAPONS[k].name).join(' · '), 2.2);
+  }
+  respawn() {
+    const p = this._player, { audio, hud } = this.ctx;
+    p.state = 'alive'; p.hp = p.maxHp; p.deathT = 0; p.bleedT = 0;
+    p.pose.dead = 0; p.pose.downed = 0;
+    p.stance = 'stand'; p.body.height = 1.8; this.control.reset('stand');
+    for (const w of p.weapons) w.refill();
+    this.ctx.place(SPAWN.x, SPAWN.y, SPAWN.z, SPAWN.yaw, 0);
+    audio.stopDowned();
+    hud.setDeath(false); hud.setDowned(false);
+  }
+  reset() {
+    this.ctx.world.resetToPristine();
+    this.ctx.effects.clearAll();
+    resetDummies(this.dummies);
+    this.respawn();
+    this.ctx.hud.toast('Campo reiniciado');
+  }
+
+  // Carga de brecha de prueba (G): boquete en la pared a la que miras.
+  testBreach() {
+    const { world, effects, audio, hud } = this.ctx;
+    const p = this._player;
+    const e = p.eyePos(), d = p.viewDir();
+    const hit = raycastFirst(world, e.x, e.y, e.z, d.x, d.y, d.z, 5, SOLID, true);
+    if (!hit) { hud.toast('Nada a tu alcance'); return; }
+    const px = e.x + d.x * hit.t, py = e.y + d.y * hit.t, pz = e.z + d.z * hit.t;
+    const axis = hit.face >> 1;
+    let list;
+    if (axis === 1) list = explodeSphere(world, px, py, pz, 0.9);
+    else list = breachRect(world, axis === 0 ? px + d.x * 0.12 : px, Math.max(py, 1.15 + Math.floor(py / 3.5) * 3.5), axis === 2 ? pz + d.z * 0.12 : pz, axis, 1.1, 2.3, 0.6);
+    if (!list.length) { hud.toast('Esa superficie no cede'); audio.impact(MATS[hit.mat].snd, { x: px, y: py, z: pz }); return; }
+    effects.voxelsDestroyed(list, 'blast', { x: px - d.x * 0.3, y: py, z: pz - d.z * 0.3 }, null);
+    effects.flash(px - d.x * 0.3, py, pz - d.z * 0.3, 40, 26, 12, 9, 0.25);
+    for (let i = 0; i < 30; i++) effects.spawnSpark(px, py, pz, (Math.random() - 0.5) * 9, Math.random() * 6, (Math.random() - 0.5) * 9, 1);
+    audio.gunshot('shotgun', { x: px, y: py, z: pz }, false);
+    audio.breakMaterial(MATS[list[0].mat].snd, { x: px, y: py, z: pz }, list.length);
+    this.ctx.shake = 1.2;
+    hud.toast('Boquete abierto');
+  }
+
+  dispose() {
+    super.dispose();
+    this.ctx.chars.clear();
+    this.ctx.audio.stopDowned();
+  }
+}

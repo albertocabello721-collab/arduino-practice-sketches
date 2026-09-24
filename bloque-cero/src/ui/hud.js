@@ -1,5 +1,7 @@
 // HUD táctico (DOM). Solo escribe en el DOM cuando cambia un valor.
 const STANCE_NAME = { stand: 'De pie', crouch: 'Agachado', prone: 'Cuerpo a tierra' };
+const RANGE_HINTS = '<b>Campo de pruebas:</b> maniquís dentro de la villa (uno dispara). Tiro a la cabeza = baja; al torso, derribo. <kbd>F</kbd> reanima a tu compañero (<kbd>J</kbd> lo derriba), <kbd>K</kbd> reinicia el campo, <kbd>G</kbd> abre un boquete, <kbd>1</kbd>–<kbd>4</kbd> armas, <kbd>L</kbd> cambia de arsenal.';
+const MATCH_HINTS = '<b>Partida:</b> el ataque planta el desactivador en A o B (mantén <kbd>F</kbd> dentro del sitio, 7 s); la defensa lo inutiliza (<kbd>F</kbd> junto a él). <kbd>F</kbd> también reanima. <kbd>Tab</kbd> marcador.';
 
 export class HUD {
   constructor() {
@@ -17,6 +19,20 @@ export class HUD {
     this.toastT = 0;
     this.hitT = 0;
   }
+  // Modo de la barra superior y de la ayuda: 'range' (campo de pruebas) o 'match'.
+  setMode(mode) {
+    this.mode = mode;
+    document.getElementById('topbar').classList.toggle('hidden', mode !== 'range');
+    document.getElementById('mtop').classList.toggle('hidden', mode !== 'match');
+    const h = document.getElementById('hints');
+    if (h.dataset.mode !== mode) {
+      h.dataset.mode = mode;
+      h.innerHTML = mode === 'range' ? RANGE_HINTS : MATCH_HINTS;
+    }
+    this.el.feed.innerHTML = '';
+  }
+  hints(v) { if (this.cache.hints !== v) { this.cache.hints = v; document.getElementById('hints').style.opacity = v ? 1 : 0; } }
+  setTopbar(title, sub) { this.set('tbT', this.el.title, title); this.set('tbM', this.el.mode, sub); }
   set(key, el, value, prop = 'textContent') {
     if (this.cache[key] === value) return;
     this.cache[key] = value;
@@ -99,6 +115,19 @@ export class HUD {
       this.el.cross.style.opacity = vis;
     }
     this.set('prompt', this.el.prompt, ctx.prompt || '');
+    if (this.toastT > 0) { this.toastT -= dt; if (this.toastT <= 0) this.el.toast.style.opacity = 0; }
+    if (this.hitT > 0) { this.hitT -= dt; if (this.hitT <= 0) this.el.hit.style.opacity = 0; }
+  }
+  // Muestra u oculta la parte del HUD que depende de un operador visto.
+  playerHud(v) {
+    if (this.cache.phud === v) return;
+    this.cache.phud = v;
+    for (const id of ['vitals', 'weapon', 'crosshair', 'where', 'prompt']) document.getElementById(id).style.visibility = v ? '' : 'hidden';
+    if (!v) { this.setDowned(false); this.setRevive(null, 0); }
+  }
+  // Temporizadores del HUD cuando no hay operador visto.
+  tick(dt) {
+    for (let i = 0; i < 4; i++) if (this.dirT[i] > 0) { this.dirT[i] -= dt; this.el.dirs[i].style.opacity = Math.max(0, Math.min(1, this.dirT[i] * 1.5)); }
     if (this.toastT > 0) { this.toastT -= dt; if (this.toastT <= 0) this.el.toast.style.opacity = 0; }
     if (this.hitT > 0) { this.hitT -= dt; if (this.hitT <= 0) this.el.hit.style.opacity = 0; }
   }

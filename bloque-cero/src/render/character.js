@@ -91,7 +91,15 @@ export function defaultLook(team, variant = 0) {
     { shirt: '#4a4f58', pants: '#4f545c', vest: '#3a3f47', helmet: '#30353c', gloves: '#222224', boots: '#1e1e20', skin: '#6e4a36', camo: 2, head: 'helmet', face: 'goggles' },
     { shirt: '#2f3540', pants: '#343a45', vest: '#454a52', helmet: '#1f2328', gloves: '#1b1b1d', boots: '#19191b', skin: '#e0b494', camo: 0, head: 'hood', face: 'mask' },
   ];
-  return { ...looks[variant % looks.length], accent: atk ? '#f0892b' : '#3d9be9' };
+  return { ...looks[variant % looks.length], accent: team === 0 ? TEAM_ACCENT[0] : TEAM_ACCENT[1] };
+}
+
+// Colores de equipo como en Siege: el tuyo azul, el rival naranja.
+export const TEAM_ACCENT = ['#3d9be9', '#f0892b'];
+
+// Aspecto de un operador de la plantilla (sim/operators.js) para un equipo.
+export function operatorLook(def, team) {
+  return { ...def.look, accent: TEAM_ACCENT[team === 0 ? 0 : 1] };
 }
 
 export function buildOperatorGeometry(look, primaryModel, secondaryModel) {

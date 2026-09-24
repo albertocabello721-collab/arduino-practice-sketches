@@ -248,6 +248,8 @@ export class ViewModel {
     s.kickRot = damp(s.kickRot, 0, 10, dt);
     s.land = damp(s.land, 0, 8, dt);
     s.equip = Math.max(0, w.equipT / Math.max(0.01, w.def.equip));
+    // manos ocupadas (plantar, inutilizar, reanimar): el arma baja
+    s.lower = damp(s.lower || 0, op.channel || op.reviving ? 1 : 0, 7, dt);
     const reloadK = w.reloadT > 0 ? 1 - w.reloadT / w.reloadTotal : 0;
     s.reload = reloadK;
     const speed = op.moveSpeed;
@@ -269,11 +271,11 @@ export class ViewModel {
     pos.x += s.sprint * 0.05; pos.y -= s.sprint * 0.06;
     // recarga: bajar y girar el arma; desenfunde: subir desde abajo
     const rk = Math.sin(Math.min(1, reloadK) * Math.PI);
-    pos.y -= rk * 0.07 + s.equip * 0.25;
+    pos.y -= rk * 0.07 + s.equip * 0.25 + s.lower * 0.32;
     pos.z += rk * 0.03;
     this.root.position.copy(pos);
     this.root.rotation.set(
-      s.kick * 0.09 + rk * 0.35 + s.sprint * -0.25 + s.equip * 0.8 + s.swayY * 0.5,
+      s.kick * 0.09 + rk * 0.35 + s.sprint * -0.25 + s.equip * 0.8 + s.lower * 0.7 + s.swayY * 0.5,
       s.sprint * 0.9 + s.swayX * 0.6 + s.kickRot,
       rk * 0.5 + s.sprint * 0.3 + Math.sin(s.bob * 0.5) * 0.01 * bobAmp,
     );

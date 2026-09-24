@@ -356,7 +356,78 @@ export class AudioEngine {
     const t = this.ctx.currentTime;
     const g = this.ctx.createGain(); g.gain.value = 0.15; g.connect(this.master);
     if (kind === 'click') this._tone(g, t, { f0: 1800, f1: 1400, a: 0.001, peak: 0.4, d: 0.04, type: 'triangle' });
+    else if (kind === 'hover') this._tone(g, t, { f0: 2400, f1: 2300, a: 0.001, peak: 0.12, d: 0.025, type: 'sine' });
     else this._tone(g, t, { f0: 600, f1: 900, a: 0.01, peak: 0.3, d: 0.15, type: 'sine' });
+  }
+
+  // ------------------------------------------------------------ avisos de la partida
+  // Señales de ronda (no posicionales): preparación, acción, cuenta atrás, victoria…
+  cue(kind) {
+    if (!this.ctx) return;
+    const ctx = this.ctx, t = ctx.currentTime;
+    const g = ctx.createGain(); g.gain.value = 0.32; g.connect(this.master);
+    const chord = (freqs, at, dur, peak = 0.3, type = 'sawtooth') => {
+      const lp = ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 1400; lp.Q.value = 0.7; lp.connect(g);
+      for (const f of freqs) {
+        const o = ctx.createOscillator(); o.type = type; o.frequency.value = f; o.detune.value = (Math.random() - 0.5) * 12;
+        const e = ctx.createGain(); e.gain.value = 0;
+        e.gain.setValueAtTime(0, t + at); e.gain.linearRampToValueAtTime(peak / freqs.length, t + at + 0.08);
+        e.gain.setTargetAtTime(0, t + at + dur * 0.6, dur * 0.25);
+        o.connect(e).connect(lp); o.start(t + at); o.stop(t + at + dur + 0.6);
+      }
+    };
+    switch (kind) {
+      case 'prep': // golpe grave y acorde tenso
+        this._tone(g, t, { f0: 70, f1: 38, a: 0.005, peak: 1, d: 0.9 });
+        chord([110, 164.8, 207.7], 0.05, 1.6, 0.5);
+        break;
+      case 'action': // sirena corta de dos tonos
+        for (let i = 0; i < 2; i++) {
+          this._tone(g, t + i * 0.34, { f0: 880, f1: 870, a: 0.01, peak: 0.35, d: 0.14, type: 'square' });
+          this._tone(g, t + i * 0.34 + 0.16, { f0: 660, f1: 655, a: 0.01, peak: 0.35, d: 0.14, type: 'square' });
+        }
+        this._tone(g, t, { f0: 90, f1: 45, a: 0.005, peak: 0.8, d: 0.6 });
+        break;
+      case 'tick':
+        this._tone(g, t, { f0: 1320, f1: 1310, a: 0.001, peak: 0.25, d: 0.05, type: 'square' });
+        break;
+      case 'planted':
+        this._burst(g, t, { type: 'bandpass', freq: 1800, q: 3, a: 0.002, peak: 0.6, d: 0.08 });
+        this._tone(g, t + 0.08, { f0: 1200, f1: 1600, a: 0.01, peak: 0.35, d: 0.3, type: 'triangle' });
+        this._tone(g, t + 0.3, { f0: 70, f1: 40, a: 0.01, peak: 0.9, d: 0.8 });
+        chord([98, 146.8, 185], 0.3, 1.4, 0.45);
+        break;
+      case 'win':
+        chord([220, 277.2, 329.6], 0, 0.9, 0.45);
+        chord([246.9, 311.1, 370], 0.45, 1.6, 0.5);
+        break;
+      case 'lose':
+        chord([196, 233.1, 293.7], 0, 0.9, 0.45);
+        chord([174.6, 207.7, 261.6], 0.45, 1.8, 0.5);
+        break;
+      case 'matchWin':
+        chord([220, 277.2, 329.6], 0, 0.6, 0.4);
+        chord([246.9, 311.1, 370], 0.35, 0.6, 0.4);
+        chord([293.7, 370, 440], 0.7, 2.4, 0.55);
+        break;
+      case 'matchLose':
+        chord([220, 261.6, 329.6], 0, 0.8, 0.4);
+        chord([174.6, 207.7, 261.6], 0.5, 2.6, 0.5);
+        break;
+      case 'plantStart':
+        this._burst(g, t, { type: 'bandpass', freq: 900, q: 1.5, a: 0.01, peak: 0.4, d: 0.2 });
+        this._tone(g, t + 0.1, { f0: 400, f1: 520, a: 0.02, peak: 0.2, d: 0.3, type: 'triangle' });
+        break;
+      default:
+        this._tone(g, t, { f0: 1000, f1: 1000, a: 0.005, peak: 0.2, d: 0.1 });
+    }
+  }
+  // Pitido del desactivador plantado (posicional; se acelera al final).
+  defuserBeep(pos, urgency = 0, occl = 0) {
+    if (!this.ctx) return;
+    const t = this.ctx.currentTime;
+    const out = this._out(pos, { gain: 0.5, ref: 3, rolloff: 1.0, occl, reverb: 0.25 });
+    this._tone(out, t, { f0: 2100 + urgency * 500, f1: 2080 + urgency * 500, a: 0.002, peak: 0.6, d: 0.07, type: 'square' });
   }
 }
 

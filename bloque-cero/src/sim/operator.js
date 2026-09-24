@@ -66,6 +66,8 @@ export class Operator {
     this.stats = { shots: 0, hits: 0, kills: 0, downs: 0, headshots: 0, damage: 0, revives: 0, deaths: 0 };
     this.isBot = !!opts.bot;
     this.meta = opts.meta || {};
+    this.frozen = false;     // preparación: el ataque no puede moverse ni disparar
+    this.channel = null;     // acción mantenida (plantar, inutilizar): {kind, t, total}
     // pose (compartida por zonas de impacto y render)
     this.pose = makePoseState();
     this.rig = new Array(BONE_COUNT);
@@ -178,15 +180,17 @@ export class Operator {
       if (this.bleedT <= 0) { game.kill(this, { by: this.downedBy, weapon: null, zone: 'bleed', bleed: true }); return; }
     }
     // ---------------- postura
+    const busy = !!this.reviving || !!this.channel || this.frozen;
     let want = downed ? 'prone' : I.stance;
-    if (!downed && I.sprint && I.moveZ > 0.3 && want !== 'prone') want = 'stand';
+    if (!downed && !busy && I.sprint && I.moveZ > 0.3 && want !== 'prone') want = 'stand';
+    if (this.channel && want === 'stand') want = 'crouch';    // se arrodilla para plantar/inutilizar
     if (want !== this.stance) {
       if (tryResize(world, b, STANCES[want].height)) this.stance = want;
     } else if (b.height !== STANCES[this.stance].height) tryResize(world, b, STANCES[this.stance].height);
-    this.sprinting = !downed && I.sprint && I.moveZ > 0.3 && this.stance === 'stand' && !I.ads && b.onGround;
+    this.sprinting = !downed && !busy && I.sprint && I.moveZ > 0.3 && this.stance === 'stand' && !I.ads && b.onGround;
     // ---------------- apuntar
     const w = this.weapon;
-    const canAds = !downed && w.ready && !this.sprinting;
+    const canAds = !downed && w.ready && !this.sprinting && !this.channel && !this.reviving;
     const adsRate = 1 / Math.max(0.1, w.def.adsTime);
     this.ads = clamp(this.ads + (I.ads && canAds ? adsRate : -adsRate * 1.5) * dt, 0, 1);
     // ---------------- asomarse (Q/E)
@@ -194,7 +198,6 @@ export class Operator {
     this.lean = damp(this.lean, leanTarget, 12, dt);
     this.leanAllowed = this._clampLean(world, this.lean);
     // ---------------- movimiento
-    const busy = !!this.reviving;
     const f = Math.hypot(I.moveX, I.moveZ);
     const mx = busy ? 0 : f > 1 ? I.moveX / f : I.moveX, mz = busy ? 0 : f > 1 ? I.moveZ / f : I.moveZ;
     const sy = Math.sin(this.yaw), cy = Math.cos(this.yaw);
@@ -205,7 +208,7 @@ export class Operator {
     const ddx = tx - b.vel.x, ddz = tz - b.vel.z;
     const dl = Math.hypot(ddx, ddz), maxD = accel * dt;
     if (dl > maxD) { b.vel.x += ddx / dl * maxD; b.vel.z += ddz / dl * maxD; } else { b.vel.x = tx; b.vel.z = tz; }
-    if (I.vault && !downed && b.onGround && this.stance !== 'prone') {
+    if (I.vault && !downed && !busy && b.onGround && this.stance !== 'prone') {
       const t = findVault(world, b, -sy, -cy);
       if (t) {
         this.vault = { t: 0, dur: 0.42 + (t.top - b.pos.y) * 0.25, from: { x: b.pos.x, y: b.pos.y, z: b.pos.z }, to: t };

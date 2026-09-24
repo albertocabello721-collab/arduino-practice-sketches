@@ -13,7 +13,8 @@ export const DEFAULT_SETTINGS = {
   invertY: false,
   quality: 'alta',      // 'baja' | 'media' | 'alta'
   showPerf: false,
-  difficulty: 'normal',
+  difficulty: 'normal',  // bots: 'recluta' | 'normal' | 'veterano'
+  startSide: 'random',   // partida rápida: 'random' | 'atk' | 'def'
 };
 
 function storage() {

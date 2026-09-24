@@ -1,4 +1,6 @@
-// Arranque y bucle principal de Bloque Cero (Fase 1: campo de pruebas).
+// Arranque y bucle principal de Bloque Cero. El motor (render, audio, entrada, HUD)
+// es único; las sesiones (campo de pruebas, partida 5v5) deciden qué se simula y
+// qué operador se ve.
 import * as THREE from 'three';
 import { generateTexturesAsync } from './render/texgen.js';
 import { createVillaWorld, buildVilla } from './world/maps/villa.js';
@@ -12,22 +14,17 @@ import { HUD } from './ui/hud.js';
 import { loadSettings, saveSettings } from './core/settings.js';
 import { Game, TICK } from './sim/game.js';
 import { Operator } from './sim/operator.js';
-import { raycastFirst } from './world/raycast.js';
-import { breachRect, explodeSphere } from './world/destruction.js';
-import { MATS, SOLID, SOUND } from './world/materials.js';
-import { lineOfSight } from './world/raycast.js';
+import { breachRect } from './world/destruction.js';
 import { DEG, damp, clamp, angleDiff } from './core/math.js';
-import { CharacterRenderer, defaultLook } from './render/character.js';
-import { spawnRangeDummies, driveDummies, resetDummies } from './sim/dummies.js';
-import { BONE } from './sim/skeleton.js';
-import { WEAPONS } from './sim/weapons.js';
+import { CharacterRenderer } from './render/character.js';
+import { RangeSession } from './client/range.js';
+import { MatchSession } from './client/matchsession.js';
 
 const $ = (id) => document.getElementById(id);
 const nextFrame = () => new Promise((r) => requestAnimationFrame(() => r()));
 
 const state = {
   mode: 'loading',   // loading | menu | play
-  paused: false,
 };
 
 async function boot() {
@@ -102,159 +99,69 @@ async function boot() {
   }
   await setStep('Listo', 1);
 
-  // ---------------------------------------------------------------- simulación
-  const game = new Game({ world, map, seed: 20260923 });
-  const spawn = { x: 15.5, y: 0, z: -4.5, yaw: Math.PI };
-  // arsenales del campo de pruebas (L cambia entre ellos)
-  const LOADOUTS = [['ar', 'pistol', 'shotgun', 'smg'], ['ar2', 'revolver', 'lmg', 'dmr'], ['smg2', 'mpistol', 'shotgun2', 'ar']];
-  let loadoutIdx = 0;
-  const player = game.addOperator(new Operator('jugador', { name: 'Tú', team: 0, x: spawn.x, y: spawn.y, z: spawn.z, yaw: spawn.yaw, loadout: LOADOUTS[0], armor: 2 }));
-  const dummies = spawnRangeDummies(game);
-  chars.add(player, defaultLook(0, 0));
-  dummies.forEach((d, i) => chars.add(d, defaultLook(d.team, i)));
-  function setLoadout(i) {
-    loadoutIdx = i % LOADOUTS.length;
-    player.weapons = LOADOUTS[loadoutIdx].map((k) => new (player.weapons[0].constructor)(WEAPONS[k]));
-    player.weaponIndex = 0;
-    player.weapon.equipT = player.weapon.def.equip;
-    chars.remove(player); chars.add(player, defaultLook(0, 0));
-    hud.toast(LOADOUTS[loadoutIdx].map((k) => WEAPONS[k].name).join(' · '), 2.2);
-  }
-  function respawnPlayer() {
-    player.state = 'alive'; player.hp = player.maxHp; player.deathT = 0; player.bleedT = 0;
-    player.pose.dead = 0; player.pose.downed = 0;
-    player.stance = 'stand'; player.body.height = 1.8; stanceWanted = 'stand';
-    for (const w of player.weapons) w.refill();
-    window.__bc.place(spawn.x, spawn.y, spawn.z, spawn.yaw, 0);
-    audio.stopDowned();
-    hud.setDeath(false); hud.setDowned(false);
-  }
-  function resetRange() {
-    world.resetToPristine();
-    effects.clearAll();
-    resetDummies(dummies);
-    respawnPlayer();
-    hud.toast('Campo reiniciado');
-  }
-  let stanceWanted = 'stand';
-  let leanWanted = 0;
-  const prevEye = player.eyePos(), curEye = player.eyePos();
+  // ---------------------------------------------------------------- contexto compartido
+  const prevEye = { x: 0, y: 0, z: 0 }, curEye = { x: 0, y: 0, z: 0 };
+  const view = { op: null, prevYaw: 0, curYaw: 0, prevPitch: 0, curPitch: 0 };
   let acc = 0;
-
-  // ---------------------------------------------------------------- eventos → audio/efectos
-  const tmpV = new THREE.Vector3();
-  const muzzleWorld = (op) => {
-    if (op !== player && op.rig[BONE.gun]) {
-      const g = op.rig[BONE.gun], R = g.R;
-      const long = op.weapon.def.cls !== 'pistol';
-      const lx = 0, ly = 0.04, lz = long ? -0.62 : -0.17;
-      return { x: g.p.x + R.x.x * lx + R.y.x * ly + R.z.x * lz, y: g.p.y + R.x.y * lx + R.y.y * ly + R.z.y * lz, z: g.p.z + R.x.z * lx + R.y.z * ly + R.z.z * lz };
-    }
-    const e = op.eyePos(); const f = op.viewDir();
-    const rx = Math.cos(op.yaw), rz = -Math.sin(op.yaw);
-    const hip = 1 - op.ads;
-    return { x: e.x + f.x * 0.55 + rx * 0.12 * hip, y: e.y + f.y * 0.55 - 0.1 * hip - 0.03, z: e.z + f.z * 0.55 + rz * 0.12 * hip };
+  let session = null;
+  let lockFailed = false;
+  const ctx = {
+    THREE, renderer, scene, camera, world, map, wr, effects, chars, vm, post, audio, input, hud, settings, canvas,
+    shake: 0, damageFlash: 0, camEye: camera.position, occlusion: null,
+    // la cámara salta al operador visto sin interpolar (cambio de vista, reaparición)
+    resetView() { view.op = null; },
+    place(x, y, z, yaw, pitch = 0) {
+      const p = session && session.player;
+      if (!p) return;
+      p.body.pos.x = x; p.body.pos.y = y; p.body.pos.z = z; p.yaw = yaw; p.pitch = pitch;
+      p.body.vel.x = p.body.vel.y = p.body.vel.z = 0;
+      view.op = null;
+    },
+    app: null,
   };
-  let shake = 0;
-  let damageFlash = 0;
-  game.on('shot', (op, w, eye, fwd, results) => {
-    const local = op === player;
-    audio.gunshot(w.def.sound, eye, local, local ? 0 : occlusion(eye));
-    const m = muzzleWorld(op);
-    effects.flash(m.x, m.y, m.z, 9, 5.4, 2.4, 5.5, 0.06);
-    if (local) { vm.onShot(); shake = Math.min(1, shake + (w.def.pellets > 1 ? 0.8 : 0.25)); }
-    for (const r of results) {
-      const end = { x: r.origin.x + r.dir.x * r.end, y: r.origin.y + r.dir.y * r.end, z: r.origin.z + r.dir.z * r.end };
-      if (Math.random() < (w.def.pellets > 1 ? 0.35 : 0.5)) effects.addTracer(m, end);
-    }
-  });
-  game.on('bullet', (op, res) => {
-    effects.bulletImpact(res);
-    if (res.hit) {
-      const p = { x: res.origin.x + res.dir.x * res.end, y: res.origin.y + res.dir.y * res.end, z: res.origin.z + res.dir.z * res.end };
-      audio.impact(MATS[res.hit.mat].snd, p, occlusion(p));
-    }
-    if (res.destroyed.length) {
-      const v = res.destroyed[0];
-      const p = { x: world.wx(v.x), y: world.wy(v.y), z: world.wz(v.z) };
-      audio.breakMaterial(MATS[v.mat].snd, p, res.destroyed.length, occlusion(p));
-    }
-  });
-  game.on('voxels', (list, cause, point, dir) => effects.voxelsDestroyed(list, cause, point, dir));
-  const nameHtml = (op) => op ? `<span class="${op === player ? 'me' : op.team === 0 ? 'a' : 'd'}">${op.name}</span>` : '';
-  game.on('damaged', (target, ev) => {
-    chars.flashHit(target);
-    if (ev.point) effects.bloodHit(ev.point, ev.dir, ev.zone === 'head');
-    if (ev.point) audio.hitFlesh(ev.point, ev.zone === 'head', target === player ? 0 : occlusion(ev.point));
-    if (ev.by === player && target !== player) { hud.hitmarker('hit'); audio.hitConfirm('hit'); }
-    if (target === player) {
-      audio.hurt(ev.amount);
-      damageFlash = Math.min(1, damageFlash + ev.amount / 60);
-      if (ev.by) {
-        const b = ev.by.body.pos, p = player.body.pos;
-        const ang = Math.atan2(-(b.x - p.x), -(b.z - p.z));
-        hud.damageFrom(-angleDiff(player.yaw, ang));
-      }
-    }
-  });
-  game.on('downed', (target, ev) => {
-    hud.feed(`${nameHtml(ev.by)} <span class="w">derriba a</span> ${nameHtml(target)}`, 'down' + (ev.by === player || target === player ? ' mine' : ''));
-    if (ev.by === player) { hud.hitmarker('kill'); audio.hitConfirm('kill'); }
-    if (target === player) { audio.startDowned(); stanceWanted = 'prone'; }
-  });
-  game.on('killed', (target, ev) => {
-    const w = ev.weapon ? ev.weapon.name : ev.zone === 'bleed' ? 'desangrado' : ev.zone === 'fall' ? 'caída' : '';
-    hud.feed(`${nameHtml(ev.by || null)} <span class="w">${w}</span> ${nameHtml(target)}${ev.headshot ? ' <span class="hs">⌖</span>' : ''}`, (ev.by === player || target === player) ? 'mine' : '');
-    if (ev.by === player && target !== player) { hud.hitmarker(ev.headshot ? 'head' : 'kill'); audio.hitConfirm(ev.headshot ? 'head' : 'kill'); }
-    audio.bodyFall(target.body.pos, target === player ? 0 : occlusion(target.body.pos));
-    if (target === player) { audio.stopDowned(); hud.setDowned(false); hud.setDeath(true, 'Pulsa R para volver a empezar'); }
-  });
-  game.on('revived', (target, by) => {
-    hud.feed(`${nameHtml(by)} <span class="w">reanima a</span> ${nameHtml(target)}`, (by === player || target === player) ? 'mine' : '');
-    audio.reviveDone();
-    if (target === player) { audio.stopDowned(); hud.setDowned(false); stanceWanted = 'crouch'; }
-  });
-  game.on('footstep', (op, snd, loud) => {
-    const p = op.body.pos;
-    audio.footstep(snd, { x: p.x, y: p.y + 0.05, z: p.z }, loud, op === player, op === player ? 0 : occlusion(p));
-  });
-  game.on('reload', (op, w) => {
-    if (op !== player) return;
-    const T = w.reloadTotal;
-    const empty = w.ammo === 0;
-    setTimeout(() => audio.weaponFoley('magout'), T * 250);
-    setTimeout(() => audio.weaponFoley('magin'), T * 580);
-    if (empty) setTimeout(() => audio.weaponFoley('bolt'), T * 830);
-  });
-  game.on('dryfire', (op) => { if (op === player) audio.weaponFoley('dry'); });
-  game.on('switch', (op) => { if (op === player) audio.weaponFoley('switch'); });
-  game.on('land', (op, v) => { if (op === player) { audio.weaponFoley('land'); vm.onLand(v); } });
-  game.on('vault', (op) => { if (op === player) audio.weaponFoley('vault'); });
 
-  function occlusion(p) {
-    const e = curEye;
-    return lineOfSight(world, e.x, e.y, e.z, p.x, p.y + 0.2, p.z) ? 0 : 0.7;
+  function setSession(make) {
+    // desechar la sesión anterior ANTES de crear la nueva (comparten el DOM del HUD)
+    if (session) session.dispose();
+    session = null;
+    const s = make ? make() : null;
+    session = s;
+    acc = 0;
+    view.op = null;
+    ctx.damageFlash = 0; ctx.shake = 0;
+    hud.setDeath(false); hud.setDowned(false); hud.setRevive(null, 0);
   }
-
-  // Carga de brecha de prueba (G): boquete en la pared a la que miras.
-  function testBreach() {
-    const e = player.eyePos(), d = player.viewDir();
-    const hit = raycastFirst(world, e.x, e.y, e.z, d.x, d.y, d.z, 5, SOLID, true);
-    if (!hit) { hud.toast('Nada a tu alcance'); return; }
-    const px = e.x + d.x * hit.t, py = e.y + d.y * hit.t, pz = e.z + d.z * hit.t;
-    const axis = hit.face >> 1;
-    let list;
-    if (axis === 1) list = explodeSphere(world, px, py, pz, 0.9);
-    else list = breachRect(world, axis === 0 ? px + d.x * 0.12 : px, Math.max(py, 1.15 + Math.floor(py / 3.5) * 3.5), axis === 2 ? pz + d.z * 0.12 : pz, axis, 1.1, 2.3, 0.6);
-    if (!list.length) { hud.toast('Esa superficie no cede'); audio.impact(MATS[hit.mat].snd, { x: px, y: py, z: pz }); return; }
-    effects.voxelsDestroyed(list, 'blast', { x: px - d.x * 0.3, y: py, z: pz - d.z * 0.3 }, null);
-    effects.flash(px - d.x * 0.3, py, pz - d.z * 0.3, 40, 26, 12, 9, 0.25);
-    for (let i = 0; i < 30; i++) effects.spawnSpark(px, py, pz, (Math.random() - 0.5) * 9, Math.random() * 6, (Math.random() - 0.5) * 9, 1);
-    audio.gunshot('shotgun', { x: px, y: py, z: pz }, false);
-    audio.breakMaterial(MATS[list[0].mat].snd, { x: px, y: py, z: pz }, list.length);
-    shake = 1.2;
-    hud.toast('Boquete abierto');
+  function enterPlay() {
+    audio.init();
+    state.mode = 'play';
+    $('menu').classList.add('hidden');
+    hud.show(true);
+    canvas.focus();
   }
+  const app = ctx.app = {
+    startRange() {
+      audio.init(); audio.ui('confirm');
+      setSession(null);
+      enterPlay();
+      setSession(() => new RangeSession(ctx));
+      input.requestLock();
+    },
+    startMatch(opts = {}) {
+      audio.init(); audio.ui('confirm');
+      const sideSel = opts.startSide || settings.startSide || 'random';
+      const startSide = sideSel === 'random' ? (Math.random() < 0.5 ? 'atk' : 'def') : sideSel;
+      setSession(null);
+      enterPlay();
+      setSession(() => new MatchSession(ctx, { startSide, difficulty: opts.difficulty || settings.difficulty, seed: opts.seed, rules: opts.rules }));
+    },
+    toMenu() {
+      setSession(null);
+      state.mode = 'menu';
+      hud.show(false); hud.pause(false);
+      input.exitLock();
+      $('menu').classList.remove('hidden');
+    },
+  };
 
   // ---------------------------------------------------------------- menú y ajustes
   const bindRange = (id, out, key, fmt, apply) => {
@@ -272,30 +179,22 @@ async function boot() {
   bindCheck('set-crouch', 'crouchToggle');
   bindCheck('set-invert', 'invertY');
   bindCheck('set-perf', 'showPerf');
-  const q = $('set-quality');
-  q.value = settings.quality;
-  q.addEventListener('change', () => { settings.quality = q.value; saveSettings(settings); post.setQuality(settings.quality); renderer.setPixelRatio(pixelRatio()); resize(); });
+  const bindSelect = (id, key, apply) => { const el = $(id); el.value = settings[key]; el.addEventListener('change', () => { settings[key] = el.value; apply && apply(); saveSettings(settings); }); };
+  bindSelect('set-quality', 'quality', () => { post.setQuality(settings.quality); renderer.setPixelRatio(pixelRatio()); resize(); });
+  bindSelect('qm-side', 'startSide');
+  bindSelect('qm-diff', 'difficulty');
 
-  function startPlay() {
-    audio.init();
-    audio.ui('confirm');
-    state.mode = 'play';
-    $('menu').classList.add('hidden');
-    hud.show(true);
-    input.requestLock();
-    canvas.focus();
-  }
-  $('btn-play').addEventListener('click', startPlay);
+  $('btn-play').addEventListener('click', () => app.startRange());
+  $('btn-match').addEventListener('click', () => app.startMatch());
   input.onLockChange = (locked, err) => {
-    if (state.mode !== 'play') return;
-    state.paused = !locked && !err;
-    hud.pause(!locked);
+    if (err) lockFailed = true;
+    if (locked) lockFailed = false;
   };
   $('pausehint').addEventListener('click', () => { input.requestLock(); });
   window.addEventListener('keydown', (e) => {
-    if (e.code === 'Escape' && state.mode === 'play' && !input.locked) {
-      // segundo Esc: volver al menú
-      state.mode = 'menu'; hud.show(false); hud.pause(false); $('menu').classList.remove('hidden');
+    if (e.code === 'Escape' && state.mode === 'play' && !input.locked && session && session.wantsPointer) {
+      // segundo Esc (con el ratón ya liberado): volver al menú
+      app.toMenu();
     }
   });
 
@@ -322,54 +221,7 @@ async function boot() {
   const lightS = { sky: 1, warm: 0, cool: 0 };
   let menuT = 0;
   const perfStats = { frameMs: [] };
-
-  function applyInput(dt) {
-    const I = player.intent;
-    if (state.mode !== 'play' || state.paused) {
-      I.moveX = 0; I.moveZ = 0; I.fire = false; I.ads = false; I.sprint = false;
-      input.consumeMouse();
-      return { dx: 0, dy: 0 };
-    }
-    I.moveZ = (input.isDown('forward') ? 1 : 0) - (input.isDown('back') ? 1 : 0);
-    I.moveX = (input.isDown('right') ? 1 : 0) - (input.isDown('left') ? 1 : 0);
-    I.sprint = input.isDown('sprint');
-    // postura
-    if (settings.crouchToggle) { if (input.pressed('crouch')) stanceWanted = stanceWanted === 'crouch' ? 'stand' : 'crouch'; }
-    else stanceWanted = input.isDown('crouch') ? 'crouch' : (stanceWanted === 'crouch' ? 'stand' : stanceWanted);
-    if (input.pressed('prone')) stanceWanted = stanceWanted === 'prone' ? 'stand' : 'prone';
-    if (I.sprint && I.moveZ > 0 && stanceWanted !== 'prone') stanceWanted = 'stand';
-    I.stance = stanceWanted;
-    // asomarse
-    if (settings.leanToggle) {
-      if (input.pressed('leanLeft')) leanWanted = leanWanted === -1 ? 0 : -1;
-      if (input.pressed('leanRight')) leanWanted = leanWanted === 1 ? 0 : 1;
-      if (I.sprint && I.moveZ > 0) leanWanted = 0;
-    } else leanWanted = (input.isDown('leanRight') ? 1 : 0) - (input.isDown('leanLeft') ? 1 : 0);
-    I.lean = leanWanted;
-    I.fire = input.mouse.left;
-    I.ads = input.mouse.right;
-    if (input.pressed('reload')) I.reload = true;
-    if (input.pressed('vault')) I.vault = true;
-    if (input.pressed('primary')) I.switchTo = 0;
-    if (input.pressed('secondary')) I.switchTo = 1;
-    if (input.down.has('Digit3') && input.pressedQ.has('Digit3')) { input.pressedQ.delete('Digit3'); I.switchTo = 2; }
-    const m = input.consumeMouse();
-    if (m.wheel) I.switchTo = (player.weaponIndex + (m.wheel > 0 ? 1 : player.weapons.length - 1)) % player.weapons.length;
-    if (input.pressed('gadget')) testBreach();
-    I.interact = input.isDown('interact');
-    I.holdWound = player.state === 'downed' && input.isDown('interact');
-    if (input.down.has('Digit4') && input.pressedQ.has('Digit4')) { input.pressedQ.delete('Digit4'); I.switchTo = 3; }
-    if (input.pressedQ.has('KeyJ')) { input.pressedQ.delete('KeyJ'); const mate = dummies.find((d) => d.team === 0); if (mate && mate.state === 'alive') game.damage(mate, mate.hp, { by: null, zone: 'body' }); }
-    if (input.pressedQ.has('KeyK')) { input.pressedQ.delete('KeyK'); resetRange(); }
-    if (input.pressedQ.has('KeyL')) { input.pressedQ.delete('KeyL'); setLoadout(loadoutIdx + 1); }
-    if (player.state === 'dead' && I.reload) { I.reload = false; respawnPlayer(); }
-    if (input.pressed('perf')) { settings.showPerf = !settings.showPerf; $('set-perf').checked = settings.showPerf; saveSettings(settings); }
-    // mirar con el ratón (inmediato, fuera del tick fijo)
-    const base = 0.0022 * settings.sensitivity * (1 - player.ads * (1 - settings.adsSensitivity / Math.max(1, player.weapon.def.adsZoom)));
-    player.yaw -= m.dx * base;
-    player.pitch = clamp(player.pitch - m.dy * base * (settings.invertY ? -1 : 1), -1.5, 1.5);
-    return m;
-  }
+  const fwdV = new THREE.Vector3(), upV = new THREE.Vector3();
 
   let lowFor = 0, highFor = 0;
   function adaptQuality(f) {
@@ -387,42 +239,76 @@ async function boot() {
     }
   }
 
+  // Sigue al operador visto: posición de los ojos (y giro, si no lo controla el ratón) por tick.
+  function trackView(v, snap) {
+    if (!v) { view.op = null; return; }
+    if (snap || view.op !== v) {
+      v.eyePos(curEye); prevEye.x = curEye.x; prevEye.y = curEye.y; prevEye.z = curEye.z;
+      view.prevYaw = view.curYaw = v.yaw; view.prevPitch = view.curPitch = v.pitch;
+      view.op = v;
+      return;
+    }
+    prevEye.x = curEye.x; prevEye.y = curEye.y; prevEye.z = curEye.z;
+    v.eyePos(curEye);
+    view.prevYaw = view.curYaw; view.prevPitch = view.curPitch;
+    view.curYaw = v.yaw; view.curPitch = v.pitch;
+  }
+
   function frame(now) {
     requestAnimationFrame(frame);
     const t0 = performance.now();
     const dt = Math.min(0.1, (now - last) / 1000);
     last = now;
     renderer.info.reset();
-    const mouse = applyInput(dt);
-    if (state.mode === 'play' && !state.paused) {
-      acc += dt;
-      let n = 0;
-      while (acc >= TICK && n < 6) {
-        prevEye.x = curEye.x; prevEye.y = curEye.y; prevEye.z = curEye.z;
-        driveDummies(game, dummies, player, TICK);
-        game.tick(TICK);
-        player.eyePos(curEye);
-        acc -= TICK; n++;
+    const s = state.mode === 'play' ? session : null;
+    const paused = !!s && s.wantsPointer && !input.locked && !lockFailed;
+    hud.pause(paused);
+    let mouse = { dx: 0, dy: 0 };
+    if (s) {
+      mouse = s.input(!paused);
+      if (!paused) s.onKey();
+      if (!paused) {
+        acc += dt;
+        let n = 0;
+        while (acc >= TICK && n < 6) {
+          s.tick(TICK);
+          trackView(s.viewOp, false);
+          acc -= TICK; n++;
+        }
+        if (n >= 6) acc = 0;
       }
-      if (n >= 6) acc = 0;
-    }
+      if (input.pressed('perf')) { settings.showPerf = !settings.showPerf; $('set-perf').checked = settings.showPerf; saveSettings(settings); }
+    } else input.consumeMouse();
     input.endFrame();
-    // cámara
-    if (state.mode === 'play') {
+    // ---------------- cámara
+    const v = s ? s.viewOp : null;
+    if (v) {
+      if (view.op !== v) trackView(v, true);
       const a = acc / TICK;
       camera.position.set(prevEye.x + (curEye.x - prevEye.x) * a, prevEye.y + (curEye.y - prevEye.y) * a, prevEye.z + (curEye.z - prevEye.z) * a);
-      shake = damp(shake, 0, 10, dt);
-      const sx = (Math.random() - 0.5) * shake * 0.004, sy = (Math.random() - 0.5) * shake * 0.004;
-      camera.rotation.set(player.pitch + sy, player.yaw + sx, player.roll);
-      const zoom = 1 + (player.weapon.def.adsZoom - 1) * player.ads;
+      ctx.shake = damp(ctx.shake, 0, 10, dt);
+      const sx = (Math.random() - 0.5) * ctx.shake * 0.004, sy = (Math.random() - 0.5) * ctx.shake * 0.004;
+      const controlled = v === s.player;
+      const yaw = controlled ? v.yaw : view.prevYaw + angleDiff(view.prevYaw, view.curYaw) * a;
+      const pitch = controlled ? v.pitch : view.prevPitch + (view.curPitch - view.prevPitch) * a;
+      camera.rotation.set(pitch + sy, yaw + sx, v.roll);
+      const zoom = 1 + (v.weapon.def.adsZoom - 1) * v.ads;
       const fov = 2 * Math.atan(Math.tan(settings.fov * DEG / 2) / zoom) / DEG;
       if (Math.abs(camera.fov - fov) > 0.01) { camera.fov = fov; camera.updateProjectionMatrix(); }
     } else {
-      // vuelo lento alrededor de la villa en el menú
-      menuT += dt * 0.05;
-      const r = 34;
-      camera.position.set(20 + Math.cos(menuT) * r, 9 + Math.sin(menuT * 0.7) * 2, 13 + Math.sin(menuT) * r);
-      camera.lookAt(18, 2, 13);
+      view.op = null;
+      const fc = s ? s.freeCam : null;
+      if (fc) {
+        camera.position.set(fc.x, fc.y, fc.z);
+        camera.rotation.set(fc.pitch, fc.yaw, 0);
+      } else {
+        // vuelo lento alrededor de la villa (menú, selección de operador)
+        menuT += dt * 0.05;
+        const r = 34;
+        camera.position.set(20 + Math.cos(menuT) * r, 9 + Math.sin(menuT * 0.7) * 2, 13 + Math.sin(menuT) * r);
+        camera.lookAt(18, 2, 13);
+      }
+      if (Math.abs(camera.fov - settings.fov) > 0.01) { camera.fov = settings.fov; camera.updateProjectionMatrix(); }
     }
     // exposición automática según la luz ambiente del lugar
     wr.lightVolume.sample(camera.position.x, camera.position.y, camera.position.z, lightS);
@@ -431,40 +317,33 @@ async function boot() {
     exposure = damp(exposure, target, 1.6, dt);
     renderer.toneMappingExposure = exposure;
     if (audio.ctx) {
-      const fwd = new THREE.Vector3(0, 0, -1).applyEuler(camera.rotation), up = new THREE.Vector3(0, 1, 0).applyEuler(camera.rotation);
-      audio.setListener(camera.position, fwd, up);
+      fwdV.set(0, 0, -1).applyEuler(camera.rotation); upV.set(0, 1, 0).applyEuler(camera.rotation);
+      audio.setListener(camera.position, fwdV, upV);
       audio.setIndoor(lightS.sky < 0.85 ? 1 : 0);
     }
     wr.update(dt, camera.position, 6);
     wr.renderShadowIfNeeded();
     effects.update(dt, camera.position);
-    chars.update(dt, player, camera.position);
-    damageFlash = Math.max(0, damageFlash - dt * 1.4);
-    post.grade.uniforms.uDamage.value = Math.max(damageFlash, player.state === 'downed' ? 0.55 + Math.sin(performance.now() / 300) * 0.1 : 0, player.state === 'alive' && player.hp < player.maxHp * 0.3 ? 0.25 : 0);
-    if (state.mode === 'play') {
-      if (player.state === 'downed') hud.setDowned(true, player.bleedT, player.bleedT / 20); else hud.setDowned(false);
-      if (player.reviving) hud.setRevive(`Reanimando a ${player.reviving.name}`, player.reviving.reviveT / 4);
-      else if (player.state === 'downed' && player.reviveT > 0) hud.setRevive('Te están reanimando', player.reviveT / 4);
-      else {
-        const near = player.state === 'alive' ? game.findRevivable(player) : null;
-        hud.setRevive(near ? `Mantén F para reanimar a ${near.name}` : null, 0);
-      }
-    }
-    vm.update(dt, player, lightS, mouse.dx || 0, mouse.dy || 0);
-    vm.root.visible = state.mode === 'play';
+    chars.update(dt, v, camera.position);
+    ctx.damageFlash = Math.max(0, ctx.damageFlash - dt * 1.4);
+    post.grade.uniforms.uDamage.value = v ? Math.max(ctx.damageFlash, v.state === 'downed' ? 0.55 + Math.sin(performance.now() / 300) * 0.1 : 0, v.state === 'alive' && v.hp < v.maxHp * 0.3 ? 0.25 : 0) : 0;
+    if (s) s.frame(dt);
+    if (v) vm.update(dt, v, lightS, v === s.player ? mouse.dx || 0 : 0, v === s.player ? mouse.dy || 0 : 0);
+    vm.root.visible = !!v && v.state !== 'dead';
     post.render(dt);
-    // HUD
-    if (state.mode === 'play') {
-      const loc = map.locationAt(camera.position.x, player.body.pos.y + 0.2, camera.position.z);
-      const spreadPx = Math.tan(player.currentSpread() * DEG) / Math.tan(camera.fov * DEG / 2) * (window.innerHeight / 2);
-      hud.update(dt, player, { location: loc, spreadPx, prompt: '' });
-    }
+    // HUD del operador visto
+    hud.playerHud(!!v);
+    if (v) {
+      const loc = map.locationAt(camera.position.x, v.body.pos.y + 0.2, camera.position.z);
+      const spreadPx = Math.tan(v.currentSpread() * DEG) / Math.tan(camera.fov * DEG / 2) * (window.innerHeight / 2);
+      hud.update(dt, v, { location: loc, spreadPx, prompt: s.promptText || '' });
+    } else hud.tick(dt);
     // rendimiento
     cpuMs = cpuMs * 0.9 + (performance.now() - t0) * 0.1;
     fpsAcc += dt; fpsFrames++;
     if (fpsAcc >= 0.5) {
       fps = fpsFrames / fpsAcc; fpsAcc = 0; fpsFrames = 0;
-      if (state.mode === 'play' && !state.paused && !document.hidden) adaptQuality(fps);
+      if (s && !paused && !document.hidden) adaptQuality(fps);
     }
     perfStats.frameMs.push(performance.now() - t0);
     if (perfStats.frameMs.length > 600) perfStats.frameMs.shift();
@@ -478,18 +357,25 @@ async function boot() {
 
   // ---------------------------------------------------------------- depuración / tests automáticos
   window.__bc = {
-    THREE, game, player, world, map, wr, effects, renderer, camera, settings, state, hud, audio, post,
-    start: startPlay,
+    THREE, world, map, wr, effects, renderer, camera, settings, state, hud, audio, post, ctx,
+    get session() { return session; },
+    get game() { return session ? session.game : null; },
+    get player() { return session ? session.player : null; },
+    get match() { return session && session.match ? session.match : null; },
+    get intent() { return session && session.player ? session.player.intent : null; },
+    start: () => app.startRange(),
+    startMatch: (opts) => app.startMatch(opts),
+    toMenu: () => app.toMenu(),
     perf: () => ({ fps, cpuMs, adaptiveLevel, calls: renderer.info.render.calls, triangles: renderer.info.render.triangles, regions: wr.drawCalls(), frameMs: perfStats.frameMs.slice() }),
-    place(x, y, z, yaw, pitch = 0) { player.body.pos.x = x; player.body.pos.y = y; player.body.pos.z = z; player.yaw = yaw; player.pitch = pitch; player.body.vel.x = player.body.vel.y = player.body.vel.z = 0; player.eyePos(prevEye); player.eyePos(curEye); },
-    fire(n = 1) { for (let i = 0; i < n; i++) { const w = player.weapon; w.cooldown = 0; player._shoot(game, w); } },
-    breach: testBreach,
-    // coste de cada pasada de render con gl.finish (para perfilar sin temporizadores de GPU)
+    place: (x, y, z, yaw, pitch = 0) => ctx.place(x, y, z, yaw, pitch),
+    fire(n = 1) { const p = session && session.player; if (!p) return; for (let i = 0; i < n; i++) { const w = p.weapon; w.cooldown = 0; p._shoot(session.game, w); } },
+    breach() { if (session && session.testBreach) session.testBreach(); },
+    // coste de cada pasada de render sincronizando con readPixels (sin temporizadores de GPU)
     passTimes(reps = 3) {
       const gl = renderer.getContext();
       const px = new Uint8Array(4);
       const sync = () => { renderer.setRenderTarget(null); gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, px); };
-      const time = (fn) => { sync(); let best = Infinity; for (let i = 0; i < reps; i++) { const t0 = performance.now(); fn(); sync(); best = Math.min(best, performance.now() - t0); } return best; };
+      const time = (fn) => { sync(); let best = Infinity; for (let i = 0; i < reps; i++) { const t1 = performance.now(); fn(); sync(); best = Math.min(best, performance.now() - t1); } return best; };
       const r = {};
       renderer.setRenderTarget(null);
       r.mundoConPrepasada = time(() => post.worldPass.render(renderer, null, null));
@@ -500,27 +386,8 @@ async function boot() {
       r.composicionCompleta = time(() => post.render(0));
       post.bloom.enabled = false; r.composicionSinBloom = time(() => post.render(0)); post.bloom.enabled = b;
       wr.shadowDirty = true; r.sombra4096 = time(() => wr.renderShadowIfNeeded(true));
-      const sm = wr.solidMat; const tmp = new THREE.MeshBasicMaterial({ color: 0x888888 });
-      scene.overrideMaterial = tmp; r.mundoShaderTrivial = time(() => renderer.render(scene, camera)); scene.overrideMaterial = null; tmp.dispose();
-      void sm;
-      // experimentos: qué parte del shader pesa
-      const aniso = wr.albedoTex.anisotropy;
-      wr.albedoTex.anisotropy = 1; wr.normalTex.anisotropy = 1; wr.albedoTex.needsUpdate = true; wr.normalTex.needsUpdate = true;
-      renderer.render(scene, camera);
-      r.sinAnisotropia = time(() => post.worldPass.render(renderer, null, null));
-      wr.albedoTex.anisotropy = aniso; wr.normalTex.anisotropy = aniso; wr.albedoTex.needsUpdate = true; wr.normalTex.needsUpdate = true;
-      const lt = wr.uniforms.uLight.value;
-      const tiny = new THREE.Data3DTexture(new Uint8Array([128, 128, 128, 255]), 1, 1, 1); tiny.needsUpdate = true;
-      wr.uniforms.uLight.value = tiny; renderer.render(scene, camera);
-      r.luz1x1 = time(() => post.worldPass.render(renderer, null, null));
-      wr.uniforms.uLight.value = lt;
-      const cam2 = camera.clone(); cam2.far = 6; cam2.updateProjectionMatrix();
-      const saveCam = post.worldPass.camera; post.worldPass.camera = cam2;
-      r.soloCerca6m = time(() => post.worldPass.render(renderer, null, null));
-      post.worldPass.camera = saveCam;
       return r;
     },
-    intent: player.intent,
   };
 }
 
