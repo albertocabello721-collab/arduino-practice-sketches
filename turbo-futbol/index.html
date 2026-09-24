@@ -44,6 +44,101 @@
     border-radius: 6px; font: 12px/1.45 ui-monospace, Menlo, Consolas, monospace; color: #b8ffb8; pointer-events: none;
     white-space: pre; min-width: 260px; }
 
+
+  /* ---------------- HUD ---------------- */
+  #hud { position: fixed; inset: 0; pointer-events: none; z-index: 20; }
+  #marcador { position: absolute; top: 14px; left: 50%; transform: translateX(-50%); display: flex; align-items: stretch;
+    font-weight: 900; font-style: italic; filter: drop-shadow(0 6px 18px rgba(0,0,0,0.45)); }
+  #marcador .equipo { display: flex; align-items: center; gap: 12px; padding: 6px 18px; min-width: 150px; }
+  #marcador .azul { background: linear-gradient(90deg, rgba(20,70,170,0.2), rgba(35,110,255,0.92)); justify-content: flex-end;
+    clip-path: polygon(8% 0, 100% 0, 100% 100%, 0 100%); border-radius: 8px 0 0 8px; }
+  #marcador .naranja { background: linear-gradient(270deg, rgba(170,70,10,0.2), rgba(255,130,25,0.92));
+    clip-path: polygon(0 0, 92% 0, 100% 100%, 0 100%); border-radius: 0 8px 8px 0; }
+  #marcador .nombre { font-size: 13px; letter-spacing: 2px; opacity: 0.9; }
+  #marcador .goles { font-size: 38px; line-height: 1; min-width: 34px; text-align: center; text-shadow: 0 2px 0 rgba(0,0,0,0.35); }
+  #marcador .reloj { background: rgba(6,10,22,0.92); padding: 6px 20px 4px; display: flex; flex-direction: column; align-items: center;
+    justify-content: center; min-width: 124px; border-top: 3px solid rgba(255,255,255,0.12); }
+  #reloj { font-size: 32px; line-height: 1; font-variant-numeric: tabular-nums; }
+  #reloj.te { color: var(--acento); }
+  #reloj-sub { font-size: 10px; letter-spacing: 2px; opacity: 0.7; margin-top: 2px; font-style: normal; font-weight: 700; }
+  #anuncio { position: absolute; top: 30%; left: 0; right: 0; text-align: center; font-weight: 900; font-style: italic;
+    font-size: 110px; letter-spacing: 3px; opacity: 0; transform: scale(0.8); transition: opacity 0.18s, transform 0.25s;
+    text-shadow: 0 6px 30px rgba(0,0,0,0.55), 0 0 40px rgba(255,255,255,0.25); }
+  #anuncio.visible { opacity: 1; transform: scale(1); }
+  #anuncio .det { display: block; font-size: 22px; letter-spacing: 1px; font-style: normal; font-weight: 700; margin-top: 8px; opacity: 0.92; }
+  #anuncio.azul { color: #8fc2ff; } #anuncio.naranja { color: #ffc27a; }
+  #aviso { position: absolute; top: 58%; left: 0; right: 0; text-align: center; font-weight: 900; font-style: italic; font-size: 34px;
+    letter-spacing: 2px; opacity: 0; transition: opacity 0.2s, transform 0.2s; transform: translateY(10px); text-shadow: 0 3px 14px rgba(0,0,0,0.6); }
+  #aviso.visible { opacity: 1; transform: translateY(0); }
+  #aviso.demo { color: #ff6060; } #aviso.tiro { color: #ffe27a; } #aviso.salvada { color: #7affc0; } #aviso.info { color: #fff; font-size: 24px; }
+  #feed { position: absolute; top: 90px; right: 16px; display: flex; flex-direction: column; gap: 6px; align-items: flex-end; }
+  #feed .item { background: rgba(6,10,22,0.78); padding: 6px 12px; border-radius: 6px; font-size: 14px; font-weight: 700;
+    border-left: 4px solid #fff; animation: entra 0.25s ease-out; }
+  #feed .item.t0 { border-left-color: var(--azul); } #feed .item.t1 { border-left-color: var(--naranja); }
+  #feed .item .n0 { color: #8fc2ff; } #feed .item .n1 { color: #ffc27a; }
+  @keyframes entra { from { opacity: 0; transform: translateX(20px); } to { opacity: 1; transform: none; } }
+  #turbo-medidor { position: absolute; right: 28px; bottom: 26px; width: 150px; height: 150px; }
+  #turbo-medidor svg { width: 100%; height: 100%; transform: rotate(135deg); overflow: visible; }
+  #turbo-medidor .pista { fill: none; stroke: rgba(255,255,255,0.13); stroke-width: 12; stroke-linecap: round; }
+  #turbo-medidor .valor { fill: none; stroke: url(#grad-turbo); stroke-width: 12; stroke-linecap: round; transition: stroke-dashoffset 0.08s linear;
+    filter: drop-shadow(0 0 6px rgba(255,170,40,0.7)); }
+  #turbo-medidor .num { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; flex-direction: column;
+    font-weight: 900; font-style: italic; }
+  #turbo-num { font-size: 46px; line-height: 1; font-variant-numeric: tabular-nums; text-shadow: 0 2px 10px rgba(0,0,0,0.5); }
+  #turbo-medidor .lbl { font-size: 11px; letter-spacing: 3px; opacity: 0.75; font-style: normal; }
+  #turbo-medidor.usando #turbo-num { color: #ffd36b; }
+  #velocimetro { position: absolute; right: 190px; bottom: 34px; font-weight: 900; font-style: italic; text-align: right; opacity: 0.85; }
+  #velocimetro .v { font-size: 26px; font-variant-numeric: tabular-nums; } #velocimetro .u { font-size: 11px; letter-spacing: 2px; opacity: 0.7; font-style: normal; }
+  #velocimetro.ss .v { color: #9fe6ff; text-shadow: 0 0 12px rgba(120,220,255,0.9); }
+  .etiqueta { position: absolute; transform: translate(-50%, -100%); font-size: 13px; font-weight: 800; padding: 2px 8px; border-radius: 4px;
+    background: rgba(6,10,22,0.62); white-space: nowrap; letter-spacing: 0.5px; }
+  .etiqueta.t0 { color: #9fcbff; border-bottom: 2px solid var(--azul); } .etiqueta.t1 { color: #ffc98f; border-bottom: 2px solid var(--naranja); }
+  .etiqueta .b { display: block; height: 3px; margin-top: 2px; background: rgba(255,255,255,0.15); border-radius: 2px; overflow: hidden; }
+  .etiqueta .b i { display: block; height: 100%; background: #ffb52e; }
+  #flecha-pelota { position: absolute; width: 0; height: 0; opacity: 0; transition: opacity 0.15s; }
+  #flecha-pelota.visible { opacity: 1; }
+  #flecha-pelota .f { position: absolute; left: -22px; top: -22px; width: 44px; height: 44px; }
+  #repeticion-banner { position: absolute; left: 0; right: 0; bottom: 40px; text-align: center; opacity: 0; transition: opacity 0.25s; }
+  #repeticion-banner.visible { opacity: 1; }
+  #repeticion-banner .r { display: inline-block; background: rgba(6,10,22,0.85); padding: 10px 22px; border-radius: 30px; font-weight: 900;
+    font-style: italic; letter-spacing: 3px; border: 2px solid rgba(255,255,255,0.18); }
+  #repeticion-banner .r b { color: #ff4d5e; margin-right: 10px; animation: parpadeo 1s infinite; }
+  #repeticion-banner .s { display: block; margin-top: 8px; font-size: 13px; opacity: 0.8; letter-spacing: 1px; }
+  @keyframes parpadeo { 50% { opacity: 0.2; } }
+  .panel-tabla { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); background: var(--panel); border: 1px solid var(--borde);
+    border-radius: 14px; padding: 18px 22px; min-width: 560px; backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); }
+  table.stats { border-collapse: collapse; width: 100%; font-size: 15px; }
+  table.stats th { font-size: 11px; letter-spacing: 2px; opacity: 0.65; font-weight: 800; padding: 6px 10px; text-align: right; }
+  table.stats th:first-child, table.stats td:first-child { text-align: left; }
+  table.stats td { padding: 7px 10px; text-align: right; font-weight: 700; font-variant-numeric: tabular-nums; border-top: 1px solid rgba(255,255,255,0.07); }
+  table.stats tr.t0 td:first-child { border-left: 4px solid var(--azul); } table.stats tr.t1 td:first-child { border-left: 4px solid var(--naranja); }
+  table.stats tr.yo td { background: rgba(255,255,255,0.06); }
+  table.stats .mvp { color: var(--acento); font-size: 11px; margin-left: 6px; letter-spacing: 1px; }
+
+
+
+  /* ---------------- Botones ---------------- */
+  .boton { pointer-events: auto; cursor: pointer; border: 1px solid rgba(160,190,255,0.35); background: rgba(20,30,60,0.8); color: var(--tinta);
+    font: 800 16px/1 "Segoe UI", Arial, sans-serif; letter-spacing: 1px; padding: 13px 22px; border-radius: 10px; font-style: italic;
+    transition: transform 0.12s, background 0.12s, border-color 0.12s, box-shadow 0.12s; }
+  .boton:hover, .boton:focus-visible { transform: translateY(-2px) scale(1.02); background: rgba(40,70,140,0.9); border-color: #9fc2ff; outline: none;
+    box-shadow: 0 8px 24px rgba(40,110,255,0.35); }
+  .boton.primario { background: linear-gradient(90deg, #1f6fff, #6a4dff 55%, #ff7a12); border-color: transparent; }
+  .boton.primario:hover, .boton.primario:focus-visible { box-shadow: 0 10px 30px rgba(255,140,60,0.35); }
+
+  /* ---------------- Pantalla final ---------------- */
+  #fin { position: fixed; inset: 0; z-index: 30; display: flex; align-items: center; justify-content: center; background: rgba(3,6,14,0.55);
+    backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px); }
+  #fin .caja { background: var(--panel); border: 1px solid var(--borde); border-radius: 18px; padding: 26px 30px; min-width: 620px; max-width: 92vw;
+    box-shadow: 0 30px 80px rgba(0,0,0,0.5); }
+  #fin .res { text-align: center; font-weight: 900; font-style: italic; font-size: 54px; letter-spacing: 2px; margin: 0; }
+  #fin .res.gana { color: #ffe27a; } #fin .res.pierde { color: #ff8b8b; }
+  #fin .final-marcador { text-align: center; font-size: 26px; font-weight: 900; font-style: italic; margin: 4px 0 14px; }
+  #fin .final-marcador .a { color: #8fc2ff; } #fin .final-marcador .n { color: #ffc27a; }
+  #fin .mvp-caja { text-align: center; margin: 0 0 16px; font-size: 16px; }
+  #fin .mvp-caja b { color: var(--acento); font-size: 20px; }
+  #fin .botones { display: flex; gap: 12px; justify-content: center; margin-top: 18px; }
+
   /* Resultados de pruebas (?test) */
   #pruebas { position: fixed; inset: 0; z-index: 60; overflow: auto; padding: 28px 32px; background: #070b16;
     font: 14px/1.5 ui-monospace, Menlo, Consolas, monospace; }
@@ -114,6 +209,34 @@
 <body>
 <div id="juego"></div>
 <div id="carga"><div class="titulo">TURBO FÚTBOL</div><div class="sub">Cargando…</div></div>
+<div id="hud" class="oculto">
+  <div id="marcador">
+    <div class="equipo azul"><span class="nombre">AZUL</span><span class="goles" id="goles-azul">0</span></div>
+    <div class="reloj"><span id="reloj">5:00</span><span id="reloj-sub"></span></div>
+    <div class="equipo naranja"><span class="goles" id="goles-naranja">0</span><span class="nombre">NARANJA</span></div>
+  </div>
+  <div id="etiquetas"></div>
+  <div id="flecha-pelota"><svg class="f" viewBox="0 0 44 44"><circle cx="22" cy="22" r="17" fill="rgba(6,10,22,0.75)" stroke="rgba(255,255,255,0.6)" stroke-width="2"/><path d="M14 16 L32 22 L14 28 L18 22 Z" fill="#fff"/></svg></div>
+  <div id="anuncio"></div>
+  <div id="aviso"></div>
+  <div id="feed"></div>
+  <div id="velocimetro"><div class="v" id="vel-num">0</div><div class="u">KM/H</div></div>
+  <div id="turbo-medidor">
+    <svg viewBox="0 0 150 150"><defs><linearGradient id="grad-turbo" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#ffe066"/><stop offset="1" stop-color="#ff7a1a"/></linearGradient></defs>
+      <circle class="pista" cx="75" cy="75" r="62" stroke-dasharray="292.2 389.6"/>
+      <circle class="valor" id="turbo-arco" cx="75" cy="75" r="62" stroke-dasharray="292.2 389.6" stroke-dashoffset="292.2"/></svg>
+    <div class="num"><span id="turbo-num">33</span><span class="lbl">TURBO</span></div>
+  </div>
+  <div id="repeticion-banner"><span class="r"><b>●</b>REPETICIÓN</span><span class="s" id="repeticion-sub">Pulsa Espacio / A para saltar</span></div>
+  <div id="tabla" class="oculto"><div class="panel-tabla" id="tabla-contenido"></div></div>
+</div>
+<div id="fin" class="oculto"><div class="caja">
+  <h2 class="res" id="fin-res">VICTORIA</h2>
+  <div class="final-marcador" id="fin-marcador"></div>
+  <div class="mvp-caja" id="fin-mvp"></div>
+  <div id="fin-tabla"></div>
+  <div class="botones"><button class="boton primario" id="btn-revancha">Revancha</button><button class="boton" id="btn-fin-menu">Menú principal</button></div>
+</div></div>
 <div id="debug" class="oculto"></div>
 <div id="pruebas" class="oculto"></div>
 
@@ -253,6 +376,18 @@ const CONFIG = {
       [-1788, -2300], [1788, -2300], [-2048, -1036], [0, -1024], [2048, -1036], [-1024, 0], [1024, 0], [-2048, 1036], [0, 1024],
       [2048, 1036], [-1788, 2300], [1788, 2300], [-3584, 2484], [3584, 2484], [0, 2816], [-940, 3308], [940, 3308], [-1792, 4184],
       [1792, 4184], [0, 4240]],
+  },
+  match: {
+    duration: 300,            // 5 minutos
+    countdown: 3,
+    goalLine: 5124.25,        // gol cuando |y| > goalLine + radio de la pelota
+    goalCelebration: 2.6,     // s tras el gol antes de la repetición
+    replayBefore: 4.4,        // s grabados antes del gol
+    replayAfter: 1.0,         // s grabados después del gol
+    assistWindow: 5,
+    statCooldown: 1.0,
+    kickoffSpots: [[-2048, -2560], [2048, -2560], [-256, -3840], [256, -3840], [0, -4608]],
+    points: { goal: 100, assist: 50, save: 50, shot: 20, demo: 25, touch: 2 },
   },
   boost: {
     groundAccel: 991.666,
@@ -1483,7 +1618,420 @@ function hitboxMinSDF(car) {
   return m;
 }
 
-// @@PARTIDO@@
+// =====================================================================
+// PARTIDO — reglas: saque, cuenta regresiva, reloj, goles, tiempo extra, repetición y estadísticas.
+// Funciona sin render (pruebas) y con render (juego).
+// =====================================================================
+const MODES = { '1v1': 1, '2v2': 2, '3v3': 3, 'practica': 0 };
+const BOT_NAMES = ['Relámpago', 'Cometa', 'Tornado', 'Brasa', 'Centella', 'Zafiro', 'Halcón', 'Pantera', 'Trueno', 'Nova', 'Ciclón', 'Jaguar', 'Aurora', 'Volcán'];
+const DIFFICULTIES = ['facil', 'normal', 'dificil', 'experto'];
+const DIFF_LABEL = { facil: 'Fácil', normal: 'Normal', dificil: 'Difícil', experto: 'Experto' };
+
+/** Grabación circular de estados de física para la repetición. */
+const CAR_STRIDE = 21;
+class ReplayRecorder {
+  constructor(cars, seconds = 8) {
+    this.cars = cars;
+    this.stride = 9 + cars.length * CAR_STRIDE;
+    this.cap = Math.round(seconds * TICK_RATE);
+    this.buf = new Float32Array(this.cap * this.stride);
+    this.ticks = new Int32Array(this.cap);
+    this.head = 0; this.count = 0;
+  }
+  record(world) {
+    const o = this.head * this.stride, B = this.buf, b = world.ball;
+    B[o] = b.pos.x; B[o + 1] = b.pos.y; B[o + 2] = b.pos.z;
+    B[o + 3] = b.rot.f.x; B[o + 4] = b.rot.f.y; B[o + 5] = b.rot.f.z;
+    B[o + 6] = b.rot.u.x; B[o + 7] = b.rot.u.y; B[o + 8] = b.rot.u.z;
+    for (let i = 0; i < this.cars.length; i++) {
+      const c = this.cars[i], q = o + 9 + i * CAR_STRIDE;
+      B[q] = c.pos.x; B[q + 1] = c.pos.y; B[q + 2] = c.pos.z;
+      B[q + 3] = c.rot.f.x; B[q + 4] = c.rot.f.y; B[q + 5] = c.rot.f.z;
+      B[q + 6] = c.rot.u.x; B[q + 7] = c.rot.u.y; B[q + 8] = c.rot.u.z;
+      B[q + 9] = c.boosting ? 1 : 0; B[q + 10] = c.supersonic ? 1 : 0; B[q + 11] = c.demolished ? 1 : 0; B[q + 12] = c.steerVis;
+      for (let k = 0; k < 4; k++) { B[q + 13 + k] = c.wheels[k].susLen; B[q + 17 + k] = c.wheels[k].spin; }
+    }
+    this.ticks[this.head] = world.tick;
+    this.head = (this.head + 1) % this.cap;
+    this.count = Math.min(this.count + 1, this.cap);
+  }
+  /** Copia los cuadros con tick en [t0, t1] (ordenados). */
+  extract(t0, t1) {
+    const frames = [];
+    for (let k = 0; k < this.count; k++) {
+      const idx = (this.head - this.count + k + this.cap) % this.cap;
+      const t = this.ticks[idx];
+      if (t >= t0 && t <= t1) frames.push(this.buf.slice(idx * this.stride, (idx + 1) * this.stride));
+    }
+    return { frames, stride: this.stride, nCars: this.cars.length };
+  }
+}
+
+/** Reproduce un clip escribiendo en autos y pelota "fantasma" que usan las mismas vistas. */
+class ReplayPlayer {
+  constructor(clip, cars) {
+    this.clip = clip;
+    this.t = 0;
+    this.duration = Math.max(0, (clip.frames.length - 1) / TICK_RATE);
+    this.ghostBall = new Ball();
+    this.ghostCars = cars.map((c) => { const g = new Car(c.id, c.team, c.name); return g; });
+    this.alpha = 0;
+    this.done = clip.frames.length < 2;
+    this.apply();
+  }
+  advance(dt) {
+    this.t += dt;
+    if (this.t >= this.duration) { this.t = this.duration; this.done = true; }
+    this.apply();
+  }
+  apply() {
+    const F = this.clip.frames;
+    if (F.length === 0) return;
+    const f = this.t * TICK_RATE;
+    const i = Math.min(F.length - 1, Math.floor(f)), j = Math.min(F.length - 1, i + 1);
+    this.alpha = clamp(f - i, 0, 1);
+    this.setFrom(F[i], true); this.setFrom(F[j], false);
+  }
+  setFrom(A, prev) {
+    const b = this.ghostBall;
+    const pos = prev ? b.prevPos : b.pos, rot = prev ? b.prevRot : b.rot;
+    pos.set(A[0], A[1], A[2]); rot.f.set(A[3], A[4], A[5]); rot.u.set(A[6], A[7], A[8]); rot.orthonormalize();
+    for (let i = 0; i < this.ghostCars.length; i++) {
+      const c = this.ghostCars[i], q = 9 + i * CAR_STRIDE;
+      const p = prev ? c.prevPos : c.pos, r = prev ? c.prevRot : c.rot;
+      p.set(A[q], A[q + 1], A[q + 2]); r.f.set(A[q + 3], A[q + 4], A[q + 5]); r.u.set(A[q + 6], A[q + 7], A[q + 8]); r.orthonormalize();
+      if (!prev) {
+        c.boosting = A[q + 9] > 0.5; c.supersonic = A[q + 10] > 0.5; c.demolished = A[q + 11] > 0.5; c.steerVis = A[q + 12];
+        for (let k = 0; k < 4; k++) { c.wheels[k].susLen = A[q + 13 + k]; c.wheels[k].spin = A[q + 17 + k]; }
+        c.vel.subVectors(c.pos, c.prevPos).scale(TICK_RATE);
+        c.onGround = true;
+      }
+    }
+    if (!prev) b.vel.subVectors(b.pos, b.prevPos).scale(TICK_RATE);
+  }
+}
+
+class Match {
+  constructor(opts = {}) {
+    this.opts = opts;
+    this.mode = opts.mode || '1v1';
+    this.practice = this.mode === 'practica';
+    this.teamSize = MODES[this.mode] || 1;
+    this.difficulty = opts.difficulty || 'normal';
+    this.headless = !!opts.headless;
+    this.rng = new Rng(opts.seed || 1);
+    this.world = new World({ seed: 1 + this.rng.int(1e9) });
+    this.cars = []; this.controllers = [];
+    const names = BOT_NAMES.slice();
+    for (let i = names.length - 1; i > 0; i--) { const j = this.rng.int(i + 1); const t = names[i]; names[i] = names[j]; names[j] = t; }
+    let id = 0;
+    const humanCount = opts.humanPlayer === false ? 0 : 1;
+    for (let team = 0; team < 2; team++) {
+      const n = this.practice ? (team === 0 ? 1 : 0) : this.teamSize;
+      for (let k = 0; k < n; k++) {
+        const human = team === 0 && k === 0 && humanCount > 0;
+        const car = new Car(id++, team, human ? (opts.playerName || 'Tú') : names.pop());
+        car.isBot = !human;
+        if (this.practice && opts.unlimitedBoost) car.unlimitedBoost = true;
+        this.world.addCar(car);
+        this.cars.push(car);
+        this.controllers.push({ kind: human ? 'humano' : 'bot', brain: null });
+      }
+    }
+    this.human = this.cars.find((c, i) => this.controllers[i].kind === 'humano') || null;
+    this.stats = new Map();
+    for (const c of this.cars) this.stats.set(c, { goals: 0, assists: 0, saves: 0, shots: 0, demos: 0, touches: 0, points: 0 });
+    this.score = [0, 0];
+    this.clock = CONFIG.match.duration;
+    this.clockRunning = false;
+    this.overtime = false; this.otTime = 0;
+    this.zeroWait = false;           // 0:00 esperando que la pelota toque el piso
+    this.state = 'cuenta'; this.stateTime = 0;
+    this.events = [];
+    this.predictor = new BallPredictor(4);      // compartida por los bots
+    this.predTick = -1;
+    this.statPred = new BallPredictor(6);       // solo al tocar la pelota (tiros y salvadas)
+    this.preBall = new Ball(); this.preBall.sim = true;
+    this.threat = 0;
+    this.lastShot = new Map(); this.lastSave = new Map();
+    this.replay = this.headless ? null : new ReplayRecorder(this.cars);
+    this.replayPlayer = null;
+    this.goalInfo = null;
+    this.winner = -1; this.mvp = null;
+    this.lastCountdown = 4;
+    this.kickoffIndex = 0;
+    this.lastMinuteWarned = false;
+    if (opts.botFactory) {
+      this.cars.forEach((c, i) => { if (this.controllers[i].kind === 'bot') this.controllers[i].brain = opts.botFactory(c, this, this.difficulty); });
+    }
+    this.kickoff();
+  }
+  team(t) { return this.cars.filter((c) => c.team === t); }
+  /** Saque: posiciones aleatorias según el tamaño de equipo, iguales (espejo en y) para ambos. */
+  kickoff() {
+    const W = this.world;
+    W.ballEnabled = true;
+    W.ball.reset(0, 0, CONFIG.ball.spawnZ);
+    W.ball.rot = new Basis();
+    W.ball.prevRot.copy(W.ball.rot);
+    for (const pad of W.pads) { pad.active = true; pad.timer = 0; }
+    const spots = CONFIG.match.kickoffSpots.map((s) => s.slice());
+    for (let i = spots.length - 1; i > 0; i--) { const j = this.rng.int(i + 1); const t = spots[i]; spots[i] = spots[j]; spots[j] = t; }
+    for (let team = 0; team < 2; team++) {
+      const members = this.team(team);
+      members.forEach((car, k) => {
+        let [x, y] = spots[k % spots.length];
+        if (this.practice) { x = 0; y = -2560; }
+        if (team === 1) y = -y;
+        car.placeAt(x, y, Math.atan2(-y, -x));
+        car.boost = CONFIG.boost.kickoffAmount;
+        car.controls.reset();
+      });
+    }
+    W.touchLog.length = 0;
+    this.touchesSinceKickoff = 0;
+    this.state = this.practice ? 'jugando' : 'cuenta';
+    this.stateTime = 0;
+    this.lastCountdown = 4;
+    this.predTick = -1;
+    this.threat = 0;
+    this.kickoffIndex++;
+    this.events.push({ type: 'saque' });
+    for (let i = 0; i < this.cars.length; i++) { const br = this.controllers[i].brain; if (br && br.onKickoff) br.onKickoff(); }
+  }
+  prediction() {
+    if (this.predTick !== this.world.tick) { this.predictor.compute(this.world.ball, this.world.tick); this.predTick = this.world.tick; }
+    return this.predictor;
+  }
+  /** Lado de la portería hacia la que va la pelota (+1 naranja, −1 azul, 0 ninguna) en los próximos 4 s. */
+  threatSide(pred) {
+    if (pred.goalIndex(1) >= 0) return 1;
+    if (pred.goalIndex(-1) >= 0) return -1;
+    return 0;
+  }
+  addPoints(car, key, n = 1) {
+    const s = this.stats.get(car);
+    if (!s) return;
+    const P = CONFIG.match.points;
+    const field = { goal: 'goals', assist: 'assists', save: 'saves', shot: 'shots', demo: 'demos', touch: 'touches' }[key];
+    s[field] += n;
+    s.points += P[key] * n;
+  }
+  /** Avanza un tick fijo. humanControls: Controls del jugador (o null). */
+  tick(humanControls) {
+    this.events.length = 0;
+    this.stateTime += DT;
+    const W = this.world;
+    switch (this.state) {
+      case 'cuenta': {
+        for (const c of this.cars) c.controls.reset();
+        const n = Math.ceil(CONFIG.match.countdown - this.stateTime);
+        if (n < this.lastCountdown && n > 0) { this.lastCountdown = n; this.events.push({ type: 'cuenta', n }); }
+        W.step();
+        if (this.replay) this.replay.record(W);
+        this.forwardWorldEvents();
+        if (this.stateTime >= CONFIG.match.countdown) {
+          this.state = 'jugando'; this.stateTime = 0;
+          this.events.push({ type: 'ya' });
+        }
+        break;
+      }
+      case 'jugando': {
+        this.preBall.copyState(W.ball);
+        this.gatherControls(humanControls);
+        W.step();
+        if (this.replay) this.replay.record(W);
+        this.forwardWorldEvents();
+        this.processTouches();
+        if (this.practice) { this.checkGoalPractice(); break; }
+        if (this.clockRunning && !this.zeroWait) {
+          if (this.overtime) this.otTime += DT;
+          else {
+            this.clock = Math.max(0, this.clock - DT);
+            if (!this.lastMinuteWarned && this.clock <= 60) { this.lastMinuteWarned = true; this.events.push({ type: 'ultimoMinuto' }); }
+            if (this.clock <= 0) { this.zeroWait = true; this.events.push({ type: 'tiempoCero' }); }
+          }
+        }
+        if (this.checkGoal()) break;
+        if (this.zeroWait) {
+          const b = W.ball;
+          if (b.pos.z <= CONFIG.ball.radius + 3 && Math.abs(b.pos.y) < AR.YB) {
+            if (this.score[0] !== this.score[1]) this.endMatch();
+            else this.startOvertime();
+          }
+        }
+        break;
+      }
+      case 'gol': {
+        this.gatherControls(humanControls);
+        W.step();
+        if (this.replay) this.replay.record(W);
+        this.forwardWorldEvents();
+        if (this.stateTime >= CONFIG.match.goalCelebration) {
+          if (this.headless || !this.goalInfo || !this.replay) this.afterGoal();
+          else {
+            const g = this.goalInfo.tick;
+            const clip = this.replay.extract(g - Math.round(CONFIG.match.replayBefore * TICK_RATE), g + Math.round(CONFIG.match.replayAfter * TICK_RATE));
+            this.replayPlayer = new ReplayPlayer(clip, this.cars);
+            this.state = 'repeticion'; this.stateTime = 0;
+            this.events.push({ type: 'repeticion' });
+          }
+        }
+        break;
+      }
+      case 'repeticion': {
+        this.replayPlayer.advance(DT);
+        if (this.replayPlayer.done) this.skipReplay();
+        break;
+      }
+      case 'fin':
+      default: {
+        for (const c of this.cars) c.controls.reset();
+        W.step();
+        this.forwardWorldEvents();
+        break;
+      }
+    }
+  }
+  skipReplay() {
+    if (this.state !== 'repeticion') return;
+    this.replayPlayer = null;
+    this.events.push({ type: 'finRepeticion' });
+    this.afterGoal();
+  }
+  gatherControls(humanControls) {
+    for (let i = 0; i < this.cars.length; i++) {
+      const car = this.cars[i], ctl = this.controllers[i];
+      if (ctl.kind === 'humano') { if (humanControls) car.controls.copy(humanControls); else car.controls.reset(); }
+      else if (ctl.brain) ctl.brain.update(DT);
+      else car.controls.reset();
+    }
+  }
+  forwardWorldEvents() {
+    for (const e of this.world.events) {
+      this.events.push(e);
+      if (e.type === 'demolicion' && e.car && e.victim && e.car.team !== e.victim.team) {
+        this.addPoints(e.car, 'demo');
+        this.events.push({ type: 'avisoDemolicion', car: e.car, victim: e.victim });
+      }
+    }
+  }
+  processTouches() {
+    const touches = this.world.events.filter((e) => e.type === 'toque');
+    if (!touches.length) return;
+    if (!this.clockRunning && !this.practice) { this.clockRunning = true; this.events.push({ type: 'relojInicia' }); }
+    this.touchesSinceKickoff += touches.length;
+    // amenaza antes (sin el toque) y después del toque, con horizonte de 6 s
+    const threatBefore = this.threatSide(this.statPred.compute(this.preBall, this.world.tick));
+    const after = this.threatSide(this.statPred.compute(this.world.ball, this.world.tick));
+    this.predTick = -1;
+    const now = this.world.tick / TICK_RATE;
+    for (const t of touches) {
+      const car = t.car;
+      this.addPoints(car, 'touch');
+      const own = car.team === 0 ? -1 : 1;     // lado de su propia portería
+      if (threatBefore === own && after !== own) {
+        if (!(now - (this.lastSave.get(car) || -99) < CONFIG.match.statCooldown)) {
+          this.lastSave.set(car, now);
+          this.addPoints(car, 'save');
+          this.events.push({ type: 'salvada', car });
+        }
+      }
+      if (after === -own && threatBefore !== -own) {
+        if (!(now - (this.lastShot.get(car) || -99) < CONFIG.match.statCooldown)) {
+          this.lastShot.set(car, now);
+          this.addPoints(car, 'shot');
+          this.events.push({ type: 'tiro', car });
+        }
+      }
+    }
+  }
+  /** Devuelve true si hubo gol este tick. */
+  checkGoal() {
+    const b = this.world.ball, lim = CONFIG.match.goalLine + CONFIG.ball.radius;
+    if (Math.abs(b.pos.y) <= lim) return false;
+    const side = b.pos.y > 0 ? 1 : -1;
+    const scoringTeam = side > 0 ? 0 : 1;
+    this.score[scoringTeam]++;
+    // Anotador: último toque del equipo que anota; asistencia: toque previo de un compañero (≤ 5 s)
+    const log = this.world.touchLog, tickNow = this.world.tick;
+    let scorer = null, scorerIdx = -1;
+    for (let i = log.length - 1; i >= 0; i--) if (log[i].car.team === scoringTeam) { scorer = log[i].car; scorerIdx = i; break; }
+    let assist = null;
+    if (scorer) {
+      for (let i = scorerIdx - 1; i >= 0; i--) {
+        const e = log[i];
+        if (tickNow - e.tick > CONFIG.match.assistWindow * TICK_RATE) break;
+        if (e.car === scorer) continue;
+        if (e.car.team !== scoringTeam) break;
+        assist = e.car; break;
+      }
+    }
+    const lastToucher = log.length ? log[log.length - 1].car : null;
+    const ownGoal = !!lastToucher && lastToucher.team !== scoringTeam;
+    if (scorer) {
+      this.addPoints(scorer, 'goal');
+      // todo gol cuenta como tiro (si el toque que anotó no se registró ya como tiro)
+      const lastT = log[scorerIdx].tick / TICK_RATE;
+      if ((this.lastShot.get(scorer) || -99) < lastT - 1e-6) { this.lastShot.set(scorer, lastT); this.addPoints(scorer, 'shot'); }
+    }
+    if (assist) this.addPoints(assist, 'assist');
+    this.goalInfo = { tick: tickNow, team: scoringTeam, scorer, assist, ownGoal, speed: b.vel.length(), x: b.pos.x, y: b.pos.y, z: b.pos.z, side };
+    this.events.push(Object.assign({ type: 'gol' }, this.goalInfo));
+    this.world.ballEnabled = false;
+    this.state = 'gol'; this.stateTime = 0;
+    return true;
+  }
+  checkGoalPractice() {
+    const b = this.world.ball, lim = CONFIG.match.goalLine + CONFIG.ball.radius;
+    if (Math.abs(b.pos.y) <= lim) return;
+    const side = b.pos.y > 0 ? 1 : -1;
+    this.events.push({ type: 'gol', team: side > 0 ? 0 : 1, scorer: this.human, assist: null, ownGoal: false, speed: b.vel.length(), x: b.pos.x, y: b.pos.y, z: b.pos.z, side, practice: true });
+    this.world.ball.reset(0, 0, CONFIG.ball.spawnZ + 300);
+  }
+  resetBallPractice() {
+    if (!this.practice) return;
+    this.world.ball.reset(0, 0, CONFIG.ball.spawnZ + 300);
+    this.events.push({ type: 'pelotaReiniciada' });
+  }
+  afterGoal() {
+    this.goalInfo = null;
+    if (this.overtime) { this.endMatch(); return; }
+    if (this.clock <= 0) {
+      if (this.score[0] !== this.score[1]) { this.endMatch(); return; }
+      this.startOvertime();
+      return;
+    }
+    this.kickoff();
+  }
+  startOvertime() {
+    this.overtime = true; this.zeroWait = false; this.otTime = 0;
+    this.clockRunning = false;
+    this.events.push({ type: 'tiempoExtra' });
+    this.kickoff();
+  }
+  endMatch() {
+    this.state = 'fin'; this.stateTime = 0;
+    this.winner = this.score[0] > this.score[1] ? 0 : (this.score[1] > this.score[0] ? 1 : -1);
+    let best = null, bestPts = -1;
+    for (const c of this.cars) {
+      const s = this.stats.get(c);
+      const pts = s.points + (c.team === this.winner ? 0.5 : 0);
+      if (c.team === this.winner && pts > bestPts) { bestPts = pts; best = c; }
+    }
+    this.mvp = best;
+    this.events.push({ type: 'fin', winner: this.winner, mvp: best });
+  }
+  clockText() {
+    const fmt = (t) => { const s = Math.max(0, Math.ceil(t - 1e-6)); return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0'); };
+    if (this.practice) return 'PRÁCTICA';
+    if (this.overtime) { const s = Math.floor(this.otTime); return '+' + Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0'); }
+    return fmt(this.clock);
+  }
+  isFinite() {
+    return this.world.ball.isFinite() && this.cars.every((c) => c.isFinite());
+  }
+}
 
 // @@BOTS@@
 
@@ -2081,6 +2629,77 @@ Tests.add('Extra H. Placas de turbo: +12 chica / +100 grande; reaparecen a los 4
   const pass = Math.abs(gotSmall - 32) < 0.01 && gotBig === 100 && Math.abs(tSmall - 4) < 0.02 && Math.abs(tBig - 10) < 0.02 && w.pads.length === 34;
   return { pass, detail: 'chica: 20 → ' + gotSmall.toFixed(1) + ', reaparece en ' + tSmall.toFixed(2) + ' s; grande: 10 → ' + gotBig + ', reaparece en ' + tBig.toFixed(2) + ' s; placas: ' +
     w.pads.filter((p) => p.big).length + ' grandes + ' + w.pads.filter((p) => !p.big).length + ' chicas' };
+});
+
+// ---- Pruebas de las reglas del partido ----
+function runTicks(m, seconds, ctl) { const n = Math.round(seconds * TICK_RATE); for (let i = 0; i < n; i++) m.tick(ctl || null); }
+Tests.add('Extra I. Partido: cuenta regresiva, reloj desde el primer toque, gol, estadísticas y nuevo saque', () => {
+  const m = new Match({ mode: '1v1', seed: 5, headless: true });
+  const counts = [];
+  let ya = false;
+  for (let i = 0; i < 3.2 * TICK_RATE; i++) { m.tick(null); for (const e of m.events) { if (e.type === 'cuenta') counts.push(e.n); if (e.type === 'ya') ya = true; } }
+  const frozen = m.cars.every((c) => c.vel.length() < 5);
+  runTicks(m, 1);
+  const clockBefore = m.clock;
+  // el jugador azul empuja la pelota hacia la portería naranja
+  const car = m.cars[0];
+  car.placeAt(0, -600, Math.PI / 2);
+  m.world.ball.reset(0, 0, CONFIG.ball.spawnZ);
+  const ctl = new Controls(); ctl.throttle = 1; ctl.boost = true; car.unlimitedBoost = true;
+  let goal = null, shot = false, relojInicia = false;
+  for (let i = 0; i < 6 * TICK_RATE && !goal; i++) {
+    m.tick(ctl);
+    for (const e of m.events) { if (e.type === 'gol') goal = e; if (e.type === 'tiro' && e.car === car) shot = true; if (e.type === 'relojInicia') relojInicia = true; }
+    // guiar la pelota: tras el primer toque, empujarla recta a la portería
+    if (relojInicia && !goal && m.world.ball.vel.y < 1500) m.world.ball.vel.set(-m.world.ball.pos.x * 0.8, 2500, 0);
+  }
+  const st = m.stats.get(car);
+  const clockRan = m.clock < clockBefore;
+  runTicks(m, CONFIG.match.goalCelebration + 0.1);
+  const newKick = m.state === 'cuenta' && m.world.ball.pos.length() < CONFIG.ball.spawnZ + 1;
+  const pass = counts.join(',') === '3,2,1' || counts.join(',') === '2,1' ? (ya && frozen && clockBefore === CONFIG.match.duration && clockRan && goal && goal.team === 0 &&
+    goal.scorer === car && m.score[0] === 1 && st.goals === 1 && st.points >= 100 && shot && newKick) : false;
+  return { pass, detail: 'cuenta: ' + counts.join(',') + (ya ? ', ¡YA!' : '') + '; autos quietos en la cuenta: ' + frozen + '; reloj antes del toque: ' + clockBefore +
+    ' s; gol del equipo ' + (goal ? goal.team : '—') + ' por ' + (goal && goal.scorer ? goal.scorer.name : '—') + '; marcador ' + m.score.join('-') +
+    '; stats: goles ' + st.goals + ', tiros ' + st.shots + ', puntos ' + st.points + '; nuevo saque: ' + newKick };
+});
+
+Tests.add('Extra J. 0:00 con la pelota en el aire espera al piso; empate → tiempo extra con gol de oro', () => {
+  const m = new Match({ mode: '1v1', seed: 9, headless: true });
+  runTicks(m, 3.1);
+  m.clockRunning = true;
+  m.clock = 0.05;
+  m.world.ball.reset(0, 0, 900);
+  let zero = false, ot = false;
+  for (let i = 0; i < 0.3 * TICK_RATE; i++) { m.tick(null); for (const e of m.events) if (e.type === 'tiempoCero') zero = true; }
+  const waitingInAir = zero && m.state === 'jugando' && !m.overtime && m.world.ball.pos.z > 300;
+  for (let i = 0; i < 3 * TICK_RATE && !ot; i++) { m.tick(null); for (const e of m.events) if (e.type === 'tiempoExtra') ot = true; }
+  runTicks(m, 3.2);
+  m.world.ball.reset(0, 4000, 300); m.world.ball.vel.set(0, 2500, 0);
+  let goal = false, fin = null;
+  for (let i = 0; i < 4 * TICK_RATE && !fin; i++) { m.tick(null); for (const e of m.events) { if (e.type === 'gol') goal = true; if (e.type === 'fin') fin = e; } }
+  const pass = waitingInAir && ot && m.overtime && goal && fin && fin.winner === 0 && m.state === 'fin';
+  return { pass, detail: 'esperó en el aire: ' + waitingInAir + '; tiempo extra: ' + ot + '; gol de oro: ' + goal + '; fin: ' + (fin ? 'ganó el equipo ' + fin.winner + ', MVP ' + (fin.mvp ? fin.mvp.name : '—') : 'no') };
+});
+
+Tests.add('Extra K. La repetición graba el gol y se puede saltar', () => {
+  const m = new Match({ mode: '2v2', seed: 11, headless: false });
+  runTicks(m, 3.1);
+  m.world.ball.reset(0, 3500, 300); m.world.ball.vel.set(300, 2400, 200);
+  let rep = false;
+  for (let i = 0; i < 6 * TICK_RATE && !rep; i++) { m.tick(null); for (const e of m.events) if (e.type === 'repeticion') rep = true; }
+  const player = m.replayPlayer;
+  const dur = player ? player.duration : 0;
+  // la pelota fantasma debe cruzar la línea de gol en algún momento de la repetición
+  let crossed = false, ballMoved = false;
+  if (player) {
+    const y0 = player.ghostBall.pos.y;
+    for (let t = 0; t < dur; t += 0.05) { player.t = t; player.apply(); if (Math.abs(player.ghostBall.pos.y) > CONFIG.match.goalLine) crossed = true; if (Math.abs(player.ghostBall.pos.y - y0) > 500) ballMoved = true; }
+  }
+  m.skipReplay();
+  const skipped = m.state === 'cuenta';
+  const pass = rep && dur > 4.5 && dur < 6.5 && crossed && ballMoved && skipped;
+  return { pass, detail: 'repetición: ' + rep + ', duración ' + dur.toFixed(2) + ' s, la pelota entra en la repetición: ' + crossed + ', saltada → saque: ' + skipped };
 });
 
 // =====================================================================
@@ -2737,6 +3356,7 @@ class CarView {
     R.scene.add(this.group);
     this.renderPos = new V3();
     this.renderRot = new Basis();
+    this.srcCar = car;
   }
   update(alpha) {
     const car = this.car;
@@ -2876,10 +3496,14 @@ class BallView {
 // Placas de turbo (instanciadas: brillan activas y se apagan al tomarlas)
 // ---------------------------------------------------------------------
 class PadsView {
-  constructor(pads) {
+  setPads(pads) {
     this.pads = pads;
-    const small = pads.filter((p) => !p.big), big = pads.filter((p) => p.big);
-    this.small = small; this.big = big;
+    this.small = pads.filter((p) => !p.big);
+    this.big = pads.filter((p) => p.big);
+  }
+  constructor(pads) {
+    this.setPads(pads);
+    const small = this.small, big = this.big;
     const dummy = new THREE.Object3D();
     const discGeo = new THREE.CylinderGeometry(62 * INV_UU, 70 * INV_UU, 5 * INV_UU, 24);
     const discMat = new THREE.MeshBasicMaterial({ color: 0xffffff, toneMapped: false });
@@ -3078,6 +3702,228 @@ const CameraRig = {
   },
 };
 
+// =====================================================================
+// HUD — marcador, reloj, turbo, nombres, flecha de la pelota, avisos y repetición
+// =====================================================================
+const KMH = 0.036; // 1 uu/s = 0.036 km/h
+const HUD = {
+  el: {}, tags: new Map(), annTimer: 0, notTimer: 0, shown: false, tabHeld: false,
+  v3: null, v3b: null,
+  init() {
+    const ids = ['hud', 'goles-azul', 'goles-naranja', 'reloj', 'reloj-sub', 'etiquetas', 'flecha-pelota', 'anuncio', 'aviso', 'feed',
+      'turbo-medidor', 'turbo-arco', 'turbo-num', 'velocimetro', 'vel-num', 'repeticion-banner', 'repeticion-sub', 'tabla', 'tabla-contenido'];
+    for (const id of ids) this.el[id] = document.getElementById(id);
+    this.v3 = new THREE.Vector3(); this.v3b = new THREE.Vector3();
+  },
+  show(match) {
+    this.match = match;
+    this.el.hud.classList.remove('oculto');
+    this.el.feed.innerHTML = '';
+    for (const t of this.tags.values()) t.remove();
+    this.tags.clear();
+    for (const c of match.cars) {
+      if (c === match.human) continue;
+      const d = document.createElement('div');
+      d.className = 'etiqueta t' + c.team;
+      d.innerHTML = '<span></span><span class="b"><i></i></span>';
+      d.firstChild.textContent = c.name;
+      this.el.etiquetas.appendChild(d);
+      this.tags.set(c, d);
+    }
+    const pad = Input.pad.index >= 0 ? (Input.pad.ps ? '✕' : 'A') : '';
+    this.el['repeticion-sub'].textContent = 'Pulsa ' + keyLabel(Settings.data.bindings.saltar[0]) + (pad ? ' / ' + pad : '') + ' para saltar';
+    this.el['turbo-medidor'].classList.toggle('oculto', !match.human);
+    this.el.velocimetro.classList.toggle('oculto', !match.human);
+    this.announce('', '', 0);
+  },
+  hide() { this.el.hud.classList.add('oculto'); this.el.tabla.classList.add('oculto'); },
+  announce(html, cls, secs) {
+    const a = this.el.anuncio;
+    a.innerHTML = html; a.className = (cls || '') + (html ? ' visible' : '');
+    this.annTimer = secs;
+  },
+  notify(text, cls, secs = 1.8) {
+    const a = this.el.aviso;
+    a.textContent = text; a.className = cls + ' visible';
+    this.notTimer = secs;
+  },
+  feed(html, team) {
+    const d = document.createElement('div');
+    d.className = 'item t' + (team === undefined ? '' : team);
+    d.innerHTML = html;
+    this.el.feed.prepend(d);
+    while (this.el.feed.children.length > 5) this.el.feed.lastChild.remove();
+    setTimeout(() => { d.style.transition = 'opacity 0.6s'; d.style.opacity = '0'; setTimeout(() => d.remove(), 650); }, 6000);
+  },
+  nameHtml(car) { return '<span class="n' + car.team + '">' + escapeHtml(car.name) + '</span>'; },
+  onEvent(e) {
+    const m = this.match;
+    const me = m.human;
+    switch (e.type) {
+      case 'cuenta': this.announce(String(e.n), '', 0.9); break;
+      case 'ya': this.announce('¡YA!', '', 0.8); break;
+      case 'gol': {
+        if (e.practice) { this.announce('¡GOL!', e.team === 0 ? 'azul' : 'naranja', 1.4); break; }
+        const who = e.scorer ? 'Anotó ' + escapeHtml(e.scorer.name) + (e.ownGoal ? ' (con rebote rival)' : '') : (e.ownGoal ? 'Gol en propia puerta' : '');
+        const as = e.assist ? ' · Asistencia de ' + escapeHtml(e.assist.name) : '';
+        this.announce('¡GOL!<span class="det">' + (who ? who + as + ' · ' : '') + Math.round(e.speed * KMH) + ' km/h</span>', e.team === 0 ? 'azul' : 'naranja', 2.6);
+        this.feed((e.scorer ? this.nameHtml(e.scorer) + ' anotó' : 'Gol') + (e.assist ? ' (asist. ' + this.nameHtml(e.assist) + ')' : ''), e.team);
+        break;
+      }
+      case 'tiro':
+        if (e.car === me) this.notify('¡TIRO!', 'tiro');
+        this.feed(this.nameHtml(e.car) + ' · tiro a puerta', e.car.team);
+        break;
+      case 'salvada':
+        if (e.car === me) this.notify('¡SALVADA!', 'salvada');
+        this.feed(this.nameHtml(e.car) + ' · ¡salvada!', e.car.team);
+        break;
+      case 'avisoDemolicion':
+        if (e.car === me || e.victim === me) this.notify(e.car === me ? '¡DEMOLICIÓN!' : '¡TE DEMOLIERON!', 'demo');
+        this.feed(this.nameHtml(e.car) + ' demolió a ' + this.nameHtml(e.victim), e.car.team);
+        break;
+      case 'tiempoExtra': this.announce('TIEMPO EXTRA<span class="det">Gol de oro: el primero que anote gana</span>', '', 2.4); break;
+      case 'ultimoMinuto': this.notify('ÚLTIMO MINUTO', 'info', 2.2); break;
+      case 'tiempoCero': this.notify('0:00 · el partido termina cuando la pelota toque el piso', 'info', 2.5); break;
+      case 'repeticion': this.el['repeticion-banner'].classList.add('visible'); this.announce('', '', 0); break;
+      case 'finRepeticion': this.el['repeticion-banner'].classList.remove('visible'); break;
+      case 'pelotaReiniciada': this.notify('Pelota reiniciada', 'info', 1.0); break;
+      case 'fin': setTimeout(() => this.showEnd(m), 1600); this.announce(m.winner === 0 ? '¡AZUL GANA!' : '¡NARANJA GANA!', m.winner === 0 ? 'azul' : 'naranja', 1.6); break;
+      default: break;
+    }
+  },
+  update(dt, cam, views, ballPos, player) {
+    const m = this.match;
+    if (!m) return;
+    this.el['goles-azul'].textContent = m.score[0];
+    this.el['goles-naranja'].textContent = m.score[1];
+    const ct = m.clockText();
+    if (this.el.reloj.textContent !== ct) this.el.reloj.textContent = ct;
+    this.el.reloj.classList.toggle('te', m.overtime);
+    const sub = m.practice ? 'LIBRE' : (m.overtime ? 'TIEMPO EXTRA' : (m.state === 'cuenta' ? 'SAQUE' : (m.zeroWait ? 'ÚLTIMA JUGADA' : '')));
+    if (this.el['reloj-sub'].textContent !== sub) this.el['reloj-sub'].textContent = sub;
+    if (this.annTimer > 0) { this.annTimer -= dt; if (this.annTimer <= 0) this.el.anuncio.classList.remove('visible'); }
+    if (this.notTimer > 0) { this.notTimer -= dt; if (this.notTimer <= 0) this.el.aviso.classList.remove('visible'); }
+    // Turbo y velocidad del jugador
+    if (player) {
+      const bst = player.unlimitedBoost ? 100 : player.boost;
+      this.el['turbo-arco'].style.strokeDashoffset = (292.2 * (1 - bst / 100)).toFixed(1);
+      const txt = player.unlimitedBoost ? '∞' : String(Math.floor(bst));
+      if (this.el['turbo-num'].textContent !== txt) this.el['turbo-num'].textContent = txt;
+      this.el['turbo-medidor'].classList.toggle('usando', player.boosting);
+      const kmh = String(Math.round(player.vel.length() * KMH));
+      if (this.el['vel-num'].textContent !== kmh) this.el['vel-num'].textContent = kmh;
+      this.el.velocimetro.classList.toggle('ss', player.supersonic);
+    }
+    // Nombres sobre los autos
+    const W = R.width, H = R.height;
+    cam.updateMatrixWorld();
+    for (const v of views) {
+      const tag = this.tags.get(v.srcCar || v.car);
+      if (!tag) continue;
+      const c = v.car;
+      if (c.demolished || m.state === 'repeticion' && false) { tag.style.display = 'none'; continue; }
+      const p = v.renderPos;
+      toThree(p.x, p.y, p.z + 95, this.v3);
+      this.v3b.copy(this.v3).applyMatrix4(cam.matrixWorldInverse);
+      if (this.v3b.z > -1) { tag.style.display = 'none'; continue; }
+      this.v3.project(cam);
+      if (Math.abs(this.v3.x) > 1.2 || Math.abs(this.v3.y) > 1.2) { tag.style.display = 'none'; continue; }
+      const dist = -this.v3b.z;
+      tag.style.display = 'block';
+      tag.style.left = ((this.v3.x + 1) / 2 * W).toFixed(1) + 'px';
+      tag.style.top = ((1 - this.v3.y) / 2 * H).toFixed(1) + 'px';
+      tag.style.opacity = clamp(1.4 - dist / 60, 0.35, 1).toFixed(2);
+      const bar = tag.lastChild.firstChild;
+      const bw = (c.boost | 0) + '%';
+      if (c.team === (player ? player.team : 0)) { if (bar.style.width !== bw) bar.style.width = bw; tag.lastChild.style.display = 'block'; }
+      else tag.lastChild.style.display = 'none';
+    }
+    // Flecha cuando la pelota no está a la vista
+    const arrow = this.el['flecha-pelota'];
+    if (ballPos && m.state === 'jugando') {
+      toThree(ballPos.x, ballPos.y, ballPos.z, this.v3);
+      this.v3b.copy(this.v3).applyMatrix4(cam.matrixWorldInverse);
+      const behind = this.v3b.z > 0;
+      this.v3.project(cam);
+      const onScreen = !behind && Math.abs(this.v3.x) < 0.96 && Math.abs(this.v3.y) < 0.96;
+      if (onScreen) arrow.classList.remove('visible');
+      else {
+        let x = this.v3.x, y = this.v3.y;
+        if (behind) { x = -x; y = -y; }
+        let ang = Math.atan2(y * H, x * W);
+        if (!Number.isFinite(ang)) ang = -Math.PI / 2;
+        const rx = W / 2 - 60, ry = H / 2 - 60;
+        const px = W / 2 + Math.cos(ang) * rx, py = H / 2 - Math.sin(ang) * ry;
+        arrow.style.left = px.toFixed(1) + 'px'; arrow.style.top = py.toFixed(1) + 'px';
+        arrow.firstChild.style.transform = 'rotate(' + (-ang * 180 / Math.PI).toFixed(1) + 'deg)';
+        arrow.classList.add('visible');
+      }
+    } else arrow.classList.remove('visible');
+    // Marcador detallado (Tab / Select)
+    const tabOn = this.tabHeld && m.state !== 'fin';
+    this.el.tabla.classList.toggle('oculto', !tabOn);
+    if (tabOn) this.renderTable(this.el['tabla-contenido'], m, false);
+  },
+  showEnd(m) {
+    if (Game.match !== m) return;
+    const fin = document.getElementById('fin');
+    const my = m.human ? m.human.team : m.winner;
+    const res = document.getElementById('fin-res');
+    res.textContent = m.human ? (m.winner === my ? '¡VICTORIA!' : 'DERROTA') : (m.winner === 0 ? 'GANA AZUL' : 'GANA NARANJA');
+    res.className = 'res ' + (m.winner === my ? 'gana' : 'pierde');
+    document.getElementById('fin-marcador').innerHTML = '<span class="a">AZUL ' + m.score[0] + '</span> — <span class="n">' + m.score[1] + ' NARANJA</span>' +
+      (m.overtime ? ' <span style="font-size:14px;opacity:.7">(tiempo extra)</span>' : '');
+    const mvp = m.mvp;
+    document.getElementById('fin-mvp').innerHTML = mvp ? 'Mejor jugador: <b>★ ' + escapeHtml(mvp.name) + '</b> · ' + m.stats.get(mvp).points + ' puntos' : '';
+    this.renderTable(document.getElementById('fin-tabla'), m, true);
+    fin.classList.remove('oculto');
+    this.el.tabla.classList.add('oculto');
+    Input.gameActive = false;
+  },
+  renderTable(el, m, final) {
+    const rows = m.cars.slice().sort((a, b) => a.team - b.team || m.stats.get(b).points - m.stats.get(a).points);
+    let h = '<table class="stats"><tr><th>JUGADOR</th><th>PUNTOS</th><th>GOLES</th><th>ASIST.</th><th>SALVADAS</th><th>TIROS</th><th>DEMOL.</th></tr>';
+    for (const c of rows) {
+      const s = m.stats.get(c);
+      h += '<tr class="t' + c.team + (c === m.human ? ' yo' : '') + '"><td>' + escapeHtml(c.name) + (c.isBot ? ' <span style="opacity:.5;font-size:11px">BOT</span>' : '') +
+        (final && m.mvp === c ? '<span class="mvp">★ MVP</span>' : '') + '</td><td>' + s.points + '</td><td>' + s.goals + '</td><td>' + s.assists + '</td><td>' +
+        s.saves + '</td><td>' + s.shots + '</td><td>' + s.demos + '</td></tr>';
+    }
+    h += '</table>';
+    if (el.innerHTML !== h) el.innerHTML = h;
+  },
+};
+
+// Cámara de la repetición: plano de transmisión desde un costado, siguiendo la pelota con suavidad
+const ReplayCam = {
+  pos: new V3(), target: new V3(), inited: false, side: 1, _n: new V3(), _d: new V3(),
+  reset(goalSide, ballPos) {
+    this.inited = false; this.goalSide = goalSide;
+    this.side = ballPos && ballPos.x > 0 ? -1 : 1;
+  },
+  update(dt, ballPos, cam) {
+    const gs = this.goalSide || 1;
+    const d = this._d;
+    // posición deseada: detrás de la jugada respecto a la portería y hacia un costado, elevada
+    d.set(ballPos.x * 0.5 + this.side * 1500, ballPos.y - gs * 1350, Math.max(ballPos.z * 0.6 + 380, 420));
+    // cerca de la portería: plano desde el palo contrario, más cerrado
+    const near = smoothstep(2600, 4300, ballPos.y * gs);
+    d.x = lerp(d.x, this.side * 1500, near); d.y = lerp(d.y, gs * 3900, near); d.z = lerp(d.z, 520, near);
+    for (let i = 0; i < 3; i++) { const sd = arenaSDF(d.x, d.y, d.z, this._n); if (sd >= 200) break; d.addScaled(this._n, 200 - sd); }
+    if (!this.inited) { this.pos.copy(d); this.target.copy(ballPos); this.inited = true; }
+    const k = 1 - Math.exp(-2.2 * dt), kt = 1 - Math.exp(-7 * dt);
+    this.pos.x += (d.x - this.pos.x) * k; this.pos.y += (d.y - this.pos.y) * k; this.pos.z += (d.z - this.pos.z) * k;
+    this.target.x += (ballPos.x - this.target.x) * kt; this.target.y += (ballPos.y - this.target.y) * kt; this.target.z += (ballPos.z - this.target.z) * kt;
+    toThree(this.pos.x, this.pos.y, this.pos.z, cam.position);
+    cam.up.set(0, 1, 0);
+    toThree(this.target.x, this.target.y, this.target.z, R.tmpV);
+    cam.lookAt(R.tmpV);
+    const vfov = 2 * Math.atan(Math.tan(70 * Math.PI / 360) / cam.aspect) * 180 / Math.PI;
+    if (Math.abs(cam.fov - vfov) > 1e-3) { cam.fov = vfov; cam.updateProjectionMatrix(); }
+  },
+};
+
 // ---------------------------------------------------------------------
 // Cámara libre (depuración / fase 1)
 // ---------------------------------------------------------------------
@@ -3151,33 +3997,90 @@ const _dbgN = new V3();
 // JUEGO (sesión actual) — fase 2: auto en la cancha
 // =====================================================================
 const Game = {
-  world: null, player: null, views: [], ballView: null, padsView: null, acc: 0, state: 'menu', time: 0,
-  playing() { return this.state === 'jugando'; },
-  startSandbox() {
-    for (const v of this.views) v.dispose();
-    this.world = new World();
-    this.player = this.world.addCar(new Car(0, 0, Settings.data.playerName));
-    this.player.placeAt(0, -3000, Math.PI / 2);
-    this.views = [new CarView(this.player)];
-    if (!this.ballView) this.ballView = new BallView(this.world.ball); else this.ballView.ball = this.world.ball;
-    if (!this.padsView) this.padsView = new PadsView(this.world.pads); else { this.padsView.pads = this.world.pads; }
-    this.state = 'jugando';
-    Input.gameActive = true;
-    CameraRig.reset();
+  match: null, views: [], ballView: null, padsView: null, acc: 0, state: 'menu', time: 0, paused: false,
+  humanCtl: new Controls(), requestSkip: false, humanIndex: -1, botFactory: null,
+  playing() { return this.state === 'jugando' && !this.paused; },
+  get world() { return this.match ? this.match.world : null; },
+  get player() { return this.match ? this.match.human : null; },
+  toMenu() {
+    if (typeof Menu !== 'undefined' && Menu.show) { Menu.show(); return; }
+    this.startMatch(this.lastOpts || { mode: '1v1', difficulty: 'normal' });
   },
-  resetBall() {
-    this.world.ball.reset(0, 0, CONFIG.ball.spawnZ + 200);
+  startMatch(opts) {
+    this.lastOpts = Object.assign({}, opts);
+    hideEndScreen();
+    for (const v of this.views) v.dispose();
+    const seed = (opts && opts.seed) || ((Math.random() * 1e9) | 0) + 1;
+    this.match = new Match(Object.assign({ seed, playerName: Settings.data.playerName, botFactory: this.botFactory }, opts));
+    const m = this.match;
+    this.views = m.cars.map((c) => new CarView(c));
+    this.humanIndex = m.human ? m.cars.indexOf(m.human) : -1;
+    if (!this.ballView) this.ballView = new BallView(m.world.ball); else this.ballView.ball = m.world.ball;
+    if (!this.padsView) this.padsView = new PadsView(m.world.pads); else this.padsView.setPads(m.world.pads);
+    HUD.show(m);
+    CameraRig.reset();
+    this.state = 'jugando'; this.paused = false; this.acc = 0; this.requestSkip = false;
+    Input.gameActive = true;
+    this.handleEvents();
   },
   tick() {
-    Input.sample(this.player.controls);
-    this.world.step();
+    const m = this.match;
+    if (this.requestSkip) { this.requestSkip = false; m.skipReplay(); this.handleEvents(); }
+    if (m.human) Input.sample(this.humanCtl);
+    m.tick(m.human ? this.humanCtl : null);
+    this.handleEvents();
+  },
+  handleEvents() {
+    const m = this.match;
+    for (const e of m.events) {
+      HUD.onEvent(e);
+      if (e.type === 'repeticion') ReplayCam.reset(m.goalInfo ? m.goalInfo.side : 1, m.replayPlayer ? m.replayPlayer.ghostBall.pos : null);
+      if (e.type === 'saque') CameraRig.reset();
+    }
+  },
+  render(dt, alpha) {
+    const m = this.match;
+    if (!m) return;
+    const rp = m.replayPlayer;
+    let a = alpha;
+    for (let i = 0; i < this.views.length; i++) {
+      this.views[i].car = rp ? rp.ghostCars[i] : m.cars[i];
+      this.views[i].srcCar = m.cars[i];
+    }
+    this.ballView.ball = rp ? rp.ghostBall : m.world.ball;
+    this.ballView.visible = rp ? true : m.world.ballEnabled;
+    if (rp) a = rp.alpha;
+    for (const v of this.views) v.update(a);
+    this.ballView.update(a);
+    this.padsView.update(this.time);
+    const ballPos = this.ballView.visible ? this.ballView.renderPos : null;
+    if (FreeCam.active) { FreeCam.update(dt); FreeCam.apply(R.camera); }
+    else if (rp) ReplayCam.update(dt, this.ballView.renderPos, R.camera);
+    else if (m.human && this.humanIndex >= 0) {
+      const v = this.views[this.humanIndex];
+      CameraRig.update(dt, v.renderPos, v.renderRot, m.human.onGround, ballPos, m.human.vel.length());
+      CameraRig.apply(R.camera);
+    } else {
+      if (!ReplayCam.inited) ReplayCam.reset(1, ballPos);
+      ReplayCam.goalSide = m.world.ball.vel.y >= 0 ? 1 : -1;
+      ReplayCam.update(dt, this.ballView.renderPos, R.camera);
+    }
+    HUD.update(dt, R.camera, this.views, ballPos, rp ? null : m.human);
   },
 };
+function hideEndScreen() { document.getElementById('fin').classList.add('oculto'); }
+document.getElementById('btn-revancha').addEventListener('click', () => { hideEndScreen(); Game.startMatch(Game.lastOpts || { mode: '1v1', difficulty: 'normal' }); });
+document.getElementById('btn-fin-menu').addEventListener('click', () => { hideEndScreen(); Game.toMenu(); });
 Input.onAction((action, pressed) => {
+  if (action === 'marcador' || action === 'pad-select') { HUD.tabHeld = pressed; return; }
   if (!pressed) return;
-  if (action === 'camPelota' || action === 'pad-y') { CameraRig.ballCam = !CameraRig.ballCam; }
-  if (action === 'reiniciar' && Game.world) Game.resetBall();
+  const m = Game.match;
+  if (action === 'camPelota' || action === 'pad-y') CameraRig.ballCam = !CameraRig.ballCam;
+  if (action === 'reiniciar' && m && m.practice) { m.resetBallPractice(); Game.handleEvents(); }
+  if ((action === 'saltar' || action === 'pad-a') && m && m.state === 'repeticion') Game.requestSkip = true;
+  if ((action === 'pausa' || action === 'pad-start') && m) Game.paused = !Game.paused;
 });
+window.addEventListener('keydown', (e) => { if (e.code === 'Enter' && Game.match && Game.match.state === 'repeticion') Game.requestSkip = true; });
 
 const Main = {
   last: 0, running: false,
@@ -3193,7 +4096,7 @@ const Main = {
       this.last = now;
       Debug.frame(dt);
       const G = Game;
-      if (G.playing()) {
+      if (G.match && G.playing()) {
         G.acc += dt;
         let n = 0;
         while (G.acc >= DT && n < CONFIG.physics.maxTicksPerFrame) { G.tick(); G.acc -= DT; n++; }
@@ -3201,17 +4104,8 @@ const Main = {
       }
       const alpha = clamp(G.acc / DT, 0, 1);
       G.time += dt;
-      for (const v of G.views) v.update(alpha);
-      if (G.ballView) G.ballView.update(alpha);
-      if (G.padsView) G.padsView.update(G.time);
-      if (FreeCam.active || !G.player) {
-        FreeCam.update(dt);
-        FreeCam.apply(R.camera);
-      } else {
-        const v = G.views[0];
-        CameraRig.update(dt, v.renderPos, v.renderRot, G.player.onGround, G.ballView ? G.ballView.renderPos : null, G.player.vel.length());
-        CameraRig.apply(R.camera);
-      }
+      if (G.match) G.render(dt, alpha);
+      else { FreeCam.update(dt); FreeCam.apply(R.camera); }
       DebugViz.update(G.world, null);
       R.renderer.render(R.scene, R.camera);
       if (Debug.on) Debug.update(debugLines());
@@ -3250,7 +4144,7 @@ function debugLines() {
 
 async function boot() {
   const params = new URLSearchParams(location.search);
-  window.__TFT = { CONFIG, World, Car, Ball, BallPredictor, Controls, V3, Basis, arenaSDF, arenaRaycast, hitboxMinSDF, AR, DT, TICK_RATE };
+  window.__TFT = { CONFIG, World, Car, Ball, BallPredictor, Controls, Match, V3, Basis, arenaSDF, arenaRaycast, hitboxMinSDF, AR, DT, TICK_RATE };
   if (params.has('test')) {
     window.__tfArrancado = true;
     await Tests.run();
@@ -3285,7 +4179,8 @@ async function boot() {
   Debug.init();
   DebugViz.init();
   CameraRig.ballCam = Settings.data.camera.ballCam;
-  Game.startSandbox();
+  HUD.init();
+  Game.startMatch({ mode: '1v1', difficulty: 'normal' });
   document.getElementById('carga').classList.add('oculto');
   window.__TF = { CONFIG, FreeCam, arenaSDF, R, V3, Game, Input, CameraRig, Settings };
   window.__tfArrancado = true;
