@@ -112,6 +112,12 @@ Reglas de Siege, contra bots:
   tu equipo, entra en la memoria de los bots aliados y suma 10 puntos. Si no, pones una marca de
   posición amarilla donde miras (hasta 60 m, 15 s, una por jugador). En el dron y en las
   cámaras, T marca igual que el clic.
+- **Chat de equipo**: los bots aliados avisan por radio (abajo a la izquierda): «¡Contacto en
+  PB Cocina!» (sala con su planta: Sót., PB, PA, o la zona exterior) cuando ven a un enemigo que
+  el equipo no veía desde hacía 6 s, «Recargando» (si hay enemigos cerca), «Estoy derribado»,
+  «¡Desactivador plantado!» y «Queda uno». Cada bot habla como mucho cada 2 s y el mismo aviso
+  no se repite antes de 4 s. En Opciones, **Voz de los aliados** (apagada por defecto) los lee
+  con la voz del navegador en español, con un tono distinto por aliado.
 - **Depuración (P)**: puntos de la rejilla de navegación a menos de 14 m (verde de pie,
   amarillo solo agachado, magenta barricada por romper, azul pie de escalera), la ruta que
   sigue cada bot, su cono de visión de 100° (rojo si tiene a alguien a tiro) y una etiqueta

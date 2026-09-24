@@ -4,6 +4,7 @@
 import { Session } from './session.js';
 import { bindGameFx } from './fx.js';
 import { FeedController } from './feeds.js';
+import { TeamChat } from './chat.js';
 import { Match } from '../sim/match.js';
 import { BotSquad } from '../sim/bots.js';
 import { operatorLook } from '../render/character.js';
@@ -22,6 +23,8 @@ export class MatchSession extends Session {
     this.disposers.push(() => this.bots.dispose());
     this.ui = new MatchUI(ctx, this);
     this.feed = new FeedController(ctx, () => this.match.recon, () => this.match.player);
+    this.chat = new TeamChat(ctx);
+    this.disposers.push(() => this.chat.dispose());
     this.deadAt = -1;
     this.spectating = null;
     this.beepT = 0;
@@ -95,6 +98,7 @@ export class MatchSession extends Session {
       props.clear();
       audio.stopDowned();
       this.feed.exit();
+      this.chat.clear();
       hud.setDeath(false); hud.setDowned(false); hud.setRevive(null, 0);
       this.ui.hideBanner();
       this.ui.setPrepInfo(null);
@@ -157,6 +161,8 @@ export class MatchSession extends Session {
       audio.ping('objective');
       this.ui.showPhase('Objetivo localizado', m.site.name, 2.6);
     });
+    // radio de los aliados: al chat de equipo (y en voz, si está activada)
+    onGame('radio', (op, text) => { if (op.team === this.myTeam) this.chat.push(op.name, text, { speak: true, voiceKey: op.name }); });
     // si te hieren mientras miras un dron o una cámara, vuelves a tu cuerpo
     onGame('damaged', (t) => { if (t === this.player && this.feed.active && m.phase !== 'prep') this.feed.exit(); });
   }
@@ -252,6 +258,7 @@ export class MatchSession extends Session {
   frame(dt, alpha = 1) {
     const m = this.match, { hud, input, audio } = this.ctx;
     this.ui.tick(dt);
+    this.chat.tick(dt);
     if (m.phase === 'select') { this.ui.updateSelect(m); return; }
     if (!m.running) { this.ui.updateMarkers([]); this.ui.showScoreboard(m, false); this.feed.frame(dt); return; }
     this._feedRules();

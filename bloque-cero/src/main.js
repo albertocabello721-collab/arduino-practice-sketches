@@ -189,6 +189,7 @@ async function boot() {
   bindCheck('set-crouch', 'crouchToggle');
   bindCheck('set-invert', 'invertY');
   bindCheck('set-perf', 'showPerf');
+  bindCheck('set-voice', 'allyVoice', () => { if (!settings.allyVoice) { try { if (window.speechSynthesis) window.speechSynthesis.cancel(); } catch (e) { /* sin voz */ } } });
   const bindSelect = (id, key, apply) => { const el = $(id); el.value = settings[key]; el.addEventListener('change', () => { settings[key] = el.value; apply && apply(); saveSettings(settings); }); };
   bindSelect('set-quality', 'quality', () => { post.setQuality(settings.quality); renderer.setPixelRatio(pixelRatio()); resize(); });
   bindSelect('qm-side', 'startSide');

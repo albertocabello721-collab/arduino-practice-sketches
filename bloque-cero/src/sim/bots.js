@@ -13,10 +13,13 @@
 //      ataque  · preparación: drones hacia los puntos de plantado (marcan defensores y
 //                localizan el objetivo); acción: entradas repartidas, agruparse, despejar,
 //                plantar con escolta, defender el desactivador y recogerlo si cae.
+//  · radio: los bots avisan a su equipo (contacto con el nombre de la sala, recargando,
+//    derribado, desactivador plantado, queda uno) con límites de frecuencia.
 import { NavGrid } from './nav.js';
 import { Mover } from './ai/mover.js';
 import { Perception, TeamBoard } from './ai/perception.js';
 import { entrancesOf, holdPointFor, adjacentRooms, attackEntries } from './ai/tactics.js';
+import { Radio, callout } from './ai/radio.js';
 import { lineOfSight, traverse } from '../world/raycast.js';
 import { SOLID, HARD, PEN_COST } from '../world/materials.js';
 import { angleDiff, clamp } from '../core/math.js';
@@ -64,6 +67,9 @@ export class BotSquad {
     this._enemies = [[], []];
     this._enemiesTick = -1;
     this._camT = 0;
+    this.radio = new Radio(this.game);
+    this.sightings = [new Map(), new Map()];   // enemigo → última vez que alguien del equipo lo vio
+    this._lastOne = [false, false];
     this._subs = [];
     this._bind();
   }
@@ -89,12 +95,47 @@ export class BotSquad {
     on(g, 'fortifyStart', (op) => this._noise(op, op.body.pos, 'fortify', 18));
     on(g, 'reviveStart', (op) => this._noise(op, op.body.pos, 'revive', 6));
     on(g, 'damaged', (t, ev) => this._hurt(t, ev));
-    on(g, 'downed', (t, ev) => this._hurt(t, ev));
+    on(g, 'downed', (t, ev) => { this._hurt(t, ev); if (t.isBot) this.radio.say(t, 'downed', 'Estoy derribado', { force: true }); this._checkLastOne(); });
+    on(g, 'killed', () => this._checkLastOne());
+    on(g, 'reload', (op) => this._reloadCall(op));
+    on(m, 'planted', (op) => { if (op && op.isBot) this.radio.say(op, 'planted', '¡Desactivador plantado!', { force: true }); });
     on(g, 'bullet', (op, res) => this._whiz(op, res));
     // el desactivador se oye desde lejos; plantado y en el suelo, lo sabe todo el equipo
     on(m, 'plantStart', (op) => this._noise(op, op.body.pos, 'plant', 30));
     on(m, 'disableStart', (op) => { for (const B of this.brains.values()) if (B.side === 'atk') B.per.hear(op.body.pos, 'disable', op, 999); });
   }
+  // ---------------------------------------------------------------- radio
+  // Un bot ve a un enemigo: si nadie de su equipo lo veía desde hace 6 s, lo canta.
+  sighted(op, enemy) {
+    const S = this.sightings[op.team], now = this.game.time;
+    const last = S.get(enemy);
+    S.set(enemy, now);
+    if (this.match.phase === 'prep' || (last !== undefined && now - last < 6)) return;
+    const where = callout(this.match.map, enemy.body.pos);
+    this.radio.say(op, 'contact', where ? `¡Contacto en ${where}!` : '¡Contacto!');
+  }
+  // «Recargando», solo si hay enemigos conocidos cerca (si no, no hace falta avisar)
+  _reloadCall(op) {
+    if (!op.isBot || op.state !== 'alive') return;
+    const now = this.game.time, p = op.body.pos;
+    const near = this.boards[op.team].recent(now, 5).some((k) => Math.hypot(k.x - p.x, k.z - p.z) < 20 && Math.abs(k.y - p.y) < 3);
+    if (near) this.radio.say(op, 'reload', 'Recargando', { cooldown: 8 });
+  }
+  // «Queda uno»: al enemigo le queda un solo operador en pie (una vez por ronda y equipo)
+  _checkLastOne() {
+    const ph = this.match.phase;
+    if (ph !== 'action' && ph !== 'planted') return;
+    for (const team of [0, 1]) {
+      if (this._lastOne[team]) continue;
+      const standing = this.game.operators.filter((o) => o.team === 1 - team && o.state === 'alive');
+      if (standing.length !== 1) continue;
+      const speaker = this.game.operators.find((o) => o.team === team && o.isBot && o.state === 'alive');
+      if (!speaker) continue;
+      this._lastOne[team] = true;
+      this.radio.say(speaker, 'lastOne', 'Queda uno', { force: true });
+    }
+  }
+
   _noise(src, pos, kind, range) {
     if (!src || src.frozen) return;
     const now = this.game.time;
@@ -139,6 +180,9 @@ export class BotSquad {
     for (const B of this.brains.values()) B.mover.stop();
     this.brains.clear();
     this.boards[0].reset(); this.boards[1].reset();
+    this.radio.reset();
+    this.sightings[0].clear(); this.sightings[1].clear();
+    this._lastOne = [false, false];
     this.defPlan = null;
     this.atkPlan = null;
     this.pickupBy = null;
@@ -417,6 +461,7 @@ class Brain {
     const enemies = this.sq.enemiesOf(this.team);
     if (this.per.scan(dt, enemies)) {
       for (const t of this.per.visible) {
+        if (t.state === 'alive') this.sq.sighted(op, t);
         const last = this.reported.get(t);
         if (last === undefined || now - last > 0.5) { this.reported.set(t, now); this.board.report(t, t.body.pos, now, true, 0.8); }
       }

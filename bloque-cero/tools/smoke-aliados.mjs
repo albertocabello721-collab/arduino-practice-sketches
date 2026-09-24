@@ -1,5 +1,5 @@
-// Prueba de humo en el navegador de las ayudas de equipo: capa de depuración (P) y
-// marcar con T (marca de posición y enemigo marcado).
+// Prueba de humo en el navegador de las ayudas de equipo: capa de depuración (P),
+// marcar con T (marca de posición y enemigo marcado) y chat de equipo con voz.
 // Uso: node tools/smoke-aliados.mjs <carpeta de capturas>
 import { createRequire } from 'node:module';
 import path from 'node:path';
@@ -28,6 +28,8 @@ await page.evaluate(() => { window.__bc.settings.difficulty = 'normal'; window._
 await page.click('#sel-grid .opc:nth-child(2)');
 await page.click('#sel-ready');
 await page.waitForFunction(() => window.__bc.match.phase === 'prep', null, { timeout: 60000 });
+// voz de los aliados activada y registro de la radio
+await page.evaluate(() => { const bc = window.__bc; bc.settings.allyVoice = true; window.__radio = []; bc.match.game.on('radio', (op, text) => window.__radio.push(`${op.team} ${op.name}: ${text}`)); });
 await ticks(60 * 6);
 
 // ---------------- 1) depuración con P
@@ -93,6 +95,14 @@ await ticks(60 * 12);
 await shot('a4_depuracion_accion', 1500);
 const dbg2 = await page.evaluate(() => ({ stats: { ...window.__bc.debug.stats }, labels: [...document.querySelectorAll('#dbg .dl')].filter((e) => e.style.display !== 'none').map((e) => e.textContent).slice(0, 6) }));
 console.log('depuración en la acción:', JSON.stringify(dbg2));
+// chat de equipo: lo que los aliados han dicho por radio (y lo que queda en pantalla)
+for (let k = 0; k < 8; k++) {
+  await ticks(60 * 5);
+  if (await page.evaluate(() => window.__radio.some((l) => l.startsWith('0 ')) || window.__bc.match.phase !== 'action')) break;
+}
+const chat = await page.evaluate(() => ({ radio: window.__radio.slice(0, 10), lineas: [...document.querySelectorAll('#chat .cl')].map((e) => e.textContent) }));
+console.log('radio:', JSON.stringify(chat));
+await shot('a5_chat', 300);
 await page.keyboard.press('KeyP');
 await page.waitForFunction(() => !window.__bc.debug.on, null, { timeout: 20000 }).catch(() => {});
 await page.waitForTimeout(300);

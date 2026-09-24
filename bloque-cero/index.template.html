@@ -299,6 +299,11 @@
   .mk.spot .lb { color: #ffb4a8; font-size: 11px; }
   .mk.ping .ic { width: 16px; height: 16px; background: var(--yellow); box-shadow: 0 0 0 2px rgba(0,0,0,.35); }
   .mk.ping .lb { color: #ffe9a3; font-size: 11px; }
+  #chat { position: absolute; left: clamp(16px, 3vw, 40px); bottom: calc(clamp(16px, 3.5vh, 36px) + 168px); width: min(420px, 60vw); display: flex; flex-direction: column; align-items: flex-start; gap: 3px; pointer-events: none; }
+  #chat .cl { padding: 3px 9px; background: rgba(8, 10, 13, 0.66); font-size: 14px; line-height: 1.35; color: #e8edf2; text-shadow: 0 1px 2px #000; }
+  #chat .cl b { font-family: var(--display); font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--blue); margin-right: 4px; }
+  #chat .cl.me b { color: #fff; }
+  #chat .cl.sys { color: var(--yellow); }
   #dbg { position: absolute; inset: 0; overflow: hidden; pointer-events: none; }
   #dbg .dl { position: absolute; transform: translate(-50%, -100%); padding: 1px 6px; background: rgba(0,0,0,.62); font: 11px/1.35 ui-monospace, SFMono-Regular, Menlo, monospace; white-space: nowrap; }
   #dbg .dl.t0 { color: #9fd0ff; } #dbg .dl.t1 { color: #ffc28a; }
@@ -350,6 +355,7 @@
       <label class="toggle"><input type="checkbox" id="set-crouch"> Agacharse alterna (C)</label>
       <label class="toggle"><input type="checkbox" id="set-invert"> Invertir eje vertical</label>
       <label class="toggle"><input type="checkbox" id="set-perf"> Mostrar rendimiento (F3)</label>
+      <label class="toggle"><input type="checkbox" id="set-voice"> Voz de los aliados (lee en voz alta sus avisos de radio)</label>
     </div>
     <div class="panel">
       <h2>Controles</h2>
@@ -412,6 +418,7 @@
     <b>Campo de pruebas:</b> maniquís dentro de la villa (uno dispara). Tiro a la cabeza = baja; al torso, derribo. <kbd>F</kbd> reanima a tu compañero (<kbd>J</kbd> lo derriba), <kbd>K</kbd> reinicia el campo, <kbd>G</kbd> abre un boquete, <kbd>1</kbd>–<kbd>4</kbd> armas, <kbd>L</kbd> cambia de arsenal.
   </div>
   <div id="killfeed"></div>
+  <div id="chat"></div>
   <div id="dmgdirs"><i></i><i></i><i></i><i></i></div>
   <div id="crosshair"><i class="d"></i><i class="l"></i><i class="r"></i><i class="t"></i><i class="b"></i></div>
   <div id="hitmark"><i></i><i></i><i></i><i></i></div>

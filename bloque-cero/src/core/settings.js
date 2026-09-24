@@ -13,6 +13,7 @@ export const DEFAULT_SETTINGS = {
   invertY: false,
   quality: 'alta',      // 'baja' | 'media' | 'alta'
   showPerf: false,
+  allyVoice: false,     // leer en voz alta los avisos de radio de los aliados
   difficulty: 'normal',  // bots: 'novato' | 'normal' | 'veterano' | 'elite'
   startSide: 'random',   // partida rápida: 'random' | 'atk' | 'def'
 };

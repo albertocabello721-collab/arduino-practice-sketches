@@ -1,5 +1,5 @@
-// Ayudas de equipo: marcar con T (enemigo o marca de posición). Las marcas del jugador
-// entran en la memoria de los bots aliados.
+// Ayudas de equipo: marcar con T (enemigo o marca de posición; las marcas entran en la
+// memoria de los bots aliados) y la radio de los bots (chat de equipo, voz opcional).
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createVillaWorld, buildVilla } from '../src/world/maps/villa.js';
@@ -8,6 +8,8 @@ import { Match, SCORE } from '../src/sim/match.js';
 import { BotSquad, navFor } from '../src/sim/bots.js';
 import { SPOT_TIME, PING_TIME } from '../src/sim/recon.js';
 import { SOLID } from '../src/world/materials.js';
+import { callout, RADIO } from '../src/sim/ai/radio.js';
+import { AllyVoice } from '../src/client/chat.js';
 
 const world = createVillaWorld();
 const map = buildVilla(world);
@@ -105,4 +107,108 @@ test('T a una pared: marca de posición donde se mira, 15 s, una por jugador; al
   let t = 0;
   while (t < PING_TIME + 0.2) { freeze(m); m.tick(TICK); t += TICK; }
   assert.equal(m.recon.pings.size, 0, 'caducan');
+});
+
+test('radio: nombres de lugar con planta («PB Cocina», «Sót. Bodega», «PA Estudio», exteriores)', () => {
+  assert.equal(callout(map, { x: 20, y: 0, z: 18.5 }), 'PB Cocina');
+  assert.equal(callout(map, { x: 5, y: -3.5, z: 21 }), 'Sót. Bodega');
+  assert.equal(callout(map, { x: 21.5, y: 3.5, z: 22.5 }), 'PA Estudio');
+  assert.equal(callout(map, { x: 14, y: 0, z: 40 }), 'Jardín trasero');
+  assert.equal(callout(map, { x: 6, y: 7.0, z: 20 }), 'Tejado');
+});
+
+test('radio: contacto, derribado, queda uno y desactivador plantado, sin atropellarse', () => {
+  const m = newMatch({ seed: 9, rules: { actionTime: 120 } });
+  const sq = new BotSquad(m, 'normal', { nav });
+  const msgs = [];
+  m.game.on('radio', (op, text, key) => msgs.push({ t: m.game.time, op, text, key }));
+  m.on('roundStart', () => sq.reset());
+  sq.reset();
+  toAction(m);
+  const atk = m.opsOfSide('atk'), def = m.opsOfSide('def');
+  // contacto: un atacante y un defensor se ven en el salón (el resto, lejos y quietos)
+  atk.forEach((o, i) => place(o, 10 + i, 0.01, -12, 0));
+  def.forEach((o, i) => place(o, 20 + i, -3.5 + 0.01, 3, 0));
+  place(atk[0], 3, 0.01, 6.5, -Math.PI / 2);
+  place(def[0], 8, 0.01, 6.5, Math.PI / 2);
+  for (let i = 0; i < 90 && !msgs.some((q) => q.key === 'contact'); i++) { sq.update(TICK); m.tick(TICK); }
+  const c = msgs.find((q) => q.key === 'contact');
+  assert.ok(c, 'aviso de contacto');
+  assert.equal(c.text, '¡Contacto en PB Salón!');
+  // no se repite mientras lo siguen viendo
+  for (let i = 0; i < 120; i++) { sq.update(TICK); m.tick(TICK); }
+  const same = msgs.filter((q) => q.key === 'contact' && q.op.team === c.op.team);
+  assert.equal(same.length, 1, 'un solo aviso por enemigo a la vista');
+  // derribado
+  const d1 = def[1];
+  m.game.damage(d1, d1.hp + 5, { zone: 'torso' });
+  assert.equal(d1.state, 'downed');
+  assert.ok(msgs.some((q) => q.key === 'downed' && q.op === d1 && q.text === 'Estoy derribado'), 'el derribado lo dice');
+  // queda uno: a la defensa solo le queda uno en pie
+  for (const o of def.slice(2)) m.game.kill(o, { by: null });
+  const standingDef = def.filter((o) => o.state === 'alive');
+  if (standingDef.length > 1) for (const o of standingDef.slice(1)) m.game.kill(o, { by: null });
+  const lo = msgs.find((q) => q.key === 'lastOne');
+  assert.ok(lo && lo.op.team === atk[0].team && lo.text === 'Queda uno', 'el ataque avisa de que queda uno');
+  assert.equal(msgs.filter((q) => q.key === 'lastOne').length, 1, 'una vez por ronda');
+  // límites: mismo bot, avisos normales separados al menos 2 s
+  const byOp = new Map();
+  for (const q of msgs) {
+    if (q.key === 'downed' || q.key === 'lastOne' || q.key === 'planted') continue;
+    const prev = byOp.get(q.op);
+    if (prev !== undefined) assert.ok(q.t - prev >= RADIO.perBot - 1e-9, `${q.op.name} no habla dos veces en menos de 2 s`);
+    byOp.set(q.op, q.t);
+  }
+});
+
+test('radio: «¡Desactivador plantado!» al plantar un bot', () => {
+  const m = newMatch({ seed: 12, rules: { actionTime: 120 } });
+  const sq = new BotSquad(m, 'normal', { nav });
+  const msgs = [];
+  m.game.on('radio', (op, text, key) => msgs.push({ op, text, key }));
+  sq.reset();
+  toAction(m);
+  const c = m.defuser.carrier, A = m.site.bombs.A;
+  assert.ok(c && c.isBot);
+  place(c, A.x, A.y + 0.01, A.z);
+  let t = 0;
+  while (m.phase === 'action' && t < 10) { c.intent.interact = true; m.tick(TICK); t += TICK; }
+  assert.equal(m.phase, 'planted');
+  assert.ok(msgs.some((q) => q.key === 'planted' && q.op === c && q.text === '¡Desactivador plantado!'));
+});
+
+test('voz de los aliados: apagada por defecto, en español cuando se activa y sin romper si el navegador falla', () => {
+  const spoken = [];
+  const fake = {
+    pending: false,
+    speak(u) { spoken.push(u); },
+    cancel() { spoken.length = 0; },
+    getVoices() { return [{ lang: 'en-US', name: 'en' }, { lang: 'es-ES', name: 'es' }]; },
+  };
+  const saved = globalThis.window;
+  globalThis.window = { speechSynthesis: fake, SpeechSynthesisUtterance: function U(text) { this.text = text; } };
+  try {
+    const settings = { allyVoice: false, volume: 0.5 };
+    const v = new AllyVoice(settings);
+    assert.equal(v.say('Recargando', 'CHISPA'), false, 'apagada: no habla');
+    assert.equal(spoken.length, 0);
+    settings.allyVoice = true;
+    assert.equal(v.say('¡Contacto en PB Cocina!', 'CHISPA'), true);
+    assert.equal(spoken.length, 1);
+    assert.equal(spoken[0].lang, 'es-ES');
+    assert.equal(spoken[0].voice.name, 'es', 'elige una voz en español');
+    assert.equal(spoken[0].volume, 0.5);
+    // otro aliado, otro tono
+    v.say('Recargando', 'MAZO');
+    assert.notEqual(spoken[0].pitch, spoken[1].pitch);
+    // el navegador falla al hablar: no se propaga el error
+    fake.speak = () => { throw new Error('bloqueado'); };
+    assert.equal(v.say('Queda uno', 'ONDA'), false);
+    // sin síntesis de voz: no hace nada
+    globalThis.window = {};
+    assert.equal(v.say('Queda uno', 'ONDA'), false);
+    v.cancel();
+  } finally {
+    if (saved === undefined) delete globalThis.window; else globalThis.window = saved;
+  }
 });
