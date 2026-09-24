@@ -25,7 +25,8 @@ async function build() {
   const fragment = tpl.replace('/*__SCRIPT__*/', () => js);
   fs.mkdirSync('dist', { recursive: true });
   // el artifact en construcción se publica aparte del Bloque Cero original
-  fs.writeFileSync('dist/artifact.html', fragment.replace('<title>Bloque Cero</title>', '<title>Bloque Cero 2</title>'));
+  // (el título del artefacto publicado es el que eligió su dueño en claude.ai)
+  fs.writeFileSync('dist/artifact.html', fragment.replace('<title>Bloque Cero</title>', '<title>Rainbow 6 Replica</title>'));
   const full = `<!doctype html>\n<html lang="es">\n<head>\n<meta charset="utf-8">\n<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">\n${fragment}\n</html>\n`;
   fs.writeFileSync('dist/bloque-cero.html', full);
   console.log(`dist/bloque-cero.html ${(full.length / 1024).toFixed(0)} KB en ${Date.now() - t0} ms`);
