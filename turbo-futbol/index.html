@@ -389,6 +389,20 @@ const CONFIG = {
     kickoffSpots: [[-2048, -2560], [2048, -2560], [-256, -3840], [256, -3840], [0, -4608]],
     points: { goal: 100, assist: 50, save: 50, shot: 20, demo: 25, touch: 2 },
   },
+  bots: {
+    // reaction: s entre decisiones; aimNoise: error de puntería (uu); boostUse: 0-1; jumpShots/doubleJump/aerial/wallShots
+    facil:   { reaction: 0.42, aimNoise: 750, boostUse: 0.25, minBoost: 40, speedScale: 0.82, dodgeShots: false, kickoffDodge: false,
+               jumpShots: true, doubleJump: false, aerial: false, aerialMaxZ: 0, wallShots: false, challengeMargin: 0.5, errorChance: 0.25 },
+    normal:  { reaction: 0.24, aimNoise: 380, boostUse: 0.65, minBoost: 20, speedScale: 0.95, dodgeShots: true, kickoffDodge: true,
+               jumpShots: true, doubleJump: false, aerial: false, aerialMaxZ: 0, wallShots: false, challengeMargin: 0.3, errorChance: 0.1 },
+    dificil: { reaction: 0.1, aimNoise: 130, boostUse: 0.9, minBoost: 10, speedScale: 1.0, dodgeShots: true, kickoffDodge: true,
+               jumpShots: true, doubleJump: true, aerial: true, aerialMaxZ: 950, wallShots: false, challengeMargin: 0.2, errorChance: 0.04 },
+    experto: { reaction: 0.05, aimNoise: 70, boostUse: 1.0, minBoost: 0, speedScale: 1.0, dodgeShots: true, kickoffDodge: true,
+               jumpShots: true, doubleJump: true, aerial: true, aerialMaxZ: 1750, wallShots: true, challengeMargin: 0.12, errorChance: 0.0 },
+    roleInterval: 0.25,     // s entre reasignaciones de roles del equipo
+    roleHysteresis: 0.45,   // s de ventaja necesaria para quitarle el rol de "primero" a otro
+    predictionStep: 3,      // ticks entre muestras al buscar la intercepción
+  },
   boost: {
     groundAccel: 991.666,
     airAccel: 1058.333,
@@ -1511,14 +1525,21 @@ class World {
       car.step(car.controls, DT);
     }
     if (this.ballEnabled) this.ball.step(DT);
-    for (const car of this.cars) car.collideWorld();
+    // El orden de resolución se alterna cada tick para que ningún equipo gane los choques simultáneos (50/50)
+    const n = this.cars.length, rev = (this.tick & 1) === 1;
     if (this.ballEnabled) {
       let touched = false;
-      for (const car of this.cars) touched = collideCarBall(car, this.ball, this) || touched;
+      for (let k = 0; k < n; k++) touched = collideCarBall(this.cars[rev ? n - 1 - k : k], this.ball, this) || touched;
       // Si un auto empujó la pelota contra una pared, se vuelve a resolver contra la cancha
       if (touched) this.ball.collideArena();
     }
-    for (let i = 0; i < this.cars.length; i++) for (let j = i + 1; j < this.cars.length; j++) collideCars(this.cars[i], this.cars[j], this);
+    for (let i = 0; i < n; i++) for (let j = i + 1; j < n; j++) {
+      if (rev) collideCars(this.cars[n - 1 - i], this.cars[n - 1 - j], this);
+      else collideCars(this.cars[i], this.cars[j], this);
+    }
+    // Colisión contra la cancha al final: los empujones entre autos y la pelota no dejan autos dentro de paredes
+    for (const car of this.cars) car.collideWorld();
+    if (this.ballEnabled) this.ball.collideArena();
     this.updatePads();
     for (const car of this.cars) {
       for (const e of car.events) { e.car = car; this.events.push(e); }
@@ -2033,7 +2054,710 @@ class Match {
   }
 }
 
-// @@BOTS@@
+// =====================================================================
+// BOTS — IA con los mismos controles que el jugador.
+// Predicción de 4 s (mismo código de física), intercepción alcanzable, roles de equipo con
+// rotación (nunca dos a la misma pelota, uno siempre atrás) y parámetros por dificultad.
+// =====================================================================
+const JUMP_TABLE = (() => {
+  // altura del centro de masa sobre el reposo en cada tick: salto completo y doble salto (2º a los 0.25 s)
+  const J = CONFIG.jump, g = CONFIG.physics.gravity;
+  const single = [], dbl = [];
+  let z = 0, v = J.impulse, z2 = 0, v2 = J.impulse;
+  for (let i = 1; i <= 240; i++) {
+    const t = i * DT;
+    const a = -g + (t <= J.maxHold + 1e-9 ? J.holdAccel : 0);
+    v += a * DT; z += v * DT; single.push(z);
+    v2 += a * DT; if (i === Math.round(0.25 * TICK_RATE)) v2 += J.impulse; z2 += v2 * DT; dbl.push(z2);
+  }
+  return { single, dbl, maxSingle: Math.max(...single), maxDouble: Math.max(...dbl) };
+})();
+/** Tiempo (s) desde el inicio del salto hasta alcanzar la altura h subiendo; -1 si no llega. */
+function jumpTimeFor(h, double) {
+  const arr = double ? JUMP_TABLE.dbl : JUMP_TABLE.single;
+  for (let i = 0; i < arr.length; i++) {
+    if (arr[i] >= h) return (i + 1) * DT;
+    if (i > 0 && arr[i] < arr[i - 1]) break;
+  }
+  return -1;
+}
+
+const _b1 = new V3(), _b2 = new V3(), _b3 = new V3(), _b4 = new V3(), _b5 = new V3(), _botN = new V3();
+
+/** Planificador de roles por equipo: primero (va a la pelota), segundo (apoyo/sombra), tercero (atrás). */
+class TeamPlanner {
+  constructor(match, team) {
+    this.match = match; this.team = team;
+    this.roles = new Map(); this.lastTick = -1e9; this.first = null;
+  }
+  update() {
+    const m = this.match, W = m.world;
+    if (W.tick - this.lastTick < CONFIG.bots.roleInterval * TICK_RATE) return;
+    this.lastTick = W.tick;
+    const members = m.cars.filter((c) => c.team === this.team && !c.demolished);
+    const pred = m.prediction();
+    const scored = members.map((c) => ({ c, s: this.score(c, pred) }));
+    scored.sort((a, b) => a.s - b.s);
+    // histéresis: el primero actual conserva el rol salvo que otro sea claramente mejor
+    if (this.first && scored.length > 1 && !this.first.demolished) {
+      const cur = scored.find((x) => x.c === this.first);
+      if (cur && cur !== scored[0] && cur.s - scored[0].s < CONFIG.bots.roleHysteresis) {
+        scored.splice(scored.indexOf(cur), 1); scored.unshift(cur);
+      }
+    }
+    this.roles.clear();
+    const names = ['primero', 'segundo', 'tercero'];
+    scored.forEach((x, i) => this.roles.set(x.c, names[Math.min(i, 2)]));
+    // con 2 jugadores, el segundo cubre atrás (tercero)
+    if (scored.length === 2) this.roles.set(scored[1].c, 'tercero');
+    this.first = scored.length ? scored[0].c : null;
+    // Peligro en la propia portería: un único "salvador" (el bot que llega antes), los demás a la línea
+    const own = this.team === 0 ? -1 : 1;
+    this.danger = pred.goalIndex(own);
+    this.saver = null;
+    if (this.danger >= 0) {
+      let best = Infinity;
+      for (const c of members) {
+        if (!c.isBot) continue;
+        const t = quickIntercept(c, pred) - (c === this.saverPrev ? 0.25 : 0);
+        if (t < best) { best = t; this.saver = c; }
+      }
+    }
+    this.saverPrev = this.saver;
+  }
+  /** Puntaje (s): tiempo estimado para llegar a la pelota + penalizaciones de posición. */
+  score(car, pred) {
+    const side = car.team === 0 ? 1 : -1;       // dirección de ataque en y
+    const t = quickIntercept(car, pred);
+    const b = this.match.world.ball;
+    let s = t;
+    if ((car.pos.y - b.pos.y) * side > 250) s += 1.2 + (car.pos.y - b.pos.y) * side / 2500;   // del lado equivocado de la pelota
+    if (car.isBot === false) {
+      // al humano solo se le cede la pelota si realmente va hacia ella
+      const dx = b.pos.x - car.pos.x, dy = b.pos.y - car.pos.y, d = Math.hypot(dx, dy) || 1;
+      const chasing = (car.vel.x * dx + car.vel.y * dy) / d > 400 && d < 3500;
+      s += chasing ? -0.2 : 2.0;
+    }
+    return s;
+  }
+  role(car) { this.update(); return this.roles.get(car) || 'segundo'; }
+}
+
+/** Tiempo aproximado de viaje hasta un punto (x, y, z) llegando con dirección (adx, ady) opcional. */
+function travelTime(car, x, y, z, useBoost, adx = 0, ady = 0) {
+  const dx = x - car.pos.x, dy = y - car.pos.y, dz = z - car.pos.z;
+  const dist = Math.sqrt(dx * dx + dy * dy + (car.onGround && car.groundNormal.z < 0.7 ? dz * dz : 0));
+  const f = car.rot.f;
+  let fx = f.x, fy = f.y;
+  const fl = Math.hypot(fx, fy) || 1; fx /= fl; fy /= fl;
+  const dl = Math.max(dist, 1);
+  const cosA = clamp((fx * dx + fy * dy) / dl, -1, 1);
+  const ang = Math.acos(cosA);
+  const v0 = Math.max(0, car.vel.dot(car.rot.f));
+  const boostOk = useBoost && car.boost > 8;
+  const vmax = boostOk ? 2300 : 1410, acc = boostOk ? 1900 : 950;
+  const tAcc = Math.max(0, (vmax - v0) / acc), dAcc = (v0 + vmax) / 2 * tAcc;
+  let t = dist <= dAcc ? (-v0 + Math.sqrt(v0 * v0 + 2 * acc * dist)) / acc : tAcc + (dist - dAcc) / vmax;
+  t += ang * (ang > 1.6 ? 0.42 : 0.3) * clamp(v0 / 1400 + 0.4, 0.4, 1.2);
+  if (adx || ady) {
+    const al = Math.hypot(adx, ady) || 1;
+    const c2 = clamp((dx * adx + dy * ady) / (dl * al), -1, 1);
+    t += Math.acos(c2) * 0.35;
+  }
+  if (!car.onGround) t += 0.25;
+  return t;
+}
+/** Intercepción rápida (para asignar roles): primer instante alcanzable de la pelota a baja altura. */
+function quickIntercept(car, pred) {
+  const step = 6;
+  for (let i = 6; i <= pred.n; i += step) {
+    const j = i * 3;
+    const z = pred.pos[j + 2];
+    if (z > 400) continue;
+    const t = travelTime(car, pred.pos[j], pred.pos[j + 1], z, true);
+    if (t <= i * DT) return i * DT;
+  }
+  const j = pred.n * 3;
+  return pred.n * DT + Math.hypot(pred.pos[j] - car.pos.x, pred.pos[j + 1] - car.pos.y) / 1400;
+}
+
+class BotBrain {
+  constructor(car, match, difficulty) {
+    this.car = car; this.match = match;
+    this.diffName = difficulty;
+    this.D = CONFIG.bots[difficulty] || CONFIG.bots.normal;
+    this.rng = new Rng(7919 * (car.id + 1) + match.rng.int(1e6));
+    this.state = 'saque'; this.role = 'segundo';
+    this.thinkTimer = 0;
+    this.plan = null;
+    this.target = new V3(); this.targetSpeed = 2300; this.allowBoost = true; this.stopAtTarget = false; this.faceBall = false;
+    this.seq = null; this.seqT = 0; this.seqI = 0;
+    this.aerial = null;
+    this.kickoffDodged = false;
+    this.aimNoise = 0;
+    this.stuckTimer = 0;
+    this.debugColor = car.team === 0 ? 0x66b3ff : 0xffaa55;
+  }
+  get planner() {
+    const m = this.match;
+    if (!m.teamPlanners) m.teamPlanners = [new TeamPlanner(m, 0), new TeamPlanner(m, 1)];
+    return m.teamPlanners[this.car.team];
+  }
+  onKickoff() {
+    this.seq = null; this.aerial = null; this.plan = null; this.state = 'saque';
+    this.kickoffDodged = false; this.thinkTimer = 0;
+    this.aimNoise = (this.rng.next() * 2 - 1) * this.D.aimNoise;
+    // variación del saque: punto de impacto y distancia del dodge
+    this.kickoffOffset = (this.rng.next() * 2 - 1) * (40 + this.D.aimNoise * 0.12);
+    this.kickoffDodgeExtra = (this.rng.next() * 2 - 1) * 45;
+  }
+  get attackSide() { return this.car.team === 0 ? 1 : -1; }  // +1: ataca hacia +y
+  now() { return this.match.world.tick * DT; }
+
+  update(dt) {
+    const car = this.car, ctl = car.controls;
+    ctl.reset();
+    if (car.demolished) { this.seq = null; this.aerial = null; this.plan = null; this.state = 'demolido'; this.thinkTimer = 0; return; }
+    if (this.seq && this.runSequence(dt, ctl)) return;
+    if (this.aerial && this.runAerial(dt, ctl)) return;
+    this.thinkTimer -= dt;
+    if (this.thinkTimer <= 0) {
+      this.think();
+      this.thinkTimer = this.D.reaction * (0.75 + 0.5 * this.rng.next());
+    }
+    if (car.numContacts === 0 && !car.onGround) { this.recover(ctl); return; }
+    this.act(dt, ctl);
+  }
+
+  // ------------------------------------------------------------ decisiones
+  think() {
+    const m = this.match, car = this.car, W = m.world, b = W.ball;
+    if (m.touchesSinceKickoff === 0 && !m.practice) { this.state = 'saque'; this.thinkKickoff(); return; }
+    const pred = m.prediction();
+    this.role = this.planner.role(car);
+    const own = -this.attackSide;               // lado de la propia portería
+    const danger = pred.goalIndex(own);         // índice en que la pelota entraría en la propia portería
+    const ownGoalY = own * AR.YB;
+    this.faceBall = false; this.stopAtTarget = false; this.allowBoost = true; this.targetSpeed = 2300 * this.D.speedScale;
+    const P = this.planner;
+    if (danger >= 0) {
+      if (P.saver === car) {
+        const plan = this.findIntercept(pred, true);
+        this.plan = plan || this.goalLinePlan(pred, danger);
+        this.state = 'salvada';
+        return;
+      }
+      if (this.role !== 'primero' || P.saver) { this.state = 'portero'; this.keeperTarget(pred, true); return; }
+    }
+    if (this.role === 'primero') {
+      // Si no está del lado de su portería y la pelota viene hacia ella, volver primero (por el palo lejano)
+      const goalSide = (car.pos.y - b.pos.y) * this.attackSide < 150;
+      const coming = b.vel.y * this.attackSide < -350 || b.pos.y * this.attackSide < -2500;
+      const plan = this.findIntercept(pred, false);
+      const planOk = plan && (goalSide || !coming || this.planFromBehind(plan));
+      if (planOk) { this.plan = plan; this.state = 'ataque'; return; }
+      if (!goalSide && coming) { this.state = 'rotacion'; this.retreatTarget(); return; }
+      const chase = this.chasePlan(pred);
+      if (chase) { this.plan = chase; this.state = 'ataque'; return; }
+    }
+    // Roles de apoyo
+    const behindBall = (car.pos.y - b.pos.y) * this.attackSide < -200;
+    if (this.role === 'segundo') {
+      if (car.boost < 35 + this.D.minBoost && b.pos.y * this.attackSide > -1500 && this.pickBoostTarget(true)) { this.state = 'turbo'; return; }
+      if (!behindBall) { this.state = 'rotacion'; this.rotationTarget(pred); return; }
+      this.state = 'sombra'; this.shadowTarget(pred, 1900); return;
+    }
+    // tercero / último: cubrir la portería, rotando por el palo lejano
+    if (!behindBall && Math.abs(car.pos.y - ownGoalY) > 2500) { this.state = 'rotacion'; this.rotationTarget(pred); return; }
+    if (car.boost < 20 && b.pos.y * this.attackSide > 1500 && this.pickBoostTarget(false)) { this.state = 'turbo'; return; }
+    this.state = 'portero'; this.keeperTarget(pred);
+  }
+  canBeatTeammates(pred) {
+    const my = quickIntercept(this.car, pred);
+    for (const c of this.match.cars) {
+      if (c === this.car || c.team !== this.car.team || c.demolished) continue;
+      if (quickIntercept(c, pred) + this.D.challengeMargin < my) return false;
+    }
+    return true;
+  }
+  thinkKickoff() {
+    const m = this.match, car = this.car;
+    const mates = m.cars.filter((c) => c.team === car.team && !c.demolished);
+    // quien saca: el más cercano (desempate: el de la izquierda de su equipo)
+    let taker = null, best = Infinity;
+    for (const c of mates) {
+      const d = Math.hypot(c.pos.x, c.pos.y) + (c.pos.x * this.attackSide < 0 ? 0 : 1);
+      if (d < best - 1e-6) { best = d; taker = c; }
+    }
+    this.kickoffTaker = taker === car;
+    if (this.kickoffTaker) { this.target.set(0, 0, CONFIG.ball.radius); return; }
+    const byDist = mates.slice().sort((a, b) => Math.hypot(a.pos.x, a.pos.y) - Math.hypot(b.pos.x, b.pos.y));
+    const rank = byDist.indexOf(car);
+    const own = -this.attackSide;
+    if (rank === 1 && mates.length >= 2) {
+      // segundo: turbo grande de su esquina y luego apoyo
+      const sx = car.pos.x >= 0 ? 1 : -1;
+      this.target.set(sx * 3072, own * 4096, 17);
+      this.plan = null;
+    } else {
+      this.target.set(0, own * (AR.YB - 600), 17);
+    }
+  }
+  /** Elige entre la primera intercepción a ras de piso y la primera por el aire (solo si es claramente antes). */
+  findIntercept(pred, defending) {
+    const ground = this.searchIntercept(pred, defending, true);
+    const air = this.searchIntercept(pred, defending, false);
+    let plan = ground;
+    const margin = this.D.reaction < 0.1 ? 0.45 : 0.7;
+    if (air && (!ground || air.t + margin < ground.t)) plan = air;
+    // mantener el plan anterior si es casi el mismo (evita titubeos)
+    const old = this.plan;
+    if (plan && old && old.kind === plan.kind && !old.chase && Math.abs(old.t - plan.t) < 0.2 && old.t > this.now() + 0.1 &&
+        Math.hypot(old.bx - plan.bx, old.by - plan.by) < 250) return old;
+    return plan;
+  }
+  /** Busca el primer punto de la predicción alcanzable (solo piso o solo aire) y arma el plan de golpe. */
+  searchIntercept(pred, defending, groundOnly) {
+    const car = this.car, D = this.D, step = CONFIG.bots.predictionStep;
+    // al defender, llegar con margen para plantarse de frente a la pelota (salvo que ya no haya tiempo)
+    const margin = defending ? 0.35 : 0;
+    const R = CONFIG.ball.radius;
+    const oppGoalY = this.attackSide * (AR.YB + 300);
+    const own = -this.attackSide;
+    const canBoost = D.boostUse > 0.3;
+    for (let i = step; i <= pred.n; i += step) {
+      const j = i * 3;
+      const bx = pred.pos[j], by = pred.pos[j + 1], bz = pred.pos[j + 2];
+      const t = i * DT;
+      // dirección del tiro: hacia la portería rival (con error), o despejar hacia un costado si defiende muy cerca
+      let ax = clamp(bx * 0.35, -500, 500) + this.aimNoise, ay = oppGoalY;
+      if (defending && Math.abs(by - own * AR.YB) < 1800 && (by - own * AR.YB) * own > -1800) {
+        ax = (bx >= 0 ? 1 : -1) * 3800; ay = by + this.attackSide * 1500;
+      }
+      let sdx = ax - bx, sdy = ay - by;
+      const sl = Math.hypot(sdx, sdy) || 1; sdx /= sl; sdy /= sl;
+      // clasificar la altura
+      const onWall = Math.abs(bx) > AR.Xq + 150 || Math.abs(by) > AR.Yq + 200 && Math.abs(bx) > AR.W + 150;
+      let kind;
+      const h = bz - R * 0.55 - CONFIG.car.restZ;   // altura necesaria del centro de masa
+      if (bz <= 175) kind = 'suelo';
+      else if (groundOnly) continue;
+      else if (onWall && D.wallShots && bz < 1500) kind = 'pared';
+      else if (D.jumpShots && h <= JUMP_TABLE.maxSingle - 8) kind = 'salto';
+      else if (D.doubleJump && h <= JUMP_TABLE.maxDouble - 15) kind = 'doble';
+      else if (D.aerial && bz <= D.aerialMaxZ && car.boost >= 25 && t > 0.7 && arenaSDF(bx, by, bz, _botN) > 420) kind = 'aereo';
+      else continue;
+      if (onWall && kind !== 'pared' && bz > 300) continue;
+      // punto de contacto del centro de masa del auto
+      const back = kind === 'suelo' ? R + 60 : (kind === 'pared' ? R + 40 : R + 30);
+      const cx = bx - sdx * back, cy = by - sdy * back;
+      let need = travelTime(car, cx, cy, kind === 'pared' ? bz : 17, canBoost, sdx, sdy);
+      if (kind === 'salto') need += 0.05;
+      if (kind === 'doble') need += 0.15;
+      if (kind === 'aereo') {
+        if (!this.aerialFeasible(bx - sdx * 60, by - sdy * 60, bz, t)) continue;
+        need = Math.max(need * 0.6, 0.5);
+      }
+      const goalNear = defending && pred.pos[Math.min(pred.n, i + 36) * 3 + 1] * own > AR.YB - 200;
+      if (need + (goalNear ? 0 : margin) <= t + 0.04) {
+        return { kind, t: this.now() + t, i, bx, by, bz, cx, cy, sdx, sdy, jumped: false };
+      }
+    }
+    return null;
+  }
+  /** ¿El plan permite golpear desde el lado de la propia portería (sin rodear la pelota)? */
+  planFromBehind(p) {
+    const car = this.car;
+    const relx = car.pos.x - p.bx, rely = car.pos.y - p.by;
+    return relx * p.sdx + rely * p.sdy < -100;
+  }
+  /** Retroceder hacia la propia portería por el palo lejano para quedar entre la pelota y el arco. */
+  retreatTarget() {
+    const own = -this.attackSide, b = this.match.world.ball, car = this.car;
+    const farX = b.pos.x >= 0 ? -1 : 1;
+    const y = clamp(b.pos.y + own * 1400, -(AR.Yq - 250), AR.Yq - 250);
+    const deep = Math.abs(y - own * AR.YB) < 1200;
+    this.target.set(deep ? farX * 700 : clamp(b.pos.x * 0.4 + farX * 900, -3000, 3000), deep ? own * (AR.YB - 450) : y, 17);
+    this.targetSpeed = 2300 * this.D.speedScale;
+    this.allowBoost = this.D.boostUse > 0.4 && car.boost > 15;
+    this.stopAtTarget = false; this.faceBall = false;
+  }
+  /** Sin intercepción clara: perseguir la pelota por detrás (hacia donde estará en ~1.5 s), a nivel del piso. */
+  chasePlan(pred) {
+    const car = this.car, R = CONFIG.ball.radius;
+    let best = -1;
+    for (let i = 12; i <= pred.n; i += 6) {
+      const j = i * 3;
+      if (pred.pos[j + 2] < 400 && Math.abs(pred.pos[j]) < AR.Xq && Math.abs(pred.pos[j + 1]) < AR.Yq) { best = i; if (i * DT >= 1.2) break; }
+    }
+    if (best < 0) best = Math.min(pred.n, Math.round(1.5 * TICK_RATE));
+    const j = best * 3;
+    const bx = pred.pos[j], by = pred.pos[j + 1], bz = Math.min(pred.pos[j + 2], 150);
+    const oppGoalY = this.attackSide * (AR.YB + 300);
+    let sdx = clamp(bx * 0.35, -500, 500) - bx, sdy = oppGoalY - by;
+    const sl = Math.hypot(sdx, sdy) || 1; sdx /= sl; sdy /= sl;
+    const back = R + 60;
+    return { kind: 'suelo', t: this.now() + Math.max(best * DT, travelTime(car, bx, by, 17, true)), i: best, bx, by, bz,
+      cx: bx - sdx * back, cy: by - sdy * back, sdx, sdy, jumped: false, chase: true };
+  }
+  goalLinePlan(pred, danger) {
+    const j = danger * 3, own = -this.attackSide;
+    return { kind: 'linea', t: this.now() + danger * DT, i: danger, bx: pred.pos[j], by: own * (AR.YB - 150), bz: pred.pos[j + 2],
+      cx: clamp(pred.pos[j], -AR.W + 150, AR.W - 150), cy: own * (AR.YB - 250), sdx: 0, sdy: this.attackSide, jumped: false };
+  }
+  aerialFeasible(x, y, z, T) {
+    const car = this.car, g = CONFIG.physics.gravity;
+    const vz = car.vel.z + 420, pz = car.pos.z + 60;
+    const dx = x - (car.pos.x + car.vel.x * T), dy = y - (car.pos.y + car.vel.y * T), dz = z - (pz + vz * T - 0.5 * g * T * T);
+    const a = 2 * Math.sqrt(dx * dx + dy * dy + dz * dz) / (T * T);
+    const boostNeed = a * T / CONFIG.boost.airAccel * CONFIG.boost.usePerSecond;
+    return a < 900 && boostNeed < car.boost - 3;
+  }
+  shadowTarget(pred, dist) {
+    const own = -this.attackSide, b = this.match.world.ball;
+    const k = Math.min(pred.n, Math.round(0.6 * TICK_RATE)) * 3;
+    const bx = pred.pos[k], by = pred.pos[k + 1];
+    let dx = 0 - bx, dy = own * AR.YB - by;
+    const l = Math.hypot(dx, dy) || 1; dx /= l; dy /= l;
+    const d = Math.min(dist, l * 0.7);
+    this.target.set(clamp(bx + dx * d, -3300, 3300), clamp(by + dy * d, -4600, 4600), 17);
+    this.targetSpeed = clamp(900 + Math.hypot(this.target.x - this.car.pos.x, this.target.y - this.car.pos.y) * 0.9, 600, 2300 * this.D.speedScale);
+    this.allowBoost = Math.hypot(this.target.x - this.car.pos.x, this.target.y - this.car.pos.y) > 1800 && this.D.boostUse > 0.5;
+    this.stopAtTarget = true; this.faceBall = true;
+    void b;
+  }
+  keeperTarget(pred, urgent) {
+    const own = -this.attackSide, b = this.match.world.ball;
+    const far = !urgent && Math.abs(b.pos.y - own * AR.YB) > 4500;
+    const y = own * (far ? AR.YB - 1100 : AR.YB - (urgent ? 260 : 420));
+    this.target.set(clamp(b.pos.x * 0.35, -650, 650), y, 17);
+    const d = Math.hypot(this.target.x - this.car.pos.x, this.target.y - this.car.pos.y);
+    this.targetSpeed = clamp(500 + d, 400, 2300 * this.D.speedScale);
+    this.allowBoost = d > 2500 && this.D.boostUse > 0.5;
+    this.stopAtTarget = true; this.faceBall = true;
+    void pred;
+  }
+  rotationTarget(pred) {
+    // volver por el palo lejano (el más alejado de la pelota)
+    const own = -this.attackSide, b = this.match.world.ball, car = this.car;
+    const farX = b.pos.x >= 0 ? -1 : 1;
+    const behindNow = (car.pos.y - b.pos.y) * this.attackSide < -600;
+    if (Math.abs(car.pos.y - own * AR.YB) > 3000 && !behindNow) this.target.set(farX * 1800, own * 2600, 17);
+    else this.target.set(farX * 950, own * (AR.YB - 500), 17);
+    this.targetSpeed = 2300 * this.D.speedScale;
+    this.allowBoost = this.D.boostUse > 0.6 && car.boost > 40;
+    this.stopAtTarget = false; this.faceBall = false;
+    void pred;
+  }
+  pickBoostTarget(anyHalf) {
+    const car = this.car, own = -this.attackSide;
+    let best = null, bd = Infinity;
+    for (const p of this.match.world.pads) {
+      if (!p.active || !p.big) continue;
+      if (!anyHalf && p.y * own < -200) continue;
+      const d = Math.hypot(p.x - car.pos.x, p.y - car.pos.y) + (p.y * own < 0 ? 1500 : 0);
+      if (d < bd) { bd = d; best = p; }
+    }
+    if (!best || bd > 5000) return false;
+    this.target.set(best.x, best.y, 17);
+    this.targetSpeed = 2300 * this.D.speedScale;
+    this.allowBoost = false; this.stopAtTarget = false; this.faceBall = false;
+    return true;
+  }
+
+  // ------------------------------------------------------------ acción
+  act(dt, ctl) {
+    const car = this.car, m = this.match, b = m.world.ball, D = this.D;
+    if (this.state === 'saque') { this.actKickoff(ctl); return; }
+    if ((this.state === 'ataque' || this.state === 'salvada') && this.plan) {
+      const p = this.plan;
+      const tLeft = p.t - this.now();
+      // si el equipo reasignó el rol, dejar la pelota al compañero (salvo que el golpe sea inminente)
+      const P = this.planner;
+      this.role = P.role(car);
+      if (tLeft > 0.12 && ((this.state === 'ataque' && (this.role !== 'primero' || P.danger >= 0)) || (this.state === 'salvada' && P.saver !== car))) {
+        this.plan = null; this.thinkTimer = 0; this.state = 'sombra'; this.shadowTarget(m.prediction(), 1600);
+        this.driveTo(ctl, this.target.x, this.target.y, this.targetSpeed, this.allowBoost, true);
+        return;
+      }
+      // plan vencido o la pelota cambió: volver a pensar
+      if (tLeft < -0.15) { this.plan = null; this.thinkTimer = 0; this.driveTo(ctl, b.pos.x, b.pos.y, 2300, true); return; }
+      if (p.kind === 'linea') { this.driveTo(ctl, p.cx, p.cy, 2300, true); if (tLeft < 0.4 && p.bz > 250 && car.onGround) this.startJumpShot(p.bz); return; }
+      // puntero: detrás de la pelota en la línea de tiro, más atrás cuanto más lejos está el auto
+      const dist = Math.hypot(p.cx - car.pos.x, p.cy - car.pos.y);
+      const lead = clamp(dist * 0.42, 0, 950);
+      let tx = p.cx - p.sdx * lead, ty = p.cy - p.sdy * lead;
+      // si el auto está del lado equivocado de la pelota, rodearla por un costado
+      const relx = car.pos.x - p.bx, rely = car.pos.y - p.by;
+      const along = relx * p.sdx + rely * p.sdy;
+      if (along > -60 && dist < 2200) {
+        const px = -p.sdy, py = p.sdx;
+        const side = (relx * px + rely * py) >= 0 ? 1 : -1;
+        tx = p.bx + px * side * 650 - p.sdx * 500; ty = p.by + py * side * 650 - p.sdy * 500;
+      }
+      if (dist < 520 && along < -60) { tx = p.cx + p.sdx * 40; ty = p.cy + p.sdy * 40; }
+      // cerca pero mal alineado para tirar: abrirse para alinear (salvo que haya que despejar ya)
+      const hx = car.vel.lengthSq() > 250000 ? car.vel.x : car.rot.f.x, hy = car.vel.lengthSq() > 250000 ? car.vel.y : car.rot.f.y;
+      const hl = Math.hypot(hx, hy) || 1;
+      const alignDot = (hx * p.sdx + hy * p.sdy) / hl;
+      if (this.state === 'ataque' && dist < 900 && dist > 250 && alignDot < -0.25 && along < -60 && tLeft > 0.45) {
+        tx = p.cx - p.sdx * 900; ty = p.cy - p.sdy * 900;
+      }
+      // no apuntar detrás de la línea de fondo ni dentro de las porterías
+      tx = clamp(tx, -AR.Xq + 80, AR.Xq - 80);
+      ty = clamp(ty, -AR.Yq + 120, AR.Yq - 120);
+      const want = tLeft > 0.05 ? dist / tLeft : 2300;
+      const timed = p.kind === 'salto' || p.kind === 'doble' || p.kind === 'aereo';
+      let speed;
+      if (timed) speed = clamp(want * 1.02, 650, 2300 * D.speedScale);
+      else speed = clamp(want * 1.2 + 450 * D.speedScale, 900, 2300 * D.speedScale);   // llegar con fuerza
+      const late = want > 1250 || (!timed && dist < 900);
+      this.driveTo(ctl, tx, ty, speed, late || this.state === 'salvada');
+      if (!timed && tLeft > 0.5 && dist / Math.max(car.vel.length(), 400) < tLeft - 0.6) this.thinkTimer = Math.min(this.thinkTimer, 0.05);
+      // ejecutar saltos / dodges / aéreos
+      if (car.onGround && !this.seq) {
+        if (p.kind === 'salto' || p.kind === 'doble') {
+          const h = p.bz - CONFIG.ball.radius * 0.55 - CONFIG.car.restZ;
+          const tj = jumpTimeFor(h, p.kind === 'doble');
+          const vF = Math.max(0, car.vel.dot(car.rot.f));
+          if (tj > 0 && tLeft <= tj + 0.02 && Math.abs(dist - vF * tLeft) < 260) this.startJumpShot(p.bz, p.kind === 'doble');
+        } else if (p.kind === 'aereo') {
+          if (tLeft < 3.0 && Math.abs(Math.atan2(ty - car.pos.y, tx - car.pos.x) - Math.atan2(car.rot.f.y, car.rot.f.x)) < 0.5) this.startAerial(p);
+        } else if (p.kind === 'pared') {
+          if (tLeft < 0.28 && car.groundNormal.z < 0.6) this.startJumpShot(p.bz, false, true);
+        } else if (D.dodgeShots && dist < 420 && tLeft < 0.26 && car.vel.length() > 650 && p.bz < 160) {
+          const fdot = (car.rot.f.x * p.sdx + car.rot.f.y * p.sdy);
+          // dodge para golpear fuerte solo si el tiro sale alineado (o si hay que despejar)
+          const toGoal = Math.abs(p.by - this.attackSide * AR.YB);
+          if (fdot > (this.state === 'salvada' ? 0.6 : 0.82) && (toGoal < 6500 || this.state === 'salvada') && this.rng.next() > D.errorChance) this.startDodgeInto(p.bx, p.by);
+        }
+      }
+      return;
+    }
+    // estados de posicionamiento
+    this.driveTo(ctl, this.target.x, this.target.y, this.targetSpeed, this.allowBoost, this.stopAtTarget);
+    if (this.faceBall) {
+      const d = Math.hypot(this.target.x - car.pos.x, this.target.y - car.pos.y);
+      if (d < 220 && car.vel.length() < 500) {
+        // mirar hacia la pelota
+        const a = this.angleTo(b.pos.x, b.pos.y);
+        if (Math.abs(a) > 0.5) { ctl.throttle = 0.6; ctl.steer = -Math.sign(a); ctl.handbrake = Math.abs(a) > 1.8; }
+        else { ctl.throttle = 0; ctl.steer = 0; }
+      }
+    }
+    // recoger placas chicas en el camino
+    this.snapToPads(ctl);
+  }
+  actKickoff(ctl) {
+    const car = this.car, m = this.match;
+    if (m.state !== 'jugando') return;
+    if (this.kickoffTaker) {
+      const d = Math.hypot(car.pos.x, car.pos.y);
+      const ox = this.kickoffOffset || 0;
+      this.driveTo(ctl, ox, -this.attackSide * 10, 2300, true);
+      const dodgeDist = 190 + car.vel.length() * 0.2 + (this.kickoffDodgeExtra || 0);
+      if (this.D.kickoffDodge && !this.kickoffDodged && d < dodgeDist && car.onGround) {
+        this.kickoffDodged = true;
+        this.startDodgeInto(ox * 0.5, 0);
+      }
+    } else {
+      this.driveTo(ctl, this.target.x, this.target.y, 2300, this.D.boostUse > 0.5, false);
+    }
+  }
+  angleTo(x, y) {
+    const car = this.car, dx = x - car.pos.x, dy = y - car.pos.y, dz = 0;
+    const lx = dx * car.rot.f.x + dy * car.rot.f.y + dz * car.rot.f.z;
+    const ly = dx * car.rot.l.x + dy * car.rot.l.y + dz * car.rot.l.z;
+    return Math.atan2(ly, lx);
+  }
+  /** Control de manejo hacia (x, y) a la velocidad deseada. */
+  driveTo(ctl, x, y, speed, boost, stop) {
+    const car = this.car, D = this.D;
+    // si el auto está en una pared, apuntar al punto proyectado en su plano
+    const dx = x - car.pos.x, dy = y - car.pos.y, dz = (car.groundNormal.z < 0.7 ? 17 - car.pos.z : 0);
+    const lx = dx * car.rot.f.x + dy * car.rot.f.y + dz * car.rot.f.z;
+    const ly = dx * car.rot.l.x + dy * car.rot.l.y + dz * car.rot.l.z;
+    const dist = Math.hypot(dx, dy);
+    const ang = Math.atan2(ly, lx);
+    const vF = car.vel.dot(car.rot.f);
+    let want = speed;
+    if (stop) want = Math.min(want, Math.sqrt(2 * 2400 * Math.max(0, dist - 60)));
+    // maniobra de varios puntos dentro de una portería o contra una pared: moverse hacia el lado libre
+    // y girar el volante para que el morro rote hacia el objetivo
+    const inGoal = Math.abs(car.pos.y) > AR.YB - 60;
+    if (this.manTimer > 0) this.manTimer -= DT;
+    if (car.onGround && car.groundNormal.z > 0.7 && Math.abs(ang) > 0.7 && Math.abs(vF) < 700) {
+      const f = car.rot.f, u = car.rot.u;
+      const ox = car.pos.x + u.x * 22, oy = car.pos.y + u.y * 22, oz = car.pos.z + u.z * 22;
+      const ahead = arenaRaycast(ox, oy, oz, f.x, f.y, f.z, 400, _hit, 2) ? _hit.t : 999;
+      if ((inGoal && Math.abs(ang) > 1.2) || ahead < 150 || this.manTimer > 0) {
+        const behind = arenaRaycast(ox, oy, oz, -f.x, -f.y, -f.z, 400, _hit, 2) ? _hit.t : 999;
+        // comprometerse con un sentido hasta quedar bloqueado (giro en varios puntos)
+        if (!(this.manTimer > 0) || (this.manDir > 0 ? ahead : behind) < 75) {
+          this.manDir = (this.manTimer > 0) ? -this.manDir : (ahead >= behind ? 1 : -1);
+          this.manTimer = 1.3;
+        }
+        const dir = this.manDir;
+        const rot = ang > 0 ? 1 : -1;               // +1: girar el morro a la izquierda
+        ctl.throttle = dir;
+        ctl.steer = dir > 0 ? -rot : rot;
+        ctl.handbrake = false;
+        return;
+      }
+    } else if (Math.abs(ang) <= 0.7) this.manTimer = 0;
+    // marcha atrás para objetivos cercanos detrás
+    if (Math.abs(ang) > 2.3 && dist < 650 && vF < 300) {
+      ctl.throttle = -1;
+      ctl.steer = clamp((ang > 0 ? Math.PI - ang : -Math.PI - ang) * 2.5, -1, 1);
+      return;
+    }
+    const yawRate = car.angVel.dot(car.rot.u);
+    ctl.steer = clamp(-ang * 2.8 + yawRate * 0.12, -1, 1);
+    ctl.handbrake = Math.abs(ang) > 1.35 && vF > 500 && dist > 250;
+    if (Math.abs(ang) > 1.2 && !stop) want = Math.min(want, 1100);
+    if (vF < want - 40) {
+      ctl.throttle = 1;
+      if (boost && D.boostUse > 0 && Math.abs(ang) < 0.45 && vF < want - 150 && car.boost > D.minBoost && car.onGround &&
+          (D.boostUse >= 0.99 || this.rng.next() < D.boostUse)) ctl.boost = true;
+    } else if (vF > want + 120) ctl.throttle = vF > 0 ? -1 : 0;
+    else ctl.throttle = clamp((want - vF) / 300, -0.2, 0.6);
+    // atascado contra algo: retroceder girando; si se repite, saltar
+    if (car.onGround && Math.abs(vF) < 80 && Math.abs(ctl.throttle) > 0.5 && dist > 250) {
+      this.stuckTimer += DT;
+      if (this.stuckTimer > 0.7) {
+        this.stuckCount = (this.stuckCount || 0) + 1;
+        this.stuckTimer = 0;
+        const turn = ang >= 0 ? 1 : -1;
+        if (this.stuckCount >= 3) { this.stuckCount = 0; this.startSequence([{ dur: 0.15, jump: true, throttle: -1 }, { dur: 0.5, jump: false, throttle: 1, steer: -turn }]); }
+        else this.startSequence([{ dur: 0.55, throttle: -Math.sign(ctl.throttle || 1), steer: turn * Math.sign(ctl.throttle || 1) }]);
+      }
+    } else { this.stuckTimer = Math.max(0, this.stuckTimer - DT); if (car.vel.length() > 600) this.stuckCount = 0; }
+  }
+  snapToPads(ctl) {
+    const car = this.car;
+    if (car.boost > 88 || !car.onGround) return;
+    let best = null, bd = 420;
+    for (const p of this.match.world.pads) {
+      if (!p.active || p.big) continue;
+      const dx = p.x - car.pos.x, dy = p.y - car.pos.y;
+      const ahead = dx * car.rot.f.x + dy * car.rot.f.y;
+      if (ahead < 100 || ahead > 900) continue;
+      const lat = Math.abs(dx * car.rot.l.x + dy * car.rot.l.y);
+      if (lat < bd) { bd = lat; best = p; }
+    }
+    if (best) {
+      const a = this.angleTo(best.x, best.y);
+      ctl.steer = clamp(ctl.steer * 0.4 + (-a * 2.2) * 0.6, -1, 1);
+    }
+  }
+  /** Aterrizar sobre las ruedas: orientar el auto al piso con la velocidad. */
+  recover(ctl) {
+    const car = this.car;
+    _b1.set(car.vel.x, car.vel.y, 0);
+    if (_b1.lengthSq() < 300 * 300) _b1.set(car.rot.f.x, car.rot.f.y, 0);
+    if (_b1.lengthSq() < 1e-6) _b1.set(1, 0, 0);
+    _b1.normalize();
+    // si va a caer sobre una pared, usar su normal como "arriba"
+    const d = arenaSDF(car.pos.x, car.pos.y, car.pos.z, _botN);
+    if (d < 350 && _botN.z < 0.7) { _b2.copy(_botN); _b1.addScaled(_botN, -_b1.dot(_botN)).normalize(); }
+    else _b2.copy(Z_UP);
+    this.orient(ctl, _b1, _b2);
+    ctl.throttle = 1;
+  }
+  /** Control de orientación en el aire (pitch, yaw, roll) hacia un adelante y un arriba deseados. */
+  orient(ctl, fwd, up) {
+    const b = this.car.rot, w = this.car.angVel;
+    const tf = fwd.dot(b.f), tl = fwd.dot(b.l), tu = fwd.dot(b.u);
+    const pitchErr = Math.atan2(tu, tf), yawErr = Math.atan2(tl, tf);
+    const noseUp = -w.dot(b.l), yawLeft = w.dot(b.u), rollRight = w.dot(b.f);
+    ctl.pitch = clamp(pitchErr * 4.2 - noseUp * 0.55, -1, 1);
+    ctl.yaw = clamp(-(yawErr * 4.2 - yawLeft * 0.6), -1, 1);
+    let rollErr = 0;
+    if (up) rollErr = Math.atan2(up.dot(b.l), up.dot(b.u));
+    ctl.roll = clamp(-rollErr * 3.2 - rollRight * 0.4, -1, 1);
+  }
+  // ------------------------------------------------------------ secuencias de salto
+  startSequence(steps) { this.seq = steps; this.seqT = 0; this.seqI = 0; }
+  runSequence(dt, ctl) {
+    let st = this.seq[this.seqI];
+    // pasos condicionales: solo si la pelota está cerca (p. ej. el dodge final de un tiro con salto)
+    while (st && st.ifNear && this.seqT === 0) {
+      const b = this.match.world.ball.pos, c = this.car.pos;
+      if (Math.hypot(b.x - c.x, b.y - c.y, b.z - c.z) <= st.ifNear) break;
+      this.seqI++; st = this.seq[this.seqI];
+    }
+    if (!st) { this.seq = null; return false; }
+    ctl.throttle = st.throttle !== undefined ? st.throttle : 1;
+    ctl.jump = !!st.jump; ctl.boost = !!st.boost && this.car.boost > 0;
+    ctl.pitch = st.pitch || 0; ctl.yaw = st.yaw || 0; ctl.roll = st.roll || 0; ctl.steer = st.steer || 0;
+    if (st.track && this.plan) {
+      _b1.set(this.plan.bx - this.car.pos.x, this.plan.by - this.car.pos.y, this.plan.bz - this.car.pos.z).normalize();
+      this.orient(ctl, _b1, st.wallUp ? this.car.rot.u : Z_UP);
+      ctl.jump = !!st.jump;
+    }
+    this.seqT += dt;
+    if (this.seqT >= st.dur - 1e-9) { this.seqI++; this.seqT = 0; if (this.seqI >= this.seq.length) this.seq = null; }
+    return true;
+  }
+  startJumpShot(bz, double, fromWall) {
+    const h = bz - CONFIG.ball.radius * 0.55 - CONFIG.car.restZ;
+    const hold = double ? 0.2 : clamp(0.04 + h / JUMP_TABLE.maxSingle * 0.18, 0.04, 0.2);
+    const steps = [{ dur: hold, jump: true, track: true, wallUp: fromWall }, { dur: 0.05, jump: false, track: true, wallUp: fromWall }];
+    if (double) steps.push({ dur: 0.02, jump: true }, { dur: 0.35, jump: false, track: true });
+    else steps.push({ dur: 0.3, jump: false, track: true, wallUp: fromWall });
+    // al final, dodge hacia la pelota si está cerca (golpe más fuerte) — solo niveles altos
+    if (this.D.dodgeShots && this.D.reaction < 0.15 && !double) steps.push({ dur: 0.02, jump: true, pitch: -1, ifNear: 240 }, { dur: 0.25, jump: false });
+    this.startSequence(steps);
+  }
+  startDodgeInto(x, y) {
+    const a = this.angleTo(x, y);
+    const side = clamp(-a * 1.5, -1, 1);
+    this.startSequence([
+      { dur: 0.06, jump: true, throttle: 1, boost: true },
+      { dur: 0.03, jump: false, throttle: 1, boost: true },
+      { dur: 0.03, jump: true, pitch: -1, yaw: side, throttle: 1 },
+      { dur: 0.55, jump: false, throttle: 1 },
+    ]);
+  }
+  // ------------------------------------------------------------ aéreos
+  startAerial(plan) {
+    this.aerial = { plan, elapsed: 0, done: false };
+  }
+  runAerial(dt, ctl) {
+    const A = this.aerial, car = this.car, p = A.plan, g = CONFIG.physics.gravity;
+    A.elapsed += dt;
+    const T = p.t - this.now();
+    if (T < -0.25 || (A.elapsed > 0.6 && car.onGround) || A.elapsed > 4) { this.aerial = null; return false; }
+    if (A.elapsed < 0.2) ctl.jump = true;
+    else if (A.elapsed < 0.24 && T > 0.9 && car.numContacts === 0) ctl.jump = false;
+    // objetivo: un poco detrás de la pelota en la dirección del tiro
+    const tx = p.bx - p.sdx * 70, ty = p.by - p.sdy * 70, tz = p.bz - 30;
+    const Tc = Math.max(T, 0.05);
+    _b1.set(tx - (car.pos.x + car.vel.x * Tc), ty - (car.pos.y + car.vel.y * Tc), tz - (car.pos.z + car.vel.z * Tc - 0.5 * g * Tc * Tc));
+    const dl = _b1.length();
+    const aReq = 2 * dl / (Tc * Tc);
+    if (dl > 1) _b1.scale(1 / dl);
+    this.orient(ctl, _b1, Z_UP);
+    if (A.elapsed < 0.2) ctl.jump = true;
+    const align = _b1.dot(car.rot.f);
+    ctl.boost = align > 0.82 && aReq > 150 && car.boost > 0;
+    ctl.throttle = 1;
+    // cerca de la pelota: dodge hacia ella (niveles altos)
+    const bd = Math.hypot(p.bx - car.pos.x, p.by - car.pos.y, p.bz - car.pos.z);
+    if (this.D.reaction < 0.1 && T < 0.12 && bd < 260 && !car.hasFlipped && !car.hasDoubleJumped) {
+      this.aerial = null;
+      this.startSequence([{ dur: 0.02, jump: false }, { dur: 0.02, jump: true, pitch: -1 }, { dur: 0.4, jump: false }]);
+      return true;
+    }
+    return true;
+  }
+  /** Punto objetivo para depuración. */
+  debugTarget() {
+    if ((this.state === 'ataque' || this.state === 'salvada') && this.plan) return { x: this.plan.bx, y: this.plan.by, z: this.plan.bz, color: this.debugColor };
+    return { x: this.target.x, y: this.target.y, z: 40, color: this.debugColor };
+  }
+}
+function makeBot(car, match, difficulty) { return new BotBrain(car, match, difficulty); }
 
 // =====================================================================
 // AJUSTES (persisten en localStorage si está disponible)
@@ -2700,6 +3424,49 @@ Tests.add('Extra K. La repetición graba el gol y se puede saltar', () => {
   const skipped = m.state === 'cuenta';
   const pass = rep && dur > 4.5 && dur < 6.5 && crossed && ballMoved && skipped;
   return { pass, detail: 'repetición: ' + rep + ', duración ' + dur.toFixed(2) + ' s, la pelota entra en la repetición: ' + crossed + ', saltada → saque: ' + skipped };
+});
+
+// ---- Pruebas de bots ----
+Tests.add('7. Partido bot contra bot de 5 minutos simulado termina sin errores ni NaN', async () => {
+  const m = new Match({ mode: '3v3', difficulty: 'normal', seed: 20240924, headless: true, humanPlayer: false, botFactory: makeBot });
+  let ticks = 0, nan = false, minCar = Infinity, minBall = Infinity, goals = 0;
+  const n = new V3();
+  const maxTicks = (CONFIG.match.duration + 600 + 120) * TICK_RATE;
+  while (m.state !== 'fin' && ticks < maxTicks) {
+    m.tick(null); ticks++;
+    for (const e of m.events) if (e.type === 'gol') goals++;
+    if (!m.isFinite()) { nan = true; break; }
+    if (ticks % 12 === 0) {
+      for (const c of m.cars) if (!c.demolished) minCar = Math.min(minCar, hitboxMinSDF(c));
+      if (m.world.ballEnabled) minBall = Math.min(minBall, arenaSDF(m.world.ball.pos.x, m.world.ball.pos.y, m.world.ball.pos.z, n));
+    }
+    if (ticks % 6000 === 0) await new Promise((r) => setTimeout(r, 0));
+  }
+  const pts = m.cars.map((c) => c.name + ' ' + m.stats.get(c).points).join(', ');
+  const pass = !nan && m.state === 'fin' && minCar > -5 && minBall > 0;
+  return { pass, detail: 'estado final: ' + m.state + ', marcador ' + m.score.join('-') + (m.overtime ? ' (tiempo extra ' + m.otTime.toFixed(0) + ' s)' : '') +
+    ', ' + (ticks / TICK_RATE).toFixed(0) + ' s simulados, ' + goals + ' goles; penetración máx. de autos ' + Math.max(0, -minCar).toFixed(2) +
+    ' uu; distancia mín. del centro de la pelota a la superficie ' + minBall.toFixed(1) + ' uu; NaN: ' + nan + '\nPuntos: ' + pts };
+});
+
+Tests.add('Extra L. Los bots rotan: dos compañeros no van a la misma pelota', () => {
+  const m = new Match({ mode: '3v3', difficulty: 'normal', seed: 77, headless: true, humanPlayer: false, botFactory: makeBot });
+  let ticks = 0, overlap = 0, playing = 0, backTicks = 0;
+  while (m.state !== 'fin' && ticks < 200 * TICK_RATE) {
+    m.tick(null); ticks++;
+    if (m.state !== 'jugando' || m.touchesSinceKickoff === 0) continue;
+    playing++;
+    for (let t = 0; t < 2; t++) {
+      const mates = m.cars.map((c, i) => [c, m.controllers[i].brain]).filter(([c]) => c.team === t && !c.demolished);
+      const att = mates.filter(([c, b]) => c.onGround && ['ataque', 'salvada'].includes(b.state) && !b.seq && !b.aerial && b.plan && b.plan.t > m.world.tick / TICK_RATE + 0.12);
+      if (att.length >= 2) overlap++;
+      // alguien cubre atrás: un compañero más cerca de su portería que la pelota
+      const own = t === 0 ? -1 : 1, b = m.world.ball.pos;
+      if (mates.some(([c]) => (c.pos.y - b.y) * own > 300)) backTicks++;
+    }
+  }
+  const ovPct = overlap / Math.max(1, playing * 2) * 100, backPct = backTicks / Math.max(1, playing * 2) * 100;
+  return { pass: ovPct < 1 && backPct > 85, detail: 'tiempo con 2+ compañeros atacando la pelota: ' + ovPct.toFixed(2) + '% ; tiempo con al menos un compañero detrás de la pelota: ' + backPct.toFixed(1) + '%' };
 });
 
 // =====================================================================
@@ -3998,7 +4765,7 @@ const _dbgN = new V3();
 // =====================================================================
 const Game = {
   match: null, views: [], ballView: null, padsView: null, acc: 0, state: 'menu', time: 0, paused: false,
-  humanCtl: new Controls(), requestSkip: false, humanIndex: -1, botFactory: null,
+  humanCtl: new Controls(), requestSkip: false, humanIndex: -1, botFactory: makeBot,
   playing() { return this.state === 'jugando' && !this.paused; },
   get world() { return this.match ? this.match.world : null; },
   get player() { return this.match ? this.match.human : null; },
@@ -4144,7 +4911,8 @@ function debugLines() {
 
 async function boot() {
   const params = new URLSearchParams(location.search);
-  window.__TFT = { CONFIG, World, Car, Ball, BallPredictor, Controls, Match, V3, Basis, arenaSDF, arenaRaycast, hitboxMinSDF, AR, DT, TICK_RATE };
+  window.__TFT = { CONFIG, World, Car, Ball, BallPredictor, Controls, Match, BotBrain, makeBot, V3, Basis, arenaSDF, arenaRaycast, hitboxMinSDF, AR, DT, TICK_RATE };
+  if (params.has('sim')) { window.__tfArrancado = true; document.getElementById('carga').classList.add('oculto'); return; }
   if (params.has('test')) {
     window.__tfArrancado = true;
     await Tests.run();
