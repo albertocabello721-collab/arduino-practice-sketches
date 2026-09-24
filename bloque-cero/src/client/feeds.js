@@ -24,9 +24,9 @@ export class FeedController {
   get active() { return this.mode !== 'body'; }
 
   enterDrone(d, piloting = true) {
-    if (this.drone && this.drone !== d) this.drone.pilot = null;
+    if (this.drone && this.drone !== d) { this.drone.pilot = null; this.drone.pilotOp = null; }
     this.mode = 'drone'; this.drone = d; this.cam = null; this.piloting = piloting; this.lostT = 0;
-    if (piloting) d.pilot = 'jugador';
+    if (piloting) { d.pilot = 'jugador'; d.pilotOp = this.getPlayer(); }     // sus marcas cuentan para quien pilota
     this.ctx.audio.ping('static');
     this.ctx.resetView();
   }
@@ -36,7 +36,7 @@ export class FeedController {
     this.ctx.resetView();
   }
   exit() {
-    if (this.drone) this.drone.pilot = null;
+    if (this.drone) { this.drone.pilot = null; this.drone.pilotOp = null; }
     this.mode = 'body'; this.drone = null; this.cam = null; this.lostT = 0; this.onLost = null;
     this.ctx.resetView();
     this.show(false);
@@ -108,13 +108,13 @@ export class FeedController {
     if (this.mode === 'drone' && this.drone) {
       title = this.piloting ? 'Dron' : `Dron de ${this.drone.owner.name}`;
       sub = `<i class="rec"></i>${info.dronesLeft !== undefined ? `En directo · ${info.dronesLeft} de reserva` : 'En directo'}`;
-      keys = this.piloting ? `WASD mover · Espacio saltar · Clic/T marcar${info.canExit ? ' · 5 volver' : ''}` : 'Clic para cambiar de dron';
+      keys = this.piloting ? `WASD mover · Espacio saltar · Clic/T marcar${info.dead ? ' · Q/E otro dron' : ''}${info.canExit ? (info.dead ? ' · 5 observar' : ' · 5 volver') : ''}` : 'Clic para cambiar de dron';
     } else if (cams && this.cam) {
       const recon = this.getRecon();
       const list = recon ? recon.cams : [];
       title = `Cámara ${list.indexOf(this.cam) + 1} · ${this.cam.name}`;
       sub = '<i class="rec"></i>Seguridad';
-      keys = 'A/D cambiar de cámara · Clic/T marcar · 5 volver';
+      keys = `A/D cambiar de cámara · Clic/T marcar · 5 ${info.dead ? 'observar' : 'volver'}`;
     }
     if (info.objective !== undefined) status = info.objective;
     this._set('t', this.el.title, title, true);

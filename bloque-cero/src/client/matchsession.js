@@ -40,7 +40,7 @@ export class MatchSession extends Session {
       me: () => this.match.player,
       onMeDowned: () => { this.control.stance = 'prone'; this.feed.exit(); },
       onMeRevived: () => { this.control.stance = 'crouch'; },
-      onMeKilled: () => { this.deadAt = this.match.time; this.feed.exit(); hud.setDeath(true, 'Observarás a tus compañeros'); },
+      onMeKilled: () => { this.deadAt = this.match.time; this.feed.exit(); hud.setDeath(true, `Observarás a tus compañeros · 5 ${this.mySide() === 'atk' ? 'drones' : 'cámaras'}`); },
     }));
     this._bindMatch();
     hud.setMode('match');
@@ -282,8 +282,23 @@ export class MatchSession extends Session {
     } else if (input.pressed('orders') && this.canOrder()) {
       if (!this.alliesAlive()) { audio.ping('deny'); hud.toast('No te quedan aliados'); } else this.wheel.show(this.orderItems());
     }
-    // 5: dron (ataque) o cámaras (defensa)
-    if (input.pressed('drone') && p && p.state === 'alive' && (m.phase === 'prep' || m.phase === 'action' || m.phase === 'planted')) {
+    // 5: dron (ataque) o cámaras (defensa); muerto, tras la cámara de muerte, también
+    const live = m.phase === 'prep' || m.phase === 'action' || m.phase === 'planted';
+    if (p && p.state === 'dead' && live && m.time - this.deadAt >= DEATH_CAM) {
+      if (input.pressed('drone')) {
+        if (this.feed.active) { this.feed.exit(); this.ctx.resetView(); }
+        else if (this.mySide() === 'atk') {
+          const d = this._nextTeamDrone(null);
+          if (d) this.feed.enterDrone(d, true); else { audio.ping('deny'); hud.toast('No quedan drones'); }
+        } else if (!this.feed.cycleCam(0)) { audio.ping('deny'); hud.toast('Cámaras destruidas'); }
+      } else if (this.feed.mode === 'drone' && this.feed.piloting && (input.pressed('leanLeft') || input.pressed('leanRight'))) {
+        // Q/E: otro dron del equipo
+        const d = this._nextTeamDrone(this.feed.drone);
+        if (d && d !== this.feed.drone) this.feed.enterDrone(d, true);
+      }
+      return;
+    }
+    if (input.pressed('drone') && p && p.state === 'alive' && live) {
       if (this.feed.active) {
         if (m.phase !== 'prep' || this.mySide() === 'def') this.feed.exit();
       } else if (this.mySide() === 'atk') {
@@ -314,7 +329,8 @@ export class MatchSession extends Session {
       }
       return;
     }
-    if (F.mode === 'drone' && F.drone && !F.drone.alive && F.lostT <= 0) F.lose(1.0, () => this.feed.exit());
+    // (muerto: si cae el dron, al siguiente del equipo; si no quedan, a observar)
+    if (F.mode === 'drone' && F.drone && !F.drone.alive && F.lostT <= 0) F.lose(1.0, () => { const nd = p.state === 'dead' ? this._nextTeamDrone(null) : null; if (nd) this.feed.enterDrone(nd, true); else this.feed.exit(); });
     if (F.mode === 'cams' && F.cam && !F.cam.alive && F.lostT <= 0) F.lose(0.8, () => { if (!this.feed.cycleCam(1)) this.feed.exit(); });
   }
 
@@ -339,7 +355,8 @@ export class MatchSession extends Session {
     const found = m.objectiveFound;
     this.feed.frame(dt, {
       dronesLeft: side === 'atk' && p ? m.recon.dronesLeft(p) : undefined,
-      canExit: m.phase !== 'prep',
+      canExit: m.phase !== 'prep' || !p || p.state === 'dead',
+      dead: !!p && p.state === 'dead',
       objective: side === 'atk' ? (found ? `Objetivo localizado · ${m.site.name}` : 'Objetivo sin localizar') : '',
       objectiveOk: found,
     });
@@ -370,7 +387,7 @@ export class MatchSession extends Session {
     this.ui.setCarry(!!(p && def && def.carrier === p && p.state !== 'dead'));
     this._gear(p, side);
     // observar
-    if (p && p.state === 'dead' && view && view !== p) this.ui.setSpectate(`Observando a <b>${view.name}</b> · clic para cambiar`);
+    if (p && p.state === 'dead' && view && view !== p) this.ui.setSpectate(`Observando a <b>${view.name}</b> · clic para cambiar · 5 ${side === 'atk' ? 'drones' : 'cámaras'}`);
     else this.ui.setSpectate(null);
     if (p && p.state === 'dead' && m.time - this.deadAt >= DEATH_CAM) hud.setDeath(false);
     // marcadores

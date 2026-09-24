@@ -1,7 +1,7 @@
 // Prueba de humo en el navegador de las ayudas de equipo: capa de depuración (P),
 // marcar con T (marca de posición y enemigo marcado), chat de equipo con voz y rueda de
-// órdenes H (Seguirme, Ir a mi marca) y reglas de edificio (no salir en la preparación,
-// anti run-out).
+// órdenes H (Seguirme, Ir a mi marca), reglas de edificio (no salir en la preparación,
+// anti run-out) y, muerto, cámaras (defensa) o drones (ataque).
 // Uso: node tools/smoke-aliados.mjs <carpeta de capturas>
 import { createRequire } from 'node:module';
 import path from 'node:path';
@@ -175,6 +175,54 @@ await page.waitForFunction(() => !window.__bc.debug.on, null, { timeout: 20000 }
 await page.waitForTimeout(300);
 const off = await page.evaluate(() => ({ on: window.__bc.debug.on, visible: window.__bc.debug.group.visible, labels: [...document.querySelectorAll('#dbg .dl')].filter((e) => e.style.display !== 'none').length, dbgHidden: document.getElementById('dbg').classList.contains('hidden') }));
 console.log('apagada:', JSON.stringify(off));
+
+// ---------------- 4) muerto en defensa: 5 → cámaras, D → otra, 5 → observar
+await page.evaluate(() => { const bc = window.__bc; if (bc.player.state !== 'dead') bc.game.kill(bc.player, { by: null }); });
+await ticks(60 * 3.3);
+let deadCams = null;
+if (await page.evaluate(() => { const m = window.__bc.match; return m.phase === 'action' || m.phase === 'planted'; })) {
+  await page.keyboard.press('Digit5');
+  await page.waitForFunction(() => window.__bc.session.feed.mode === 'cams', null, { timeout: 20000 }).catch(() => {});
+  const c1 = await page.evaluate(() => window.__bc.session.feed.cam && window.__bc.session.feed.cam.name);
+  const vivas = await page.evaluate(() => window.__bc.match.recon.aliveCams().length);
+  const tries = [];
+  for (let k = 0; k < 3; k++) {
+    await page.keyboard.press('KeyD');
+    const ok = await page.waitForFunction((n) => window.__bc.session.feed.cam && window.__bc.session.feed.cam.name !== n, c1, { timeout: 4000 }).then(() => true).catch(() => false);
+    tries.push(ok);
+    if (ok) break;
+  }
+  console.log('D en cámaras:', JSON.stringify(tries), JSON.stringify(await page.evaluate(() => ({ feed: window.__bc.session.feed.mode, lost: window.__bc.session.feed.lostT, pausa: !document.getElementById('pausehint').classList.contains('hidden'), fps: window.__bc.perf().fps }))));
+  const c2 = await page.evaluate(() => window.__bc.session.feed.cam && window.__bc.session.feed.cam.name);
+  await shot('a8_muerto_camaras', 300);
+  await page.keyboard.press('Digit5');
+  await page.waitForFunction(() => !window.__bc.session.feed.active, null, { timeout: 20000 }).catch(() => {});
+  deadCams = await page.evaluate(() => ({ camaras: [window.__c1, window.__c2], feed: window.__bc.session.feed.mode, observa: window.__bc.session.viewOp && window.__bc.session.viewOp.name }));
+  deadCams.camaras = [c1, c2];
+  deadCams.vivas = vivas;
+}
+console.log('muerto (defensa):', JSON.stringify(deadCams));
+
+// ---------------- 5) muerto en ataque: 5 → dron del equipo pilotado, Q → otro dron
+await page.evaluate(() => { window.__bc.startMatch({ startSide: 'atk', seed: 12 }); });
+await page.click('#sel-grid .opc:nth-child(2)');
+await page.click('#sel-ready');
+await page.waitForFunction(() => window.__bc.match.phase === 'prep', null, { timeout: 60000 });
+await ticks(3, "if (bc.match.phase === 'prep') bc.match.timer = Math.min(bc.match.timer, 0.02);");
+await ticks(60 * 2);
+await page.evaluate(() => { const bc = window.__bc; bc.game.kill(bc.player, { by: null }); });
+await ticks(60 * 3.3);
+console.log('antes de 5:', JSON.stringify(await page.evaluate(() => { const bc = window.__bc, m = bc.match, s = bc.session; return { fase: m.phase, muerto: bc.player.state, desde: +(m.time - s.deadAt).toFixed(2), drones: m.recon.drones.filter((d) => d.alive && d.team === 0).length, lado: s.mySide(), feed: s.feed.mode, pausa: !document.getElementById('pausehint').classList.contains('hidden') }; })));
+await page.keyboard.press('Digit5');
+await page.waitForFunction(() => window.__bc.session.feed.mode === 'drone', null, { timeout: 20000 }).catch(() => {});
+const d0 = await page.evaluate(() => { const f = window.__bc.session.feed; return f.drone ? { id: f.drone.id, dueño: f.drone.owner.name, pilota: f.piloting, x: f.drone.body.pos.x, z: f.drone.body.pos.z } : null; });
+await ticks(60 * 1.5, 'const f = bc.session.feed; if (f.drone) f.drone.intent.moveZ = 1;');
+const d1 = await page.evaluate(() => { const f = window.__bc.session.feed; return f.drone ? { x: f.drone.body.pos.x, z: f.drone.body.pos.z } : null; });
+await shot('a9_muerto_dron', 900);
+await page.keyboard.press('KeyQ');
+await page.waitForTimeout(900);
+const d2 = await page.evaluate(() => { const f = window.__bc.session.feed; return { id: f.drone && f.drone.id, teclas: document.getElementById('fd-keys').textContent }; });
+console.log('muerto (ataque):', JSON.stringify({ dron: d0, avanza: d0 && d1 ? +Math.hypot(d1.x - d0.x, d1.z - d0.z).toFixed(2) : null, otro: d2 }));
 
 console.log('errores:', errors.length); for (const e of errors.slice(0, 12)) console.log('  ', e.slice(0, 300));
 await browser.close();

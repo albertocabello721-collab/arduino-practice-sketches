@@ -44,6 +44,10 @@ Reglas de Siege, contra bots:
   los bandos.
 - **Puntos**: baja 100, asistencia 50, derribo 50, reanimar 50, plantar 100, inutilizar 100,
   marcar 10, refuerzo 10, gadget enemigo destruido 20.
+- **Al morir**: tras 3 s de cámara de muerte observas a tus compañeros (clic o Espacio para
+  cambiar) y con **5** la defensa usa las cámaras (A/D, marcar) y el ataque pilota los drones
+  que queden del equipo (Q/E para cambiar de dron; si lo destruyen, pasa al siguiente). Las
+  marcas cuentan para quien pilota.
 - **Edificio**: en la preparación la defensa no puede salir (pared invisible en puertas y
   ventanas; los bots ni lo intentan). En la acción, un defensor que pasa más de 5 s fuera queda
   revelado para el ataque (marcador rojo y memoria de sus bots) mientras siga fuera; a él le
@@ -158,6 +162,7 @@ Reglas de Siege, contra bots:
 | H (mantener) | Rueda de órdenes a los aliados: el ratón elige, al soltar se da la orden |
 | Tab | Marcador |
 | Clic / Espacio | (Muerto) cambiar de compañero observado |
+| 5 | (Muerto) cámaras (defensa) o drones que queden (ataque; Q/E otro dron); 5 otra vez, a observar |
 | G | (Campo de pruebas) carga de brecha en la pared que miras |
 | J / K / L | (Campo de pruebas) derribar al compañero / reiniciar el campo / cambiar de arsenal |
 | F3 | Medidor de rendimiento |

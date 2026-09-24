@@ -168,7 +168,7 @@ export class Recon {
     for (const d of this.drones) {
       if (!d.alive) continue;
       d.update(dt, g);
-      if (d.intent.mark) { d.intent.mark = false; if (d.markCd <= 0) { d.markCd = 0.4; this.mark(d, d.team); } }
+      if (d.intent.mark) { d.intent.mark = false; if (d.markCd <= 0) { d.markCd = 0.4; this.mark(d, d.team, d.pilotOp || null); } }
     }
     // señalados que caducan o mueren
     for (const [op, s] of this.spotted) if (s.until <= g.time || op.state === 'dead') this.spotted.delete(op);
