@@ -16,10 +16,21 @@
 //   · Claymore (ataque): se deja en el suelo mirando al frente (1 s); salta cuando un
 //     enemigo entra en su cono de 2 m: letal en el cono.
 //   Todos se destruyen de un disparo del bando contrario.
+// Gadgets defensivos (se colocan con G en 1 s):
+//   · Alambre de púas: rollo de 2 m en el suelo; quien lo cruza va a la mitad de velocidad
+//     y hace ruido; 3 golpes cuerpo a cuerpo o un explosivo lo rompen (las balas no).
+//   · Escudo desplegable: cobertura antibalas a la cintura (vóxeles); solo lo rompen los
+//     explosivos.
+//   · Cámara blindada: en la pared, se suma a las cámaras; las balas no le hacen nada:
+//     solo explosivos, cuerpo a cuerpo o PEM.
+//   · Alarma de proximidad: suena y marca 3 s al atacante que pasa a menos de 2 m.
+// Las explosiones destruyen además los gadgets, drones y cámaras del otro bando que alcanzan.
 // Simulación pura (corre en Node); el cliente pinta los objetos y los efectos.
 import { SOLID, HARD, MAT, BLAST_RES, GLASS } from '../world/materials.js';
 import { lineOfSight, traverse, raycastFirst } from '../world/raycast.js';
 import { explodeSphere, breachRect } from '../world/destruction.js';
+import { SecurityCam, rayAABB } from './recon.js';
+import { MELEE_DAMAGE } from './game.js';
 
 export const THROW = { speed: 12, up: 2.0, gravity: 9.8, bounce: 0.35, radius: 0.05, cooldown: 1.0 };
 export const FRAG = { fuse: 3, lethal: 1.5, radius: 3, damage: 160, hole: 0.5 };
@@ -29,22 +40,31 @@ export const FLASH = { fuse: 1.5, range: 12, max: 3.5, min: 0.8 };
 export const BREACH = { place: 1.5, reach: 1.6, lethal: 1.0, radius: 2.5, damage: 160, w: 1.0, h: 2.0 };
 export const C4 = { lethal: 2.5, radius: 4, damage: 180, hole: 0.7, soft: 0.9 };
 export const CLAYMORE = { place: 1.0, range: 2, cone: 0.866, lethal: 2, radius: 3, damage: 160 };
+export const WIRE = { place: 1.0, w: 2.0, d: 0.9, slow: 0.5, hits: 3 };
+export const DSHIELD = { place: 1.0, w: 1.25, h: 1.0 };
+export const BPCAM = { place: 1.0, reach: 2.0 };
+export const ALARM = { place: 1.0, reach: 2.0, radius: 2, mark: 3, cooldown: 3 };
 const THROWABLE = { frag: true, smoke: true, flash: true, impact: true, c4: true };
-const PLACEABLE = { breach: BREACH, claymore: CLAYMORE };
+const PLACEABLE = { breach: BREACH, claymore: CLAYMORE, barbed: WIRE, shield: DSHIELD, bpcam: BPCAM, alarm: ALARM };
+export const PLACE_LABEL = { breach: 'la carga de brecha', claymore: 'la claymore', barbed: 'el alambre', shield: 'el escudo desplegable', bpcam: 'la cámara blindada', alarm: 'la alarma' };
 
 export class Gadgets {
   constructor(game) {
     this.game = game;
     this.items = [];        // proyectiles en vuelo o en el suelo (y el C4 pegado)
     this.smokes = [];       // nubes de humo activas {x, y, z, r, t0, until, team}
-    this.placed = [];       // cargas de brecha y claymores colocadas
+    this.placed = [];       // cargas de brecha, claymores, alambres y alarmas colocadas
+    this.recon = null;      // (la partida lo conecta: las cámaras blindadas se suman a las suyas)
     this.work = new Map();  // operador → colocación en curso {kind, t, total, spot, from}
     this._nextId = 1;
     game.gadgets = this;
   }
   reset() {
     this.items = []; this.smokes = []; this.placed = []; this.work.clear();
-    this.game.targets = this.game.targets.filter((t) => t.kind !== 'gadget');
+    // (las cámaras blindadas de la ronda anterior desaparecen)
+    if (this.recon) this.recon.cams = this.recon.cams.filter((c) => !c.fromGadget);
+    this.game.targets = this.game.targets.filter((t) => t.kind !== 'gadget' && !t.fromGadget);
+    for (const op of this.game.operators) op.slowMul = 1;
   }
 
   /** ¿Puede `op` usar su gadget secundario ahora? */
@@ -98,7 +118,13 @@ export class Gadgets {
       if (I.gadget) { I.gadget = false; if (!this.use(op) && op.gadget && op.gadget.left <= 0 && op.state === 'alive') g.emit('gadgetEmpty', op); }
     }
     this._workTick(dt);
-    for (const c of this.placed) if (c.alive && c.kind === 'claymore') this._claymoreTick(c);
+    for (const op of g.operators) op.slowMul = 1;
+    for (const c of this.placed) {
+      if (!c.alive) continue;
+      if (c.kind === 'claymore') this._claymoreTick(c);
+      else if (c.kind === 'barbed') this._wireTick(c, dt);
+      else if (c.kind === 'alarm') this._alarmTick(c, dt);
+    }
     this.placed = this.placed.filter((c) => c.alive);
     for (const it of this.items) {
       if (!it.alive) continue;
@@ -169,6 +195,17 @@ export class Gadgets {
   }
   _blastDamage(p, spec, owner, kind, filter = null) {
     const g = this.game;
+    // gadgets, drones y cámaras del otro bando (y el desactivador plantado, si es de la defensa)
+    for (const tg of [...g.targets]) {
+      if (!tg.alive || !tg.center || (owner && tg.team === owner.team)) continue;
+      const c = tg.center();
+      const d = Math.hypot(c.x - p.x, c.y - p.y, c.z - p.z);
+      if (d > spec.radius) continue;
+      const cover = this._blastCover(p, c, spec.soft || 0.8);
+      if (cover <= 0) continue;
+      const k = d <= spec.lethal ? 1 : 1 - (d - spec.lethal) / (spec.radius - spec.lethal);
+      g.hitTarget(tg, Math.max(1, spec.damage * k * cover), owner, c);
+    }
     const names = { frag: 'Fragmentación', impact: 'Impacto', breach: 'Carga de brecha', c4: 'C4', claymore: 'Claymore' };
     for (const op of g.operators) {
       if (op.state === 'dead' || op.frozen) continue;
@@ -293,6 +330,34 @@ export class Gadgets {
       if (SOLID[w.getWorld(x, p.y + 0.1, z)] || !SOLID[w.getWorld(x, p.y - 0.06, z)]) return { why: 'Necesitas suelo despejado delante' };
       return { ok: true, kind: 'claymore', pos: { x, y: p.y + 0.01, z }, yaw: op.yaw };
     }
+    if (id === 'barbed') {
+      // un rollo de 2 m atravesado, 1,1 m por delante; suelo en todo el ancho
+      const p = op.body.pos, fx = -Math.sin(op.yaw), fz = -Math.cos(op.yaw), rx = -fz, rz = fx;
+      const cx = p.x + fx * 1.1, cz = p.z + fz * 1.1;
+      for (const k of [-0.9, 0, 0.9]) {
+        const x = cx + rx * k, z = cz + rz * k;
+        if (SOLID[w.getWorld(x, p.y + 0.3, z)] || !SOLID[w.getWorld(x, p.y - 0.06, z)]) return { why: 'Necesitas suelo despejado delante' };
+      }
+      return { ok: true, kind: 'barbed', pos: { x: cx, y: p.y + 0.01, z: cz }, yaw: op.yaw };
+    }
+    if (id === 'shield') {
+      const cells = this._shieldCells(op);
+      if (!cells) return { why: 'No cabe ahí' };
+      const p = op.body.pos, fx = -Math.sin(op.yaw), fz = -Math.cos(op.yaw);
+      return { ok: true, kind: 'shield', cells, pos: { x: p.x + fx * 0.9, y: p.y, z: p.z + fz * 0.9 }, yaw: op.yaw };
+    }
+    if (id === 'bpcam' || id === 'alarm') {
+      const hit = raycastFirst(w, e.x, e.y, e.z, d.x, d.y, d.z, BPCAM.reach, SOLID, true);
+      if (!hit) return { why: 'Acércate a una pared' };
+      const axis = hit.face >> 1;
+      if (id === 'bpcam' && axis === 1) return { why: 'La cámara va en una pared' };
+      const n = { x: 0, y: 0, z: 0 };
+      n[['x', 'y', 'z'][axis]] = hit.face & 1 ? 1 : -1;
+      if (n.x * d.x + n.y * d.y + n.z * d.z > 0) { n.x = -n.x; n.y = -n.y; n.z = -n.z; }
+      const t = hit.t - 0.03;
+      const pos = { x: e.x + d.x * t, y: e.y + d.y * t, z: e.z + d.z * t };
+      return { ok: true, kind: id, pos, normal: n, yaw: Math.atan2(-n.x, -n.z) + Math.PI, axis };
+    }
     return null;
   }
   startPlace(op) {
@@ -329,11 +394,102 @@ export class Gadgets {
   _place(op, spot) {
     op.gadget.left--;
     op.gadgetCd = 0.4;
-    const c = { id: `g${this._nextId++}`, kind: spot.kind, owner: op, team: op.team, pos: { ...spot.pos }, normal: spot.normal || null, axis: spot.axis, mat: spot.mat, voxel: spot.voxel, yaw: spot.yaw || 0, alive: true, t0: this.game.time };
+    const g = this.game;
+    const c = { id: `g${this._nextId++}`, kind: spot.kind, owner: op, team: op.team, pos: { ...spot.pos }, normal: spot.normal || null, axis: spot.axis, mat: spot.mat, voxel: spot.voxel, yaw: spot.yaw || 0, alive: true, t0: g.time };
+    if (spot.kind === 'shield') {
+      // vóxeles antibalas (solo los rompen los explosivos)
+      const w = g.world;
+      let x0 = Infinity, y0 = Infinity, z0 = Infinity, x1 = -Infinity, y1 = -Infinity, z1 = -Infinity;
+      for (const [x, y, z] of spot.cells) {
+        if (w.get(x, y, z) !== MAT.AIR) continue;
+        w.setRaw(x, y, z, MAT.DEPLOY_SHIELD);
+        if (x < x0) x0 = x; if (y < y0) y0 = y; if (z < z0) z0 = z; if (x > x1) x1 = x; if (y > y1) y1 = y; if (z > z1) z1 = z;
+      }
+      if (x0 !== Infinity) w.notify(x0, y0, z0, x1, y1, z1);
+      g.emit('gadgetPlaced', op, c);
+      return c;
+    }
+    if (spot.kind === 'bpcam') {
+      const cam = new SecurityCam({ id: c.id, name: 'Cámara blindada', x: spot.pos.x + spot.normal.x * 0.08, y: spot.pos.y, z: spot.pos.z + spot.normal.z * 0.08, yaw: spot.yaw, pitch: -0.12 });
+      cam.team = op.team; cam.bulletproof = true; cam.fromGadget = true;
+      if (this.recon) this.recon.cams.push(cam);
+      g.targets.push(cam);
+      g.emit('gadgetPlaced', op, c);
+      return cam;
+    }
     this.placed.push(c);
-    this._target(c, spot.kind === 'claymore' ? 0.12 : 0.2);
-    this.game.emit('gadgetPlaced', op, c);
+    if (spot.kind === 'barbed') {
+      this._target(c, 0.35);
+      const tg = c.target;
+      tg.ignoreBullets = true;                 // las balas lo atraviesan
+      tg.hp = WIRE.hits * MELEE_DAMAGE - 1;     // 3 golpes
+      // el rollo entero (caja orientada de 2 × 0,6 × 0,9 m), para los golpes
+      const cy = Math.cos(c.yaw), sy = Math.sin(c.yaw);
+      tg.center = () => ({ x: c.pos.x, y: c.pos.y + 0.3, z: c.pos.z });
+      tg.rayTest = (o, d, maxT) => {
+        const ox = o.x - c.pos.x, oz = o.z - c.pos.z;
+        const lo = { x: ox * cy - oz * sy, y: o.y - c.pos.y, z: ox * sy + oz * cy };
+        const ld = { x: d.x * cy - d.z * sy, y: d.y, z: d.x * sy + d.z * cy };
+        return rayAABB(lo, ld, -WIRE.w / 2, 0, -WIRE.d / 2, WIRE.w / 2, 0.6, WIRE.d / 2, maxT);
+      };
+    } else this._target(c, spot.kind === 'claymore' ? 0.12 : spot.kind === 'alarm' ? 0.1 : 0.2);
+    g.emit('gadgetPlaced', op, c);
     return c;
+  }
+  // Celdas (vóxeles) del escudo desplegable delante de `op`, o null si no cabe.
+  _shieldCells(op) {
+    const w = this.game.world, p = op.body.pos;
+    const fx = -Math.sin(op.yaw), fz = -Math.cos(op.yaw);
+    const alongX = Math.abs(fz) > Math.abs(fx);             // de cara a ±z: el escudo va a lo largo de x
+    const cx = p.x + fx * 0.9, cz = p.z + fz * 0.9;
+    const vy0 = w.vy(p.y + 0.01), n = Math.round(DSHIELD.w / 0.125), hN = Math.round(DSHIELD.h / 0.125);
+    if (!SOLID[w.get(w.vx(cx), vy0 - 1, w.vz(cz))]) return null;
+    // (si algún mueble ocupa un poco, el escudo se apoya en él: basta con 3/4 del hueco libre)
+    const cells = [];
+    for (let i = 0; i < n; i++) {
+      const off = (i - (n - 1) / 2) * 0.125;
+      const x = w.vx(alongX ? cx + off : cx), z = w.vz(alongX ? cz : cz + off);
+      for (let j = 0; j < hN; j++) if (w.get(x, vy0 + j, z) === MAT.AIR) cells.push([x, vy0 + j, z]);
+    }
+    if (cells.length < n * hN * 0.75) return null;
+    // que no quede nadie dentro
+    for (const o of this.game.operators) {
+      if (o.state === 'dead') continue;
+      const b = o.body.pos;
+      if (Math.abs(b.x - cx) < (alongX ? DSHIELD.w / 2 + 0.3 : 0.4) && Math.abs(b.z - cz) < (alongX ? 0.4 : DSHIELD.w / 2 + 0.3) && Math.abs(b.y - p.y) < 1) return null;
+    }
+    return cells;
+  }
+
+  // Alambre: quien está dentro va a la mitad de velocidad y hace ruido al moverse.
+  _wireTick(c, dt) {
+    const g = this.game;
+    const fx = -Math.sin(c.yaw), fz = -Math.cos(c.yaw);
+    for (const op of g.operators) {
+      if (op.state === 'dead' || op.frozen) continue;
+      const b = op.body.pos;
+      const dx = b.x - c.pos.x, dz = b.z - c.pos.z;
+      const along = dx * -fz + dz * fx, across = dx * fx + dz * fz;
+      if (Math.abs(along) > WIRE.w / 2 + 0.2 || Math.abs(across) > WIRE.d / 2 + 0.2 || Math.abs(b.y - c.pos.y) > 0.8) continue;
+      op.slowMul = WIRE.slow;
+      op.wireT = (op.wireT || 0) - dt;
+      if (op.moveSpeed > 0.3 && op.wireT <= 0) { op.wireT = 0.6; g.emit('wireRustle', op, c); }
+    }
+  }
+  // Alarma: suena y marca al atacante que pasa cerca.
+  _alarmTick(c, dt) {
+    const g = this.game;
+    c.cd = (c.cd || 0) - dt;
+    if (c.cd > 0) return;
+    for (const op of g.operators) {
+      if (op.team === c.team || op.state !== 'alive' || op.frozen) continue;
+      const b = op.body.pos;
+      if (Math.hypot(b.x - c.pos.x, b.y + 0.9 - c.pos.y, b.z - c.pos.z) > ALARM.radius + 0.9) continue;
+      c.cd = ALARM.cooldown;
+      if (this.recon) this.recon.spotted.set(op, { until: g.time + ALARM.mark, team: c.team, by: c.owner });
+      g.emit('alarm', c, op);
+      return;
+    }
   }
 
   // Los explosivos colocados se destruyen de un disparo del bando contrario.

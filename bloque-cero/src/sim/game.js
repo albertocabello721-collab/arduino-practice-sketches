@@ -63,7 +63,7 @@ export class Game extends Emitter {
     // objetos disparables (drones, cámaras): la bala se detiene en el primero que toque
     let hitTarget = null, targetT = Infinity;
     for (const tg of this.targets) {
-      if (!tg.alive || (op && !this.friendlyFire && tg.team === op.team)) continue;
+      if (!tg.alive || tg.ignoreBullets || (op && !this.friendlyFire && tg.team === op.team)) continue;
       const t = tg.rayTest(origin, dir, Math.min(maxT, hitT));
       if (t >= 0 && t < targetT) { targetT = t; hitTarget = tg; }
     }
@@ -75,7 +75,8 @@ export class Game extends Emitter {
     const end = cutT === Infinity ? d.range : cutT;
     const point = { x: origin.x + dir.x * end, y: origin.y + dir.y * end, z: origin.z + dir.z * end };
     const res = { origin: { ...origin }, dir: { ...dir }, end, hit, point, segments: plan.segments, destroyed, power: plan.finalPower, hitOp, zone: hitZone, damage: 0, hitTarget };
-    if (hitTarget) this.hitTarget(hitTarget, d.damage * falloffAt(d, targetT) * powerAt(plan, targetT, 1.0), op, point);
+    if (hitTarget && hitTarget.bulletproof) this.emit('ricochet', hitTarget, point);
+    else if (hitTarget) this.hitTarget(hitTarget, d.damage * falloffAt(d, targetT) * powerAt(plan, targetT, 1.0), op, point);
     if (hitOp) {
       const pen = powerAt(plan, hitT, 1.0);
       const fall = falloffAt(d, hitT);

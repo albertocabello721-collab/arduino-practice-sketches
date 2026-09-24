@@ -101,6 +101,8 @@ const LIST = [
   ['LADDER', { solid: 0, opaque: 0, pass: 1, sight: 0, climb: 1, bulletBreak: 0, melee: 0, blastRes: 2, surf: 'ladder', snd: SND.metal, name: 'Escalera de mano', debris: [0.4, 0.4, 0.4] }],
   ['RAIL', { hard: 1, surf: 'metal_dark', snd: SND.metal, sight: 0, name: 'Barandilla', debris: [0.2, 0.2, 0.2] }],
   ['SANDBAG', { surf: 'sandbag', edge: 'dirt', snd: SND.dirt, penCost: 0.35, breakChance: 0.25, blastRes: 1, name: 'Sacos', debris: [0.55, 0.5, 0.38] }],
+  // escudo desplegable de la defensa: antibalas, solo lo rompen los explosivos
+  ['DEPLOY_SHIELD', { hard: 1, blastRes: 0, bulletBreak: 0, melee: 0, surf: 'metal_dark', edge: 'metal_dark', snd: SND.metal, name: 'Escudo desplegable', debris: [0.18, 0.19, 0.2] }],
 ];
 
 export const MAT = {};

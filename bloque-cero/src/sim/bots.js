@@ -101,6 +101,8 @@ export class BotSquad {
     on(g, 'reload', (op) => this._noise(op, op.body.pos, 'reload', 6));
     on(g, 'fortifyStart', (op) => this._noise(op, op.body.pos, 'fortify', 18));
     on(g, 'reviveStart', (op) => this._noise(op, op.body.pos, 'revive', 6));
+    on(g, 'wireRustle', (op) => this._noise(op, op.body.pos, 'wire', 14));
+    on(g, 'explosion', (kind, p, spec, owner) => this._noise(owner, p, 'blast', 45));
     on(g, 'damaged', (t, ev) => this._hurt(t, ev));
     on(g, 'downed', (t, ev) => { this._hurt(t, ev); if (t.isBot) this.radio.say(t, 'downed', 'Estoy derribado', { force: true }); this._checkLastOne(); });
     on(g, 'killed', () => this._checkLastOne());

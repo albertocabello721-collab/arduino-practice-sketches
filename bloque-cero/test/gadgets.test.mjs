@@ -287,3 +287,117 @@ test('claymore: salta cuando un enemigo entra en su cono de 2 m; por detrás no'
   assert.deepEqual(booms, ['claymore']);
   assert.equal(d.state, 'dead', 'letal en el cono');
 });
+
+// ---------------------------------------------------------------- gadgets defensivos (F6.3c)
+import { WIRE, ALARM } from '../src/sim/gadgets.js';
+import { Recon } from '../src/sim/recon.js';
+
+function placeNow(game, gadgets, op, secs = 1.2) { op.gadgetCd = 0; op.intent.gadget = true; step(game, gadgets, secs); }
+
+test('alambre de púas: a la mitad de velocidad dentro, las balas no lo rompen y 3 golpes sí', () => {
+  const { game, gadgets } = fresh();
+  const d = give(game.addOperator(new Operator('d', { team: 1, x: 17, y: 0, z: 13, yaw: 0, loadout: ['ar'] })), 'barbed');
+  step(game, gadgets, 0.3);
+  placeNow(game, gadgets, d);
+  const wire = gadgets.placed.find((c) => c.kind === 'barbed');
+  assert.ok(wire, 'colocado');
+  // un atacante corre a través del alambre
+  const a = game.addOperator(new Operator('a', { team: 0, x: 17, y: 0, z: wire.pos.z - 2.5, yaw: Math.PI, loadout: ['ar'] }));
+  step(game, gadgets, 0.2);
+  const speedAt = (z) => { a.body.pos.z = z; a.body.vel.x = a.body.vel.z = 0; let v = 0; for (let i = 0; i < 30; i++) { a.intent.moveZ = 1; step(game, gadgets, TICK); v = Math.hypot(a.body.vel.x, a.body.vel.z); } return v; };
+  const free = speedAt(wire.pos.z - 2.5);
+  const slow = speedAt(wire.pos.z - 0.2);
+  assert.ok(Math.abs(slow / free - WIRE.slow) < 0.08, `dentro va a la mitad (${free.toFixed(2)} → ${slow.toFixed(2)} m/s)`);
+  // balas: lo atraviesan
+  const e = a.eyePos();
+  game.fireBullet(a, e, { x: 0, y: -Math.sin(0.5), z: Math.cos(0.5) }, a.weapon);
+  assert.ok(wire.alive, 'las balas no lo rompen');
+  // tres golpes cuerpo a cuerpo
+  a.intent.moveZ = 0; a.body.vel.x = a.body.vel.z = 0;
+  a.body.pos.z = wire.pos.z - 0.9; a.yaw = Math.PI; a.pitch = -0.9;
+  let hits = 0;
+  for (let i = 0; i < 4 && wire.alive; i++) { a.meleeT = 0; a.intent.melee = true; step(game, gadgets, 0.7); hits++; }
+  assert.ok(!wire.alive, 'roto a golpes');
+  assert.equal(hits, 3, 'con 3 golpes');
+});
+
+test('escudo desplegable: para las balas; un explosivo lo rompe', () => {
+  const { game, gadgets } = fresh();
+  const d = give(game.addOperator(new Operator('d', { team: 1, x: 17, y: 0, z: 13, yaw: 0, loadout: ['ar'] })), 'shield', 1);
+  step(game, gadgets, 0.3);
+  placeNow(game, gadgets, d);
+  let n = 0;
+  for (let x = 16; x <= 18; x += 0.125) for (let y = 0.06; y < 1.1; y += 0.125) for (let z = 11.5; z <= 12.5; z += 0.125) if (world.getWorld(x, y, z) === MAT.DEPLOY_SHIELD) n++;
+  assert.ok(n >= 60, `escudo en su sitio (${n} vóxeles)`);
+  // un atacante dispara desde el otro lado a la altura del escudo: no pasa
+  const a = game.addOperator(new Operator('a', { team: 0, x: 17, y: 0, z: 9, yaw: Math.PI, loadout: ['ar'] }));
+  step(game, gadgets, 0.2);
+  const r = game.fireBullet(a, { x: 17, y: 0.6, z: 9 }, { x: 0, y: 0, z: 1 }, a.weapon);
+  assert.ok(r.end < 4, `la bala se para en el escudo (${r.end.toFixed(2)} m)`);
+  assert.equal(d.hp, d.maxHp);
+  // una granada de impacto contra él lo rompe
+  const im = { id: 'i', kind: 'impact', owner: a, team: 0, pos: { x: 17, y: 0.6, z: 11.6 }, vel: { x: 0, y: 0, z: 6 }, t: 0.5, rest: false, alive: true, bounces: 0 };
+  gadgets.items.push(im);
+  step(game, gadgets, 0.2);
+  let left = 0;
+  for (let x = 16; x <= 18; x += 0.125) for (let y = 0.06; y < 1.1; y += 0.125) for (let z = 11.5; z <= 12.5; z += 0.125) if (world.getWorld(x, y, z) === MAT.DEPLOY_SHIELD) left++;
+  assert.ok(left < n * 0.7, `el explosivo lo rompe (${n} → ${left})`);
+});
+
+test('cámara blindada: se suma a las cámaras; las balas no la rompen, un golpe sí', () => {
+  const { game, gadgets } = fresh();
+  const recon = new Recon(game, { cameras: map.cameras });
+  recon.reset({ defTeam: 1 });
+  gadgets.recon = recon;
+  const n0 = recon.cams.length;
+  const d = give(game.addOperator(new Operator('d', { team: 1, x: 11.0, y: 0, z: 2, yaw: -Math.PI / 2, loadout: ['ar'] })), 'bpcam', 1);
+  step(game, gadgets, 0.3);
+  d.pitch = 0.2;
+  placeNow(game, gadgets, d);
+  assert.equal(recon.cams.length, n0 + 1, 'una cámara más');
+  const cam = recon.cams[recon.cams.length - 1];
+  assert.ok(cam.bulletproof && cam.team === 1);
+  const a = game.addOperator(new Operator('a', { team: 0, x: 8, y: 0, z: 2, yaw: -Math.PI / 2, loadout: ['ar'] }));
+  step(game, gadgets, 0.2);
+  const e = a.eyePos(), c = cam.center();
+  const L = Math.hypot(c.x - e.x, c.y - e.y, c.z - e.z);
+  for (let i = 0; i < 5; i++) game.fireBullet(a, e, { x: (c.x - e.x) / L, y: (c.y - e.y) / L, z: (c.z - e.z) / L }, a.weapon);
+  assert.ok(cam.alive, 'las balas no le hacen nada');
+  // golpe cuerpo a cuerpo
+  a.body.pos.x = c.x - 1.0; a.body.pos.z = c.z; step(game, gadgets, 0.1);
+  const e2 = a.eyePos();
+  a.yaw = Math.atan2(-(c.x - e2.x), -(c.z - e2.z)); a.pitch = Math.atan2(c.y - e2.y, Math.hypot(c.x - e2.x, c.z - e2.z));
+  a.meleeT = 0; a.intent.melee = true; step(game, gadgets, 0.5);
+  assert.ok(!cam.alive, 'un golpe la rompe');
+  // la ronda siguiente ya no está
+  gadgets.reset();
+  assert.equal(recon.cams.length, n0);
+});
+
+test('alarma de proximidad: suena y marca 3 s al atacante que pasa a menos de 2 m', () => {
+  const { game, gadgets } = fresh();
+  const recon = new Recon(game, { cameras: map.cameras });
+  recon.reset({ defTeam: 1 });
+  gadgets.recon = recon;
+  const d = give(game.addOperator(new Operator('d', { team: 1, x: 17, y: 0, z: 13, yaw: 0, loadout: ['ar'] })), 'alarm', 2);
+  step(game, gadgets, 0.3);
+  d.pitch = -1.0;
+  placeNow(game, gadgets, d);
+  const al = gadgets.placed.find((c) => c.kind === 'alarm');
+  assert.ok(al, 'colocada');
+  const a = game.addOperator(new Operator('a', { team: 0, x: al.pos.x + 4, y: 0, z: al.pos.z, yaw: 0, loadout: ['ar'] }));
+  const rings = [];
+  game.on('alarm', (c, op) => rings.push(op));
+  step(game, gadgets, 0.5);
+  assert.equal(rings.length, 0, 'lejos, nada');
+  a.body.pos.x = al.pos.x + 1.2;
+  step(game, gadgets, 0.2);
+  assert.equal(rings.length, 1, 'suena');
+  assert.ok(recon.isSpottedFor(a, 1), 'marcado para la defensa');
+  step(game, gadgets, ALARM.mark - 0.3 + 0.1);
+  // se destruye de un disparo
+  const e = a.eyePos(), c = al.target.center();
+  const L = Math.hypot(c.x - e.x, c.y - e.y, c.z - e.z);
+  game.fireBullet(a, e, { x: (c.x - e.x) / L, y: (c.y - e.y) / L, z: (c.z - e.z) / L }, a.weapon);
+  assert.ok(!al.alive, 'destruida de un disparo');
+});

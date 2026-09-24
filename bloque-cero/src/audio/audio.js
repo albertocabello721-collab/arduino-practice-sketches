@@ -601,6 +601,27 @@ export class AudioEngine {
     const g = this.ctx.createGain(); g.gain.value = 0.12 * strength; g.connect(this.master);
     this._tone(g, t, { f0: 3900, f1: 3850, a: 0.05, peak: 0.6, d: 2.8 * strength + 0.4, type: 'sine' });
   }
+  // Roce metálico del alambre de púas.
+  wireRustle(pos, occl = 0) {
+    if (!this.ctx) return;
+    const t = this.ctx.currentTime;
+    const out = this._out(pos, { gain: 0.7, ref: 2, rolloff: 1.3, occl, reverb: 0.2 });
+    for (let i = 0; i < 4; i++) this._burst(out, t + i * 0.05 + Math.random() * 0.03, { type: 'bandpass', freq: 3500 + Math.random() * 2500, q: 4, a: 0.002, peak: 0.35, d: 0.05 });
+  }
+  // Alarma de proximidad: tres pitidos agudos.
+  alarm(pos, occl = 0) {
+    if (!this.ctx) return;
+    const t = this.ctx.currentTime;
+    const out = this._out(pos, { gain: 1.3, ref: 4, rolloff: 0.9, occl, reverb: 0.4 });
+    for (let i = 0; i < 3; i++) this._tone(out, t + i * 0.22, { f0: 2400, f1: 2380, a: 0.005, peak: 0.6, d: 0.14, type: 'square' });
+  }
+  // Rebote de una bala en algo blindado.
+  ricochet(pos, occl = 0) {
+    if (!this.ctx) return;
+    const t = this.ctx.currentTime;
+    const out = this._out(pos, { gain: 0.6, ref: 2, rolloff: 1.3, occl, reverb: 0.2 });
+    this._tone(out, t, { f0: 4200, f1: 1800, a: 0.001, peak: 0.3, d: 0.18, type: 'triangle' });
+  }
   // Siseo del humo al abrirse.
   smokeHiss(pos, occl = 0) {
     if (!this.ctx) return;

@@ -213,6 +213,26 @@ function claymoreModel() {
   return b.build();
 }
 
+// Alambre de púas (rollos en espiral) y alarma de proximidad.
+function wireModel() {
+  const b = new Builder();
+  for (let k = 0; k < 14; k++) {
+    const x = -0.95 + k * 0.146;
+    for (let s = 0; s < 8; s++) {
+      const a = s / 8 * Math.PI * 2, r = 0.26;
+      b.add(Box(0.012, 0.012, 0.13), { at: [x + (s % 2) * 0.02, 0.3 + Math.sin(a) * r, Math.cos(a) * r], rot: [a, 0, 0], color: '#6d7072', rough: 0.35, metal: 0.8 });
+    }
+  }
+  for (const x of [-0.9, 0.9]) b.add(Box(0.03, 0.62, 0.03), { at: [x, 0.31, 0], color: '#3a3c3e', rough: 0.5, metal: 0.6 });
+  return b.build();
+}
+function alarmModel() {
+  const b = new Builder();
+  b.add(Box(0.1, 0.06, 0.1), { at: [0, 0.03, 0], color: '#2b2e33', rough: 0.5, metal: 0.3 });
+  b.add(Cyl(0.02, 0.02, 0.02, 8), { at: [0, 0.07, 0], color: '#ffb21a', glow: 1 });
+  return b.build();
+}
+
 export class PropRenderer {
   constructor(scene, wr) {
     this.scene = scene;
@@ -223,7 +243,7 @@ export class PropRenderer {
       droneBody: [droneBody('#3d9be9'), droneBody('#f0892b')], droneWheels: droneWheels(),
       camBase: camBase(), camHead: camHead(), hatch: hatchPlate(this.steelLayer), defuser: defuserModel(),
       grenade: { frag: grenadeModel('frag'), smoke: grenadeModel('smoke'), flash: grenadeModel('flash'), impact: grenadeModel('impact'), c4: c4Model() },
-      breach: breachModel(), claymore: claymoreModel(),
+      breach: breachModel(), claymore: claymoreModel(), barbed: wireModel(), alarm: alarmModel(),
     };
     // láser de las claymores (línea roja fina)
     this.laserMat = new THREE.LineBasicMaterial({ color: 0xff2a1a, transparent: true, opacity: 0.8, toneMapped: false });
@@ -303,6 +323,7 @@ export class PropRenderer {
         return { group, kind: 'cam', base, head };
       });
       it.group.position.set(c.pos.x, c.pos.y, c.pos.z);
+      if (c.bulletproof && !it.armored) { it.armored = true; it.head.scale.set(1.3, 1.3, 1.3); it.base.scale.set(1.3, 1.3, 1.3); }
       // la base mira hacia la pared (detrás de la cámara, en su orientación de montaje)
       it.base.rotation.set(0, c.baseYaw, 0);
       if (c.alive) it.head.rotation.set(c.pitch, c.yaw, 0, 'YXZ');
@@ -382,7 +403,7 @@ export class PropRenderer {
       if (!c.alive) continue;
       const it = this._get('x:' + c.id, () => {
         const group = new THREE.Group();
-        const m = this._mesh(c.kind === 'breach' ? this.geo.breach : this.geo.claymore);
+        const m = this._mesh(this.geo[c.kind] || this.geo.claymore);
         group.add(m);
         let laser = null;
         if (c.kind === 'claymore') {
@@ -392,11 +413,16 @@ export class PropRenderer {
         }
         return { group, kind: c.kind, m, laser };
       });
-      if (c.kind === 'breach') {
+      if (c.kind === 'breach' || c.kind === 'alarm') {
         const n = c.normal;
         it.group.position.set(c.pos.x, c.pos.y, c.pos.z);
-        // la cara de delante (z local) hacia fuera de la pared
-        it.group.rotation.set(n.y ? -Math.sign(n.y) * Math.PI / 2 : 0, n.x ? Math.sign(n.x) * Math.PI / 2 : n.z < 0 ? Math.PI : 0, 0);
+        if (c.kind === 'alarm') {
+          // la base contra la superficie (y local hacia fuera)
+          it.m.rotation.set(n.z ? Math.sign(n.z) * Math.PI / 2 : n.y < 0 ? Math.PI : 0, 0, n.x ? -Math.sign(n.x) * Math.PI / 2 : 0);
+        } else {
+          // la cara de delante (z local) hacia fuera de la pared
+          it.group.rotation.set(n.y ? -Math.sign(n.y) * Math.PI / 2 : 0, n.x ? Math.sign(n.x) * Math.PI / 2 : n.z < 0 ? Math.PI : 0, 0);
+        }
       } else {
         it.group.position.set(c.pos.x, c.pos.y, c.pos.z);
         it.group.rotation.set(0, c.yaw, 0);

@@ -98,6 +98,7 @@ export class Match extends Emitter {
     this.fort = new Fortify(this.game, { canFortify: (op) => op.side === 'def' && (this.phase === 'prep' || this.phase === 'action' || this.phase === 'planted') });
     this.recon = new Recon(this.game, { cameras: map.cameras || [] });
     this.gadgets = new Gadgets(this.game);
+    this.gadgets.recon = this.recon;
     this._bindGame();
   }
   get objectiveFound() { return this.recon.objectiveFound; }

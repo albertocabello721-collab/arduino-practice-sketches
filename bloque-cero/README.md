@@ -16,7 +16,7 @@ Es un único archivo HTML autónomo: no necesita servidor ni conexión.
 | F3 | Rondas 5v5, 3 ubicaciones de sitios (los defensores eligen), desactivador, HUD con reloj y 10 retratos | ✅ |
 | F4 | Preparación: refuerzos, barricadas, trampillas, drones, cámaras, cuerpo a cuerpo | ✅ |
 | F5 | Bots: navegación, percepción, combate, tácticas por bando, órdenes (H), marcas (T), chat de equipo, depuración (P) | ✅ |
-| F6 | Operadores 8 + 8 y contrajuego de gadgets | en curso: arsenal ✅ · plantilla de 16 ✅ · granadas y explosivos ✅ · gadgets defensivos y habilidades en camino |
+| F6 | Operadores 8 + 8 y contrajuego de gadgets | en curso: arsenal ✅ · plantilla de 16 ✅ · granadas y explosivos ✅ · gadgets defensivos ✅ · habilidades (X) en camino |
 | F7 | Animaciones en primera y tercera persona | pendiente |
 | F8 | Recarga por partes | pendiente |
 | F9 | Audio 3D con oclusión | pendiente |
@@ -99,7 +99,17 @@ Se usan con **G**; el que llevas y sus cargas salen abajo a la derecha, junto a 
 - **Claymore** (×1): se deja en el suelo mirando al frente (1 s) con su láser rojo; salta cuando
   un enemigo entra en su cono de 2 m.
 - Los explosivos colocados se destruyen de un disparo del bando contrario (20 puntos).
-- Alambre, escudo desplegable, cámara blindada y alarma de proximidad: en la siguiente ronda.
+- **Alambre de púas** (×2, defensa): un rollo de 2 m atravesado delante de ti (1 s). Quien lo
+  cruza, de cualquier bando, va a la mitad de velocidad y hace ruido. Las balas lo atraviesan;
+  se quita con 3 golpes cuerpo a cuerpo o con un explosivo.
+- **Escudo desplegable** (×1, defensa): una placa de 1,25 × 1 m (1 s) que para las balas; solo
+  la rompen los explosivos.
+- **Cámara blindada** (×1, defensa): en una pared a menos de 2 m (1 s); se suma a las cámaras
+  del edificio (**5** para verlas). Las balas rebotan; se rompe de un golpe o con un explosivo.
+- **Alarma de proximidad** (×2, defensa): en una pared o en el suelo a menos de 2 m (1 s); si un
+  atacante pasa a menos de 2 m, suena y lo marca 3 s para toda la defensa.
+- Si miras una pared que se puede reforzar, el aviso te ofrece las dos cosas (**F** refuerzo,
+  **G** gadget).
 
 ## Partida rápida 5v5 (Fase 3)
 
@@ -259,6 +269,8 @@ npm test             # tests de simulación en Node (sin navegador)
 node tools/smoke.mjs <carpeta>   # prueba de humo en Chromium headless con capturas
 node tools/smoke3.mjs <carpeta>  # partida completa en el navegador (selección → final)
 node tools/smoke-aliados.mjs <carpeta>  # depuración (P) y ayudas de equipo en el navegador
+node tools/smoke-gadgets.mjs <carpeta>  # granadas, brecha y claymore con G en el navegador
+node tools/smoke-defensa.mjs <carpeta>  # alambre, escudo, cámara blindada y alarma con G
 node tools/smoke4.mjs <carpeta>  # refuerzos, barricadas, golpes, drones y cámaras en el navegador
 node tools/smoke5.mjs <carpeta>  # partida contra bots en el navegador (rejilla, preparación, ronda)
 node tools/mapslice.mjs <carpeta> # cortes cenitales del mapa por planta

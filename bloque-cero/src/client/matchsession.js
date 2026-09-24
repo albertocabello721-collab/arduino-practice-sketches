@@ -7,6 +7,7 @@ import { FeedController } from './feeds.js';
 import { TeamChat } from './chat.js';
 import { OrderWheel, ORDERS } from '../ui/wheel.js';
 import { GADGETS } from '../sim/operators.js';
+import { PLACE_LABEL } from '../sim/gadgets.js';
 import { Match } from '../sim/match.js';
 import { BotSquad } from '../sim/bots.js';
 import { operatorLook } from '../render/character.js';
@@ -368,7 +369,7 @@ export class MatchSession extends Session {
     let prompt = '';
     if (p && p === view && p.state === 'alive') {
       if (p.channel && (p.channel.kind === 'plant' || p.channel.kind === 'disable')) hud.setRevive(p.channel.kind === 'plant' ? 'Plantando el desactivador' : 'Inutilizando el desactivador', p.channel.t / p.channel.total);
-      else if (p.channel && p.channel.kind === 'gadget') hud.setRevive(p.channel.what === 'breach' ? 'Colocando la carga de brecha' : 'Colocando la claymore', p.channel.t / p.channel.total);
+      else if (p.channel && p.channel.kind === 'gadget') hud.setRevive(`Colocando ${PLACE_LABEL[p.channel.what] || 'el gadget'}`, p.channel.t / p.channel.total);
       else if (!p.reviving && !this.game.findRevivable(p)) {
         if (def && def.carrier === p && m.phase === 'action') {
           const s = m.siteAt(p.body.pos.x, p.body.pos.y, p.body.pos.z);
@@ -380,7 +381,12 @@ export class MatchSession extends Session {
           const P = def.plantPos;
           if (Math.hypot(p.body.pos.x - P.x, p.body.pos.z - P.z) < m.rules.disableRange && Math.abs(p.body.pos.y - P.y) < 1.2) prompt = 'Mantén F para inutilizar el desactivador';
         }
-        if (!prompt && side === 'def') prompt = this.fortifyHud(m.fort, p);
+        if (!prompt && side === 'def') {
+          // (reforzar y colocar un gadget en la misma pared: se avisan las dos cosas)
+          prompt = this.fortifyHud(m.fort, p);
+          const gp = prompt ? this._gadgetPrompt(p) : '';
+          if (gp) prompt += ` · ${gp}`;
+        }
         if (!prompt) prompt = this._gadgetPrompt(p);
       }
       // anti run-out: cuenta atrás mientras estás fuera del edificio
@@ -389,6 +395,8 @@ export class MatchSession extends Session {
       }
     }
     this.promptText = prompt;
+    // (el panel de la preparación se aparta mientras hay un aviso o una barra de progreso)
+    this.ui.el.prep.classList.toggle('behind', !!prompt || !!(p && p === view && (p.channel || p.reviving)));
     this.ui.setCarry(!!(p && def && def.carrier === p && p.state !== 'dead'));
     this._gear(p, side);
     // observar
@@ -418,10 +426,10 @@ export class MatchSession extends Session {
     const G = this.match.gadgets, g = p.gadget;
     if (!G || !g) return '';
     if (G._detonable(p)) return 'G para detonar';
-    if (g.left <= 0 || (g.id !== 'breach' && g.id !== 'claymore')) return '';
+    if (g.left <= 0 || !PLACE_LABEL[g.id]) return '';
     const spot = G.placeSpot(p);
     if (!spot || !spot.ok) return g.id === 'breach' && spot && spot.why && spot.why.startsWith('Muro') ? spot.why : '';
-    return g.id === 'breach' ? 'G para colocar la carga de brecha' : 'G para dejar la claymore';
+    return `G para colocar ${PLACE_LABEL[g.id]}`;
   }
 
   // Nubes de humo: partículas grandes y grises mientras duran.

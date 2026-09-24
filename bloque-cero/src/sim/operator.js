@@ -115,7 +115,7 @@ export class Operator {
     let s = this.stance === 'prone' ? SPEED.prone : this.stance === 'crouch' ? SPEED.crouch : (this.sprinting ? SPEED.sprint : SPEED.walk);
     if (!this.sprinting) s *= 1 - (1 - SPEED.adsMul) * this.ads;
     if (Math.abs(this.leanAllowed) > 0.3) s *= SPEED.leanMul;
-    return s * this.speedMul;
+    return s * this.speedMul * (this.slowMul || 1);   // (el alambre de púas frena a la mitad)
   }
 
   // ------------------------------------------------------------ transiciones de combate

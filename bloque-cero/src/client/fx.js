@@ -80,6 +80,9 @@ export function bindGameFx(ctx, game, view) {
   on('gadgetDenied', (op, why) => { if (op === me()) { audio.ping('deny'); if (why) hud.toast(why, 1.4); } });
   on('gadgetPlaced', (op, c) => audio.grenadeClink(c.pos, op === viewer() ? 0 : occlusion(c.pos)));
   on('gadgetStuck', (it) => audio.impact(SND.metal, it.pos, occlusion(it.pos)));
+  on('wireRustle', (op, c) => audio.wireRustle(op.body.pos, op === viewer() ? 0 : occlusion(op.body.pos)));
+  on('alarm', (c) => audio.alarm(c.pos, occlusion(c.pos)));
+  on('ricochet', (tg, p) => { if (p) { audio.ricochet(p, occlusion(p)); for (let i = 0; i < 5; i++) effects.spawnSpark(p.x, p.y, p.z, (Math.random() - 0.5) * 5, Math.random() * 3, (Math.random() - 0.5) * 5, 1); } });
   on('gadgetDestroyed', (it) => {
     audio.electronicPop(it.pos, occlusion(it.pos));
     for (let i = 0; i < 10; i++) effects.spawnSpark(it.pos.x, it.pos.y + 0.05, it.pos.z, (Math.random() - 0.5) * 4, Math.random() * 3, (Math.random() - 0.5) * 4, 1);
