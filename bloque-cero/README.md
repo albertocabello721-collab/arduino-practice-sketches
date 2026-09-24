@@ -16,7 +16,7 @@ Es un único archivo HTML autónomo: no necesita servidor ni conexión.
 | F3 | Rondas 5v5, 3 ubicaciones de sitios (los defensores eligen), desactivador, HUD con reloj y 10 retratos | ✅ |
 | F4 | Preparación: refuerzos, barricadas, trampillas, drones, cámaras, cuerpo a cuerpo | ✅ |
 | F5 | Bots: navegación, percepción, combate, tácticas por bando, órdenes (H), marcas (T), chat de equipo, depuración (P) | ✅ |
-| F6 | Operadores 8 + 8 y contrajuego de gadgets | en curso: arsenal ✅ · plantilla de 16 ✅ · granadas y explosivos ✅ · gadgets defensivos ✅ · habilidades (X) en camino |
+| F6 | Operadores 8 + 8 y contrajuego de gadgets | en curso: arsenal ✅ · plantilla de 16 ✅ · granadas y explosivos ✅ · gadgets defensivos ✅ · habilidades de brecha, humo y PEM ✅ · resto de habilidades en camino |
 | F7 | Animaciones en primera y tercera persona | pendiente |
 | F8 | Recarga por partes | pendiente |
 | F9 | Audio 3D con oclusión | pendiente |
@@ -76,8 +76,27 @@ Velocidad/blindaje, armas, gadget secundario a elegir y habilidad (tecla X):
 | REMEDIO | 1/3 | SF-45 o E-12 | P-9 | Alambre o cámara blindada | Pistola de estimulantes (3) |
 | TIZÓN | 2/2 | AL-60 o SF-9 | P-9 | Escudo o alambre | 3 botes de gas |
 
-La selección muestra el papel, los números de la habilidad y sus contras. Los gadgets y las
-habilidades se activan en las siguientes rondas de la Fase 6.
+La selección muestra el papel, los números de la habilidad y sus contras.
+
+### Habilidades (tecla X)
+
+La habilidad y sus cargas salen abajo a la derecha, junto al gadget. Ya funcionan:
+
+- **TERMO · carga térmica** (×2): mirando un muro blando o reforzado a menos de 1,6 m (o una
+  trampilla del suelo, de pie), **X** la coloca en 2 s (quieto) y **X** otra vez la enciende:
+  arde 5 s con chispas y siseo y abre un hueco de 1,9 m de alto × 1,1 m de ancho a ras de
+  suelo, **también en los refuerzos** (la placa de acero desaparece). En ladrillo o barricadas
+  no se pone. Antes de encenderla se destruye de un disparo.
+- **ROMPE · proyectil de brecha** (×2): vuela recto hasta 40 m, se pega a lo que toca y a los
+  1,5 s (pitando cada vez más deprisa) abre 1,5 m de pared blanda o suelo, o quita entera la
+  barricada o la trampilla. En un refuerzo revienta sin abrirlo; si da a alguien, cae a sus pies.
+- **NUBE · humo remoto** (×3): vuela recto hasta 40 m y abre una nube de 4 m durante 10 s
+  donde choca; tapa la vista a jugadores y bots.
+- **CHISPA · granada PEM** (×3): se lanza como una granada; a los 2 s deja 15 s sin funcionar
+  la electrónica de la defensa a menos de 5 m, **aunque haya paredes**: las cámaras (también
+  las blindadas) no dan imagen ni marcan y las alarmas no suenan.
+- Entre dos usos de la habilidad hay 1 s de espera. Las de RADAR, PULGA, MURALLA y LUMEN y las
+  de la defensa llegan en las siguientes rondas de la Fase 6; hasta entonces X no hace nada.
 
 ## Gadgets secundarios (Fase 6)
 
@@ -245,6 +264,7 @@ Reglas de Siege, contra bots:
 | R | Recargar |
 | B | Modo de disparo (automático, ráfaga, tiro a tiro) |
 | G | Gadget secundario (granadas, cargas…) |
+| X | Habilidad del operador (y encender la carga térmica colocada) |
 | 1–4, rueda | Cambiar de arma |
 | F | Reforzar, poner barricada, plantar / inutilizar el desactivador, reanimar (mantener) / presionar la herida si estás derribado |
 | V | Golpe cuerpo a cuerpo (rompe barricadas y pladur) |
@@ -271,6 +291,7 @@ node tools/smoke3.mjs <carpeta>  # partida completa en el navegador (selección 
 node tools/smoke-aliados.mjs <carpeta>  # depuración (P) y ayudas de equipo en el navegador
 node tools/smoke-gadgets.mjs <carpeta>  # granadas, brecha y claymore con G en el navegador
 node tools/smoke-defensa.mjs <carpeta>  # alambre, escudo, cámara blindada y alarma con G
+node tools/smoke-habilidades.mjs <carpeta>  # carga térmica, proyectil de brecha, humo remoto y PEM con X
 node tools/smoke4.mjs <carpeta>  # refuerzos, barricadas, golpes, drones y cámaras en el navegador
 node tools/smoke5.mjs <carpeta>  # partida contra bots en el navegador (rejilla, preparación, ronda)
 node tools/mapslice.mjs <carpeta> # cortes cenitales del mapa por planta

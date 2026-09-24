@@ -4,6 +4,8 @@ import * as THREE from 'three';
 import { LIGHTING_GLSL } from './shaders.js';
 import { TEXTURE_NAMES } from './texgen.js';
 
+const _up = new THREE.Vector3(0, 1, 0), _dir = new THREE.Vector3();
+
 const PROP_VERT = /* glsl */ `
 precision highp float;
 uniform mat4 modelMatrix;
@@ -233,6 +235,38 @@ function alarmModel() {
   return b.build();
 }
 
+// Habilidades: carga térmica (en la pared; la cara arde al encenderla), proyectiles del
+// lanzador (brecha y humo) y granada PEM.
+function thermalModel() {
+  const b = new Builder();
+  b.add(Box(0.8, 1.1, 0.05), { at: [0, 0, 0.025], color: '#4a4c50', rough: 0.55, metal: 0.45 });
+  b.add(Box(0.68, 0.98, 0.035), { at: [0, 0, 0.06], color: '#5b3423', rough: 0.8 });
+  for (const y of [-0.33, 0, 0.33]) b.add(Box(0.72, 0.035, 0.02), { at: [0, y, 0.085], color: '#26272a', rough: 0.5, metal: 0.5 });
+  b.add(Box(0.12, 0.08, 0.04), { at: [0.25, 0.47, 0.1], color: '#1c1d1f', rough: 0.5 });
+  b.add(Box(0.03, 0.02, 0.01), { at: [0.25, 0.47, 0.125], color: '#ff3a1a', glow: 1 });
+  return b.build();
+}
+function thermalHot() {
+  const b = new Builder();
+  b.add(Box(0.66, 0.96, 0.02), { at: [0, 0, 0.082], color: '#ff7a1e', glow: 0.8 });
+  return b.build();
+}
+function roundModel(kind) {
+  const b = new Builder();
+  const col = kind === 'breachround' ? '#3b3f35' : '#8b9096';
+  b.add(Cyl(0.03, 0.03, 0.1, 10), { at: [0, 0, 0], color: col, rough: 0.55, metal: 0.4 });
+  b.add(Cyl(0.012, 0.03, 0.04, 10), { at: [0, 0.07, 0], color: kind === 'breachround' ? '#b8742a' : '#d9dcd7', rough: 0.5, metal: 0.3 });
+  b.add(Box(0.02, 0.02, 0.01), { at: [0, -0.02, 0.031], color: kind === 'breachround' ? '#ff3a1a' : '#e8e8e0', glow: 1 });
+  return b.build();
+}
+function empModel() {
+  const b = new Builder();
+  b.add(Cyl(0.03, 0.03, 0.11, 12), { at: [0, 0, 0], color: '#2a2f38', rough: 0.45, metal: 0.5 });
+  b.add(Cyl(0.032, 0.032, 0.02, 12), { at: [0, 0.015, 0], color: '#5fd0ff', glow: 1 });
+  b.add(Cyl(0.012, 0.012, 0.03, 8), { at: [0, 0.07, 0], color: '#8a8f96', rough: 0.4, metal: 0.6 });
+  return b.build();
+}
+
 export class PropRenderer {
   constructor(scene, wr) {
     this.scene = scene;
@@ -242,8 +276,8 @@ export class PropRenderer {
     this.geo = {
       droneBody: [droneBody('#3d9be9'), droneBody('#f0892b')], droneWheels: droneWheels(),
       camBase: camBase(), camHead: camHead(), hatch: hatchPlate(this.steelLayer), defuser: defuserModel(),
-      grenade: { frag: grenadeModel('frag'), smoke: grenadeModel('smoke'), flash: grenadeModel('flash'), impact: grenadeModel('impact'), c4: c4Model() },
-      breach: breachModel(), claymore: claymoreModel(), barbed: wireModel(), alarm: alarmModel(),
+      grenade: { frag: grenadeModel('frag'), smoke: grenadeModel('smoke'), flash: grenadeModel('flash'), impact: grenadeModel('impact'), c4: c4Model(), emp: empModel(), breachround: roundModel('breachround'), smokeround: roundModel('smokeround') },
+      breach: breachModel(), claymore: claymoreModel(), barbed: wireModel(), alarm: alarmModel(), thermal: thermalModel(), thermalHot: thermalHot(),
     };
     // láser de las claymores (línea roja fina)
     this.laserMat = new THREE.LineBasicMaterial({ color: 0xff2a1a, transparent: true, opacity: 0.8, toneMapped: false });
@@ -329,7 +363,9 @@ export class PropRenderer {
       if (c.alive) it.head.rotation.set(c.pitch, c.yaw, 0, 'YXZ');
       else it.head.rotation.set(-1.1, c.baseYaw + 0.4, 0.5, 'YXZ');
       it.head.material.uniforms.uDim.value = c.alive ? 1 : 0.35;
-      it.head.material.uniforms.uGlow.value = c.alive ? 0.6 + 0.4 * Math.sin(this.time * 4) : 0;
+      // (sin luz si está rota o apagada por una PEM)
+      const on = c.alive && !(c.offUntil > (s.now || 0));
+      it.head.material.uniforms.uGlow.value = on ? 0.6 + 0.4 * Math.sin(this.time * 4) : 0;
       it.group.visible = c !== s.hide;
     }
     // ---------------- refuerzos colocados y en curso
@@ -385,18 +421,30 @@ export class PropRenderer {
     for (const g of s.gadgets || []) {
       if (!g.alive || !this.geo.grenade[g.kind]) continue;
       const it = this._get('g:' + g.id, () => { const group = new THREE.Group(); const m = this._mesh(this.geo.grenade[g.kind]); group.add(m); return { group, kind: 'grenade', m, spin: 0 }; });
-      if (g.kind === 'c4' && g.stuck) {
+      if ((g.kind === 'c4' || g.kind === 'breachround') && g.stuck) {
         // pegado: la cara de abajo contra la superficie
         const n = g.normal;
         it.group.position.set(g.pos.x - n.x * 0.02, g.pos.y - n.y * 0.02, g.pos.z - n.z * 0.02);
         it.m.rotation.set(n.z ? Math.sign(n.z) * Math.PI / 2 : n.y < 0 ? Math.PI : 0, 0, n.x ? -Math.sign(n.x) * Math.PI / 2 : 0);
-        it.m.material.uniforms.uGlow.value = Math.sin(this.time * 6) > 0 ? 1 : 0.2;
+        // (el de brecha pita cada vez más deprisa hasta reventar)
+        const f = g.kind === 'breachround' ? 8 + (g.t - (g.armedAt || 0)) * 14 : 6;
+        it.m.material.uniforms.uGlow.value = Math.sin(this.time * f) > 0 ? 1 : 0.2;
+        continue;
+      }
+      if (g.straight) {
+        // en vuelo recto: la punta hacia delante
+        const v = g.vel, L = Math.hypot(v.x, v.y, v.z) || 1;
+        _dir.set(v.x / L, v.y / L, v.z / L);
+        it.m.quaternion.setFromUnitVectors(_up, _dir);
+        it.group.position.set(g.pos.x, g.pos.y, g.pos.z);
+        it.m.material.uniforms.uGlow.value = 1;
         continue;
       }
       it.group.position.set(g.pos.x, g.pos.y + (g.rest ? 0.03 : 0), g.pos.z);
       if (!g.rest) it.spin += dt * 14;
       it.m.rotation.set(g.rest ? Math.PI / 2 : it.spin, g.rest ? 0.7 : it.spin * 0.6, 0);
       if (g.kind === 'flash') it.m.material.uniforms.uGlow.value = g.t > 1.1 ? 1 : 0.3;
+      if (g.kind === 'emp') it.m.material.uniforms.uGlow.value = 0.5 + 0.5 * Math.sin(this.time * (8 + g.t * 10));
     }
     // ---------------- cargas de brecha y claymores colocadas
     for (const c of s.placed || []) {
@@ -405,15 +453,16 @@ export class PropRenderer {
         const group = new THREE.Group();
         const m = this._mesh(this.geo[c.kind] || this.geo.claymore);
         group.add(m);
-        let laser = null;
+        let laser = null, hot = null;
         if (c.kind === 'claymore') {
           const lg = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0, 0.14, -0.03), new THREE.Vector3(0, 0.3, -2.0)]);
           laser = new THREE.Line(lg, this.laserMat);
           group.add(laser);
         }
-        return { group, kind: c.kind, m, laser };
+        if (c.kind === 'thermal') { hot = this._mesh(this.geo.thermalHot); hot.visible = false; group.add(hot); }
+        return { group, kind: c.kind, m, laser, hot };
       });
-      if (c.kind === 'breach' || c.kind === 'alarm') {
+      if (c.kind === 'breach' || c.kind === 'alarm' || c.kind === 'thermal') {
         const n = c.normal;
         it.group.position.set(c.pos.x, c.pos.y, c.pos.z);
         if (c.kind === 'alarm') {
@@ -428,6 +477,13 @@ export class PropRenderer {
         it.group.rotation.set(0, c.yaw, 0);
       }
       it.m.material.uniforms.uGlow.value = Math.sin(this.time * 5) > 0 ? 1 : 0.25;
+      if (it.hot) {
+        // encendida: la cara arde, con parpadeo
+        it.hot.visible = !!c.burning;
+        if (c.burning) it.hot.material.uniforms.uGlow.value = 0.75 + 0.25 * Math.sin(this.time * 37) * Math.sin(this.time * 23);
+      }
+      // apagada por una PEM: sin luz
+      if (c.offUntil && c.offUntil > (s.now || 0)) it.m.material.uniforms.uGlow.value = 0;
     }
     // borrar lo que ya no existe
     for (const [k, it] of this.items) if (!this.seen.has(k)) { this._dispose(it); this.items.delete(k); }

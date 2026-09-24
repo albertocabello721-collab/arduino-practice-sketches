@@ -460,7 +460,7 @@ export class BotSquad {
     if (![...this.brains.values()].some((B) => B.team === defTeam && B.op.state === 'alive')) return;
     const board = this.boards[defTeam];
     for (const cam of recon.cams) {
-      if (!cam.alive) continue;
+      if (!cam.alive || (cam.offUntil || 0) > now) continue;       // (apagada por una PEM)
       const e = cam.eyePos(), v = cam.viewDir();
       for (const t of this.enemiesOf(defTeam)) {
         if (t.state !== 'alive') continue;

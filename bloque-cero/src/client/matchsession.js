@@ -342,6 +342,7 @@ export class MatchSession extends Session {
     this.ui.tick(dt);
     this.chat.tick(dt);
     this._smokeFx(dt);
+    this._burnFx(dt);
     if (m.phase === 'select') { this.ui.updateSelect(m); return; }
     if (!m.running) { this.ui.updateMarkers([]); this.ui.showScoreboard(m, false); this.feed.frame(dt); return; }
     this._feedRules();
@@ -381,13 +382,14 @@ export class MatchSession extends Session {
           const P = def.plantPos;
           if (Math.hypot(p.body.pos.x - P.x, p.body.pos.z - P.z) < m.rules.disableRange && Math.abs(p.body.pos.y - P.y) < 1.2) prompt = 'Mantén F para inutilizar el desactivador';
         }
+        // (reforzar y colocar un gadget o la habilidad en la misma pared: se avisan todas)
+        const kit = () => [this._gadgetPrompt(p), this._abilityPrompt(p)].filter(Boolean).join(' · ');
         if (!prompt && side === 'def') {
-          // (reforzar y colocar un gadget en la misma pared: se avisan las dos cosas)
           prompt = this.fortifyHud(m.fort, p);
-          const gp = prompt ? this._gadgetPrompt(p) : '';
+          const gp = prompt ? kit() : '';
           if (gp) prompt += ` · ${gp}`;
         }
-        if (!prompt) prompt = this._gadgetPrompt(p);
+        if (!prompt) prompt = kit();
       }
       // anti run-out: cuenta atrás mientras estás fuera del edificio
       if (!prompt && side === 'def' && (m.phase === 'action' || m.phase === 'planted') && p.outT > 0) {
@@ -422,6 +424,19 @@ export class MatchSession extends Session {
   }
 
   // Qué hará G ahora con un explosivo colocable o detonable.
+  // Aviso de la habilidad (X): colocar o encender la carga térmica.
+  _abilityPrompt(p) {
+    const m = this.match, a = p.ability;
+    if (!a || !m.abilities.ready(p)) return '';
+    const G = m.gadgets;
+    if (a.id === 'thermal') {
+      if (G.thermalOf(p)) return 'X para encender la carga térmica';
+      if (!a.left) return '';
+      const spot = G.placeSpot(p, 'thermal');
+      return spot && spot.ok ? 'X para colocar la carga térmica' : '';
+    }
+    return '';
+  }
   _gadgetPrompt(p) {
     const G = this.match.gadgets, g = p.gadget;
     if (!G || !g) return '';
@@ -430,6 +445,23 @@ export class MatchSession extends Session {
     const spot = G.placeSpot(p);
     if (!spot || !spot.ok) return g.id === 'breach' && spot && spot.why && spot.why.startsWith('Muro') ? spot.why : '';
     return `G para colocar ${PLACE_LABEL[g.id]}`;
+  }
+
+  // Cargas térmicas encendidas: lluvia de chispas y luz naranja que parpadea.
+  _burnFx(dt) {
+    const G = this.match.gadgets, fx = this.ctx.effects;
+    if (!G) return;
+    for (const c of G.placed) {
+      if (!c.alive || !c.burning) continue;
+      const n = c.normal, p = c.pos;
+      c._fxAcc = (c._fxAcc || 0) + dt * 60;
+      for (; c._fxAcc >= 1; c._fxAcc--) {
+        const ox = n.x ? 0 : (Math.random() - 0.5) * 0.6, oz = n.z ? 0 : (Math.random() - 0.5) * 0.6;
+        fx.spawnSpark(p.x + ox + n.x * 0.1, p.y + (Math.random() - 0.5) * 0.9, p.z + oz + n.z * 0.1,
+          n.x * (1 + Math.random() * 2) + (Math.random() - 0.5), Math.random() * 1.5 - 0.5, n.z * (1 + Math.random() * 2) + (Math.random() - 0.5), 1);
+      }
+      if (Math.random() < 0.5) fx.flash(p.x + n.x * 0.3, p.y, p.z + n.z * 0.3, 50, 26, 8, 6, 0.08);
+    }
   }
 
   // Nubes de humo: partículas grandes y grises mientras duran.
@@ -467,7 +499,9 @@ export class MatchSession extends Session {
     if (this._gearHtml !== html) { this._gearHtml = html; el.innerHTML = html; el.classList.remove('hidden'); }
     // abajo a la derecha, junto a la munición: gadget secundario y refuerzos (documento, sección 19)
     const g = p.gadget && GADGETS[p.gadget.id];
-    const kit = (g ? `<span class="${p.gadget.left ? '' : 'off'}"><kbd>G</kbd>${g.short} <b>×${p.gadget.left}</b></span>` : '')
+    const ab = p.ability && m.abilities.ready(p) && p.opDef ? p.opDef.ability : null;
+    const kit = (ab ? `<span class="${p.ability.left ? '' : 'off'}"><kbd>X</kbd>${ab.name}${p.ability.left >= 0 ? ` <b>×${p.ability.left}</b>` : ''}</span>` : '')
+      + (g ? `<span class="${p.gadget.left ? '' : 'off'}"><kbd>G</kbd>${g.short} <b>×${p.gadget.left}</b></span>` : '')
       + (side === 'def' ? `<span><kbd>F</kbd>Refuerzos <b>${m.fort.remaining(p)}</b></span>` : '');
     const ke = document.getElementById('kit');
     if (this._kitHtml !== kit) { this._kitHtml = kit; ke.innerHTML = kit; ke.classList.toggle('hidden', !kit); }

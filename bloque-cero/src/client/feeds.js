@@ -90,7 +90,7 @@ export class FeedController {
     }
     if (this.mode === 'cams' && this.cam) {
       const c = this.cam;
-      return { x: c.pos.x, y: c.pos.y - 0.05, z: c.pos.z, yaw: c.yaw, pitch: c.pitch, roll: 0, fov: 84, feed: 2, staticK: (this.lostT > 0 || !c.alive) ? 1 : 0 };
+      return { x: c.pos.x, y: c.pos.y - 0.05, z: c.pos.z, yaw: c.yaw, pitch: c.pitch, roll: 0, fov: 84, feed: 2, staticK: (this.lostT > 0 || !c.alive || this._camOff(c)) ? 1 : 0 };
     }
     return null;
   }
@@ -122,9 +122,11 @@ export class FeedController {
     this._set('k', this.el.keys, keys, true);
     this._set('st', this.el.status, status, true);
     this.el.status.classList.toggle('ok', !!info.objectiveOk);
-    const lost = this.lostT > 0 || (cams && this.cam && !this.cam.alive);
+    const lost = this.lostT > 0 || (cams && this.cam && (!this.cam.alive || this._camOff(this.cam)));
     this.el.lost.classList.toggle('hidden', !lost);
   }
+  // ¿Cámara sin señal por una PEM?
+  _camOff(c) { const r = this.getRecon(); return !!r && (c.offUntil || 0) > r.game.time; }
   _set(k, el, v, html) { if (this.cache[k] === v) return; this.cache[k] = v; if (html) el.innerHTML = v; else el.textContent = v; }
   show(v) { if (this.cache.show !== v) { this.cache.show = v; this.el.root.classList.toggle('hidden', !v); } }
 }

@@ -297,7 +297,7 @@
   #gear { position: absolute; left: clamp(16px, 3vw, 40px); bottom: calc(clamp(16px, 3.5vh, 36px) + 136px); max-width: 330px; display: flex; flex-wrap: wrap; column-gap: 14px; row-gap: 3px; font-family: var(--display); font-size: 14px; letter-spacing: .14em; text-transform: uppercase; color: rgba(255,255,255,.8); text-shadow: 0 1px 3px #000; }
   #gear b { color: var(--yellow); font-weight: 700; }
   #gear .ord { flex-basis: 100%; order: -1; }
-  #kit { position: absolute; right: clamp(16px, 3vw, 40px); bottom: calc(clamp(16px, 3.5vh, 36px) + 98px); display: flex; gap: 14px; justify-content: flex-end; font-family: var(--display); font-size: 14px; letter-spacing: .14em; text-transform: uppercase; color: rgba(255,255,255,.82); text-shadow: 0 1px 3px #000; }
+  #kit { position: absolute; right: clamp(16px, 3vw, 40px); bottom: calc(clamp(16px, 3.5vh, 36px) + 98px); display: flex; flex-wrap: wrap; max-width: min(560px, 70vw); column-gap: 14px; row-gap: 3px; justify-content: flex-end; font-family: var(--display); font-size: 14px; letter-spacing: .14em; text-transform: uppercase; color: rgba(255,255,255,.82); text-shadow: 0 1px 3px #000; }
   #kit b { color: var(--yellow); font-weight: 700; }
   #kit kbd { font-size: 11px; padding: 0 4px; min-width: 16px; margin-right: 4px; }
   #kit .off { opacity: .45; }
@@ -384,6 +384,7 @@
         <div><kbd>R</kbd> Recargar</div>
         <div><kbd>B</kbd> Modo de disparo</div>
         <div><kbd>G</kbd> Gadget secundario (granadas, cargas…)</div>
+        <div><kbd>X</kbd> Habilidad del operador</div>
         <div><kbd>F</kbd> Reforzar / plantar / inutilizar / recoger / reanimar</div>
         <div><kbd>T</kbd> o botón central: marcar enemigo / marca de posición</div>
         <div><kbd>H</kbd> Órdenes a los aliados (mantén, elige con el ratón y suelta)</div>

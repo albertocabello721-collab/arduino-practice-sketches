@@ -134,7 +134,7 @@ export class Recon {
     this.objectiveFound = false;
     this.site = site;
     this.attackTeam = 1 - defTeam;
-    for (const c of this.cams) { c.alive = true; c.team = defTeam; c.yaw = c.baseYaw; c.pitch = c.basePitch; }
+    for (const c of this.cams) { c.alive = true; c.team = defTeam; c.yaw = c.baseYaw; c.pitch = c.basePitch; c.offUntil = 0; }
     this._syncTargets();
   }
   _syncTargets() {
@@ -208,6 +208,7 @@ export class Recon {
    */
   mark(viewer, team, by = null) {
     const g = this.game;
+    if ((viewer.offUntil || 0) > g.time) return null;     // cámara sin señal (PEM)
     const e = viewer.eyePos(), d = viewer.viewDir();
     let best = null, bt = MARK_RANGE;
     for (const t of g.operators) {

@@ -88,8 +88,23 @@ export function bindGameFx(ctx, game, view) {
     for (let i = 0; i < 10; i++) effects.spawnSpark(it.pos.x, it.pos.y + 0.05, it.pos.z, (Math.random() - 0.5) * 4, Math.random() * 3, (Math.random() - 0.5) * 4, 1);
   });
   on('gadgetBounce', (it) => audio.grenadeClink(it.pos, occlusion(it.pos)));
+  on('gadgetJammed', (it) => { if (it.owner === me()) { audio.ping('deny'); hud.toast('Señal inhibida: no detona', 1.4); } });
+  // ---------------- habilidades (X)
+  on('abilityFired', (op, it) => audio.launcher(it.pos, op === viewer()));
+  on('abilityEmpty', (op) => { if (op === me()) { audio.ping('deny'); hud.toast('Sin cargas de la habilidad', 1.2); } });
+  on('thermalIgnite', (c) => audio.thermalBurn(c.pos, 5, occlusion(c.pos)));
+  on('emp', (p, hits) => {
+    effects.flash(p.x, p.y + 0.2, p.z, 20, 60, 120, 9, 0.25);
+    for (let i = 0; i < 30; i++) effects.spawnSpark(p.x, p.y + 0.1, p.z, (Math.random() - 0.5) * 8, Math.random() * 5, (Math.random() - 0.5) * 8, 1);
+    audio.empBurst(p, occlusion(p));
+    for (const d of hits) {
+      const q = d.pos;
+      for (let i = 0; i < 8; i++) effects.spawnSpark(q.x, q.y, q.z, (Math.random() - 0.5) * 3, Math.random() * 2, (Math.random() - 0.5) * 3, 1);
+      audio.electronicPop(q, occlusion(q));
+    }
+  });
   on('explosion', (kind, p, spec) => {
-    const big = { frag: 1, impact: 0.7, breach: 1.2, c4: 1.3, claymore: 0.9 }[kind] || 1;
+    const big = { frag: 1, impact: 0.7, breach: 1.2, c4: 1.3, claymore: 0.9, thermal: 1.1, breachround: 0.8 }[kind] || 1;
     effects.flash(p.x, p.y + 0.2, p.z, 60 * big, 34 * big, 14 * big, 10, 0.3);
     for (let i = 0; i < 40 * big; i++) effects.spawnSpark(p.x, p.y + 0.1, p.z, (Math.random() - 0.5) * 12, Math.random() * 7, (Math.random() - 0.5) * 12, 1);
     for (let i = 0; i < 14; i++) effects.spawnDust(p.x + (Math.random() - 0.5) * 0.8, p.y + 0.2 + Math.random() * 0.6, p.z + (Math.random() - 0.5) * 0.8, (Math.random() - 0.5) * 2.5, Math.random() * 1.6, (Math.random() - 0.5) * 2.5, 0.5 + Math.random() * 0.6, [0.42, 0.4, 0.37], 2.5 + Math.random() * 1.5, 0.55);

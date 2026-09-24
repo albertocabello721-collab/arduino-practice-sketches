@@ -644,6 +644,42 @@ export class AudioEngine {
     this._burst(out, t, { type: 'bandpass', freq: 1800, q: 2, a: 0.0005, peak: 0.5, d: 0.04 });
   }
 
+  // ------------------------------------------------------------ habilidades
+  // Disparo del lanzador (proyectil de brecha, humo remoto): golpe hueco.
+  launcher(pos, local = false) {
+    if (!this.ctx) return;
+    const t = this.ctx.currentTime;
+    const out = this._out(local ? null : pos, { gain: local ? 0.9 : 1.1, ref: 3, rolloff: 1.1, reverb: 0.35, direct: local });
+    this._tone(out, t, { f0: 190, f1: 60, a: 0.002, peak: 1.0, d: 0.22 });
+    this._burst(out, t, { type: 'bandpass', freq: 700, q: 0.9, a: 0.001, peak: 0.8, d: 0.12, pink: true });
+  }
+  // Carga térmica ardiendo: siseo fuerte con chasquidos durante `secs` segundos.
+  thermalBurn(pos, secs = 5, occl = 0) {
+    if (!this.ctx) return;
+    const ctx = this.ctx, t = ctx.currentTime;
+    const out = this._out(pos, { gain: 1.2, ref: 3, rolloff: 1.0, occl, reverb: 0.4 });
+    const src = this._noiseSrc(false, 1); src.loop = true;
+    const f = ctx.createBiquadFilter(); f.type = 'highpass'; f.frequency.value = 1800; f.Q.value = 0.5;
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(0.7, t + 0.25);
+    g.gain.setValueAtTime(0.7, t + secs - 0.3);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + secs);
+    src.connect(f).connect(g).connect(out);
+    src.start(t); src.stop(t + secs + 0.05);
+    for (let i = 0; i < secs * 9; i++) this._burst(out, t + 0.2 + Math.random() * (secs - 0.3), { type: 'bandpass', freq: 1200 + Math.random() * 3000, q: 2.5, a: 0.001, peak: 0.35, d: 0.03 });
+  }
+  // Granada PEM: chasquido eléctrico con zumbido que se apaga.
+  empBurst(pos, occl = 0) {
+    if (!this.ctx) return;
+    const t = this.ctx.currentTime;
+    const out = this._out(pos, { gain: 1.4, ref: 4, rolloff: 0.9, occl, reverb: 0.5 });
+    this._tone(out, t, { f0: 1400, f1: 60, a: 0.001, peak: 0.7, d: 0.6, type: 'square' });
+    this._tone(out, t, { f0: 120, f1: 110, a: 0.01, peak: 0.5, d: 0.9, type: 'sawtooth' });
+    this._burst(out, t, { type: 'highpass', freq: 2200, q: 0.6, a: 0.001, peak: 1.0, d: 0.25 });
+    for (let i = 0; i < 8; i++) this._burst(out, t + 0.05 + Math.random() * 0.6, { type: 'bandpass', freq: 2500 + Math.random() * 4000, q: 4, a: 0.001, peak: 0.3, d: 0.02 });
+  }
+
   // Pitido del desactivador plantado (posicional; se acelera al final).
   defuserBeep(pos, urgency = 0, occl = 0) {
     if (!this.ctx) return;

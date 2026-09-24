@@ -24,6 +24,15 @@
 //   · Cámara blindada: en la pared, se suma a las cámaras; las balas no le hacen nada:
 //     solo explosivos, cuerpo a cuerpo o PEM.
 //   · Alarma de proximidad: suena y marca 3 s al atacante que pasa a menos de 2 m.
+// Objetos de las habilidades de ataque (tecla X; ver abilities.js):
+//   · Carga térmica (TERMO): se coloca en 2 s en un muro blando o reforzado o en una
+//     trampilla; X la enciende: arde 5 s y abre un hueco de 1,9 m de alto × 1,1 de ancho
+//     a ras de suelo, también en los refuerzos.
+//   · Proyectil de brecha (ROMPE): vuela recto hasta 40 m, se pega y a los 1,5 s abre
+//     1,5 m de pared blanda (o quita la barricada o la trampilla sin reforzar).
+//   · Humo remoto (NUBE): vuela recto hasta 40 m y abre una nube de humo donde choca.
+//   · Granada PEM (CHISPA): a los 2 s deja 15 s sin funcionar la electrónica enemiga a
+//     menos de 5 m, aunque haya paredes (cámaras, cámaras blindadas, alarmas...).
 // Las explosiones destruyen además los gadgets, drones y cámaras del otro bando que alcanzan.
 // Simulación pura (corre en Node); el cliente pinta los objetos y los efectos.
 import { SOLID, HARD, MAT, BLAST_RES, GLASS } from '../world/materials.js';
@@ -31,6 +40,7 @@ import { lineOfSight, traverse, raycastFirst } from '../world/raycast.js';
 import { explodeSphere, breachRect } from '../world/destruction.js';
 import { SecurityCam, rayAABB } from './recon.js';
 import { MELEE_DAMAGE } from './game.js';
+import { rayHitRig } from './skeleton.js';
 
 export const THROW = { speed: 12, up: 2.0, gravity: 9.8, bounce: 0.35, radius: 0.05, cooldown: 1.0 };
 export const FRAG = { fuse: 3, lethal: 1.5, radius: 3, damage: 160, hole: 0.5 };
@@ -44,9 +54,25 @@ export const WIRE = { place: 1.0, w: 2.0, d: 0.9, slow: 0.5, hits: 3 };
 export const DSHIELD = { place: 1.0, w: 1.25, h: 1.0 };
 export const BPCAM = { place: 1.0, reach: 2.0 };
 export const ALARM = { place: 1.0, reach: 2.0, radius: 2, mark: 3, cooldown: 3 };
-const THROWABLE = { frag: true, smoke: true, flash: true, impact: true, c4: true };
-const PLACEABLE = { breach: BREACH, claymore: CLAYMORE, barbed: WIRE, shield: DSHIELD, bpcam: BPCAM, alarm: ALARM };
-export const PLACE_LABEL = { breach: 'la carga de brecha', claymore: 'la claymore', barbed: 'el alambre', shield: 'el escudo desplegable', bpcam: 'la cámara blindada', alarm: 'la alarma' };
+// habilidades (tecla X)
+export const THERMAL = { place: 2.0, reach: 1.6, floorReach: 2.3, fuse: 5, w: 1.1, h: 1.9, lethal: 0.6, radius: 1.8, damage: 110 };
+export const BREACHROUND = { speed: 40, range: 40, fuse: 1.5, hole: 0.75, lethal: 0.5, radius: 2.0, damage: 90 };
+export const SMOKEROUND = { speed: 35, range: 40 };
+export const EMP = { fuse: 2, radius: 5, off: 15 };
+export const ABILITY_CD = 1.0;
+const THROWABLE = { frag: true, smoke: true, flash: true, impact: true, c4: true, emp: true };
+const PLACEABLE = { breach: BREACH, claymore: CLAYMORE, barbed: WIRE, shield: DSHIELD, bpcam: BPCAM, alarm: ALARM, thermal: THERMAL };
+export const PLACE_LABEL = { breach: 'la carga de brecha', claymore: 'la claymore', barbed: 'el alambre', shield: 'el escudo desplegable', bpcam: 'la cámara blindada', alarm: 'la alarma', thermal: 'la carga térmica' };
+// Electrónica que la PEM apaga (las cámaras de seguridad también; en la Fase 6.5, más)
+const ELECTRONIC = { alarm: true };
+// Qué ranura gasta cada uso: el gadget secundario (G) o la habilidad (X)
+const slotOf = (op, src) => (src === 'ability' ? op.ability : op.gadget);
+const hasCharge = (slot) => !!slot && slot.left !== 0;          // (-1 = sin límite)
+const spend = (op, src) => {
+  const slot = slotOf(op, src);
+  if (slot.left > 0) slot.left--;
+  if (src === 'ability') op.abilityCd = ABILITY_CD;
+};
 
 export class Gadgets {
   constructor(game) {
@@ -67,10 +93,10 @@ export class Gadgets {
     for (const op of this.game.operators) op.slowMul = 1;
   }
 
-  /** ¿Puede `op` usar su gadget secundario ahora? */
-  canUse(op) {
-    const g = op.gadget;
-    return !!g && g.left > 0 && op.state === 'alive' && !op.frozen && !op.channel && (op.gadgetCd || 0) <= 0;
+  /** ¿Puede `op` usar ahora su gadget secundario (o su habilidad, con src = 'ability')? */
+  canUse(op, src = 'gadget') {
+    const cd = src === 'ability' ? op.abilityCd : op.gadgetCd;
+    return hasCharge(slotOf(op, src)) && op.state === 'alive' && !op.frozen && !op.channel && (cd || 0) <= 0;
   }
 
   /**
@@ -90,20 +116,21 @@ export class Gadgets {
     return null;
   }
 
-  /** Lanza el gadget de `op` (si es lanzable). Devuelve el proyectil o null. */
-  throwFrom(op) {
-    if (!this.canUse(op) || !THROWABLE[op.gadget.id]) return null;
+  /** Lanza el gadget de `op` (o su granada PEM, con src = 'ability'). Devuelve el proyectil o null. */
+  throwFrom(op, src = 'gadget') {
+    const kind = src === 'ability' ? op.ability && op.ability.id : op.gadget && op.gadget.id;
+    if (!this.canUse(op, src) || !THROWABLE[kind]) return null;
     const e = op.eyePos(), d = op.viewDir(), v = op.body.vel;
     const it = {
-      id: `g${this._nextId++}`, kind: op.gadget.id, owner: op, team: op.team,
+      id: `g${this._nextId++}`, kind, owner: op, team: op.team,
       pos: { x: e.x + d.x * 0.35, y: e.y + d.y * 0.35 - 0.05, z: e.z + d.z * 0.35 },
       vel: { x: d.x * THROW.speed + v.x * 0.6, y: d.y * THROW.speed + THROW.up + Math.max(0, v.y) * 0.4, z: d.z * THROW.speed + v.z * 0.6 },
       t: 0, rest: false, alive: true, bounces: 0,
     };
     // si nada más salir choca (pegado a una pared), se suelta a los pies
     if (SOLID[this.game.world.getWorld(it.pos.x, it.pos.y, it.pos.z)]) { it.pos = { x: e.x, y: e.y - 0.2, z: e.z }; }
-    op.gadget.left--;
-    op.gadgetCd = THROW.cooldown;
+    if (src === 'ability') spend(op, src);
+    else { op.gadget.left--; op.gadgetCd = THROW.cooldown; }
     this.items.push(it);
     this.game.emit('gadgetThrown', op, it);
     return it;
@@ -124,16 +151,19 @@ export class Gadgets {
       if (c.kind === 'claymore') this._claymoreTick(c);
       else if (c.kind === 'barbed') this._wireTick(c, dt);
       else if (c.kind === 'alarm') this._alarmTick(c, dt);
+      else if (c.kind === 'thermal' && c.burning) this._thermalTick(c, dt);
     }
     this.placed = this.placed.filter((c) => c.alive);
     for (const it of this.items) {
       if (!it.alive) continue;
       it.t += dt;
-      if (!it.rest) this._move(it, dt);
+      if (!it.rest) { if (it.straight) this._flyStraight(it, dt); else this._move(it, dt); }
       if (!it.alive) continue;
       if (it.kind === 'frag' && it.t >= FRAG.fuse) this._explode(it, FRAG);
       else if (it.kind === 'flash' && it.t >= FLASH.fuse) this._flash(it);
       else if (it.kind === 'smoke' && (it.rest || it.t >= SMOKE.openAfter)) this._smoke(it);
+      else if (it.kind === 'emp' && it.t >= EMP.fuse) this._emp(it);
+      else if (it.kind === 'breachround' && it.armedAt !== undefined && it.t - it.armedAt >= BREACHROUND.fuse) this._breachRoundBlast(it);
     }
     this.items = this.items.filter((it) => it.alive);
     this.smokes = this.smokes.filter((s) => s.until > g.time);
@@ -180,6 +210,110 @@ export class Gadgets {
     return false;
   }
 
+  // ---------------------------------------------------------------- proyectiles de las habilidades
+  /**
+   * Dispara un proyectil de la habilidad de `op` en línea recta ('breachround' o 'smokeround').
+   * Devuelve el proyectil o null.
+   */
+  fireRound(op, kind) {
+    if (!this.canUse(op, 'ability')) return null;
+    const spec = kind === 'breachround' ? BREACHROUND : SMOKEROUND;
+    const e = op.eyePos(), d = op.viewDir();
+    const it = {
+      id: `g${this._nextId++}`, kind, owner: op, team: op.team, straight: true, range: spec.range, flown: 0,
+      pos: { x: e.x + d.x * 0.3, y: e.y + d.y * 0.3 - 0.04, z: e.z + d.z * 0.3 },
+      vel: { x: d.x * spec.speed, y: d.y * spec.speed, z: d.z * spec.speed },
+      t: 0, rest: false, alive: true, bounces: 0,
+    };
+    // pegado a una pared: sale desde los ojos
+    if (SOLID[this.game.world.getWorld(it.pos.x, it.pos.y, it.pos.z)]) it.pos = { x: e.x, y: e.y, z: e.z };
+    spend(op, 'ability');
+    this.items.push(it);
+    this.game.emit('abilityFired', op, it);
+    return it;
+  }
+  // Vuelo recto (sin gravedad) con el primer choque contra vóxeles u operadores.
+  _flyStraight(it, dt) {
+    const w = this.game.world, p = it.pos, v = it.vel;
+    const sp = Math.hypot(v.x, v.y, v.z) || 1;
+    const d = { x: v.x / sp, y: v.y / sp, z: v.z / sp };
+    const len = Math.min(sp * dt, it.range - it.flown);
+    const hit = raycastFirst(w, p.x, p.y, p.z, d.x, d.y, d.z, len, SOLID, false);
+    const oh = this._rayOperators(it, p, d, hit ? hit.t : len);
+    const adv = (t) => { p.x += d.x * t; p.y += d.y * t; p.z += d.z * t; it.flown += t; };
+    if (oh) { adv(Math.max(0, oh.t - 0.08)); this._roundHit(it, null, oh.op, d); return; }
+    if (hit) { adv(Math.max(0, hit.t - 0.03)); this._roundHit(it, hit, null, d); return; }
+    adv(len);
+    if (it.flown >= it.range - 1e-6) this._roundHit(it, null, null, d);      // al final del alcance
+  }
+  _rayOperators(it, o, d, maxT) {
+    let best = null;
+    for (const op of this.game.operators) {
+      if (op.state === 'dead' || op.frozen) continue;
+      if (op === it.owner && it.t < 0.2) continue;          // recién disparado: no choca con quien dispara
+      const b = op.body.pos;
+      const cx = b.x - o.x, cy = b.y + 0.9 - o.y, cz = b.z - o.z;
+      const along = cx * d.x + cy * d.y + cz * d.z;
+      if (along < -1.2 || along > maxT + 1.2) continue;
+      if (cx * cx + cy * cy + cz * cz - along * along > 1.6 * 1.6) continue;
+      const r = rayHitRig(op.rig, o, d, maxT);
+      if (r && (!best || r.t < best.t)) best = { t: r.t, op };
+    }
+    return best;
+  }
+  // El proyectil choca: el humo se abre; el de brecha se pega (o cae si da a alguien) y
+  // arma su mecha; al final del alcance, sin choque, el de brecha revienta en el aire.
+  _roundHit(it, hit, op, d) {
+    const g = this.game;
+    if (it.kind === 'smokeround') { this._smoke(it); return; }
+    it.armedAt = it.t;
+    if (hit) {
+      it.straight = false; it.stuck = true; it.rest = true;
+      it.vel.x = it.vel.y = it.vel.z = 0;
+      // (si sale desde dentro de un vóxel no hay cara: se usa el eje dominante del vuelo)
+      const axis = hit.face >= 0 ? hit.face >> 1 : [Math.abs(d.x), Math.abs(d.y), Math.abs(d.z)].indexOf(Math.max(Math.abs(d.x), Math.abs(d.y), Math.abs(d.z)));
+      it.normal = { x: 0, y: 0, z: 0 };
+      it.normal[['x', 'y', 'z'][axis]] = hit.face & 1 ? 1 : -1;
+      if (it.normal.x * d.x + it.normal.y * d.y + it.normal.z * d.z > 0) { it.normal.x = -it.normal.x; it.normal.y = -it.normal.y; it.normal.z = -it.normal.z; }
+      it.voxel = { x: hit.x, y: hit.y, z: hit.z, mat: hit.mat };
+      g.emit('gadgetStuck', it);
+      return;
+    }
+    if (op) {
+      // rebota en el cuerpo y cae
+      it.straight = false;
+      it.vel = { x: -d.x * 2, y: 1, z: -d.z * 2 };
+      g.emit('gadgetBounce', it);
+      return;
+    }
+    this._breachRoundBlast(it);
+  }
+  _breachRoundBlast(it) {
+    const g = this.game, p = it.pos, w = g.world;
+    it.alive = false;
+    let destroyed = [];
+    const v = it.voxel;
+    if (v && (v.mat === MAT.BARRICADE || v.mat === MAT.HATCH) && w.get(v.x, v.y, v.z) === v.mat) destroyed = this._clearConnected(v, v.mat);
+    else destroyed = explodeSphere(w, p.x, p.y, p.z, BREACHROUND.hole, { jag: 0.2 });
+    if (destroyed.length) g.emit('voxels', destroyed, 'blast', { ...p }, null);
+    this._blastDamage(p, BREACHROUND, it.owner, 'breachround');
+    g.emit('explosion', 'breachround', { ...p }, BREACHROUND, it.owner);
+  }
+
+  // ---------------------------------------------------------------- PEM
+  /** ¿Está apagado por una PEM? (cámaras, alarmas y, más adelante, el resto de la electrónica) */
+  isOff(dev, now = this.game.time) { return (dev.offUntil || 0) > now; }
+  _emp(it) {
+    const g = this.game, p = it.pos, now = g.time;
+    it.alive = false;
+    const hits = [];
+    const near = (q) => Math.hypot(q.x - p.x, q.y - p.y, q.z - p.z) <= EMP.radius;
+    // atraviesa paredes: basta con la distancia
+    if (this.recon) for (const c of this.recon.cams) if (c.alive && c.team !== it.team && near(c.pos)) { c.offUntil = now + EMP.off; hits.push(c); }
+    for (const c of this.placed) if (c.alive && ELECTRONIC[c.kind] && c.team !== it.team && near(c.pos)) { c.offUntil = now + EMP.off; hits.push(c); }
+    g.emit('emp', { ...p }, hits, it.owner);
+  }
+
   // Explosión: daño por distancia (muerte directa dentro del radio letal), paredes que
   // protegen y hueco en el material blando.
   _explode(it, spec) {
@@ -206,7 +340,7 @@ export class Gadgets {
       const k = d <= spec.lethal ? 1 : 1 - (d - spec.lethal) / (spec.radius - spec.lethal);
       g.hitTarget(tg, Math.max(1, spec.damage * k * cover), owner, c);
     }
-    const names = { frag: 'Fragmentación', impact: 'Impacto', breach: 'Carga de brecha', c4: 'C4', claymore: 'Claymore' };
+    const names = { frag: 'Fragmentación', impact: 'Impacto', breach: 'Carga de brecha', c4: 'C4', claymore: 'Claymore', thermal: 'Carga térmica', breachround: 'Proyectil de brecha' };
     for (const op of g.operators) {
       if (op.state === 'dead' || op.frozen) continue;
       const c = op.center ? op.center() : { x: op.body.pos.x, y: op.body.pos.y + 0.9, z: op.body.pos.z };
@@ -306,10 +440,25 @@ export class Gadgets {
   }
 
   // ---------------------------------------------------------------- colocar (brecha, claymore)
-  /** Dónde colocaría `op` su gadget ahora (o null, con el motivo en `why`). */
-  placeSpot(op) {
-    const id = op.gadget && op.gadget.id, w = this.game.world;
+  /** Dónde colocaría `op` su gadget (o el objeto `id` de su habilidad) ahora (o null, con el motivo en `why`). */
+  placeSpot(op, id = op.gadget && op.gadget.id) {
+    const w = this.game.world;
     const e = op.eyePos(), d = op.viewDir();
+    if (id === 'thermal') {
+      // muro blando o reforzado, o trampilla (reforzada o no)
+      // (una trampilla del suelo se alcanza de pie, mirando hacia abajo)
+      const hit = raycastFirst(w, e.x, e.y, e.z, d.x, d.y, d.z, THERMAL.floorReach, SOLID, true);
+      if (!hit || (hit.face >> 1 !== 1 && hit.t > THERMAL.reach)) return { why: 'Acércate a un muro' };
+      const m = hit.mat, axis = hit.face >> 1;
+      const wall = axis !== 1 && (m === MAT.REINFORCED || (BLAST_RES[m] === 0 && !HARD[m] && !GLASS[m] && m !== MAT.BARRICADE && m !== MAT.HATCH));
+      const hatch = axis === 1 && (m === MAT.HATCH || m === MAT.REINFORCED);
+      if (!wall && !hatch) return { why: 'Aquí no se puede poner' };
+      const n = { x: 0, y: 0, z: 0 };
+      n[['x', 'y', 'z'][axis]] = hit.face & 1 ? 1 : -1;
+      if (n.x * d.x + n.y * d.y + n.z * d.z > 0) { n.x = -n.x; n.y = -n.y; n.z = -n.z; }
+      const t = hit.t - 0.02;
+      return { ok: true, kind: 'thermal', pos: { x: e.x + d.x * t, y: e.y + d.y * t, z: e.z + d.z * t }, normal: n, axis, mat: m, voxel: { x: hit.x, y: hit.y, z: hit.z } };
+    }
     if (id === 'breach') {
       const hit = raycastFirst(w, e.x, e.y, e.z, d.x, d.y, d.z, BREACH.reach, SOLID, true);
       if (!hit) return { why: 'Acércate a una pared' };
@@ -360,13 +509,13 @@ export class Gadgets {
     }
     return null;
   }
-  startPlace(op) {
-    if (!this.canUse(op) || this.work.has(op)) return false;
-    const spot = this.placeSpot(op);
+  startPlace(op, src = 'gadget') {
+    if (!this.canUse(op, src) || this.work.has(op)) return false;
+    const spot = this.placeSpot(op, slotOf(op, src).id);
     if (!spot || !spot.ok) { this.game.emit('gadgetDenied', op, spot ? spot.why : ''); return false; }
     const spec = PLACEABLE[spot.kind];
     const p = op.body.pos;
-    this.work.set(op, { kind: spot.kind, t: 0, total: spec.place, spot, from: { x: p.x, y: p.y, z: p.z } });
+    this.work.set(op, { kind: spot.kind, t: 0, total: spec.place, spot, src, from: { x: p.x, y: p.y, z: p.z } });
     op.channel = { kind: 'gadget', t: 0, total: spec.place, what: spot.kind };
     this.game.emit('gadgetPlaceStart', op, spot);
     return true;
@@ -377,13 +526,13 @@ export class Gadgets {
       const I = op.intent, p = op.body.pos;
       const wantsMove = Math.abs(I.moveX || 0) + Math.abs(I.moveZ || 0) > 0.5;
       const moved = Math.hypot(p.x - wk.from.x, p.z - wk.from.z) > 0.45;
-      if (op.state !== 'alive' || wantsMove || moved || I.fire || !op.gadget || op.gadget.left <= 0) { this._cancelWork(op); continue; }
+      if (op.state !== 'alive' || wantsMove || moved || I.fire || !hasCharge(slotOf(op, wk.src))) { this._cancelWork(op); continue; }
       wk.t += dt;
       if (op.channel && op.channel.kind === 'gadget') op.channel.t = wk.t;
       if (wk.t < wk.total) continue;
       this.work.delete(op);
       if (op.channel && op.channel.kind === 'gadget') op.channel = null;
-      this._place(op, wk.spot);
+      this._place(op, wk.spot, wk.src);
     }
   }
   _cancelWork(op) {
@@ -391,9 +540,9 @@ export class Gadgets {
     if (op.channel && op.channel.kind === 'gadget') op.channel = null;
     this.game.emit('gadgetPlaceCancel', op);
   }
-  _place(op, spot) {
-    op.gadget.left--;
-    op.gadgetCd = 0.4;
+  _place(op, spot, src = 'gadget') {
+    if (src === 'ability') spend(op, src);
+    else { op.gadget.left--; op.gadgetCd = 0.4; }
     const g = this.game;
     const c = { id: `g${this._nextId++}`, kind: spot.kind, owner: op, team: op.team, pos: { ...spot.pos }, normal: spot.normal || null, axis: spot.axis, mat: spot.mat, voxel: spot.voxel, yaw: spot.yaw || 0, alive: true, t0: g.time };
     if (spot.kind === 'shield') {
@@ -418,6 +567,8 @@ export class Gadgets {
       return cam;
     }
     this.placed.push(c);
+    // (la carga térmica abre desde el suelo de la planta de quien la pone)
+    if (spot.kind === 'thermal') c.floorY = Math.floor((op.body.pos.y + 0.3) / 3.5) * 3.5;
     if (spot.kind === 'barbed') {
       this._target(c, 0.35);
       const tg = c.target;
@@ -480,7 +631,7 @@ export class Gadgets {
   _alarmTick(c, dt) {
     const g = this.game;
     c.cd = (c.cd || 0) - dt;
-    if (c.cd > 0) return;
+    if (c.cd > 0 || this.isOff(c)) return;
     for (const op of g.operators) {
       if (op.team === c.team || op.state !== 'alive' || op.frozen) continue;
       const b = op.body.pos;
@@ -544,6 +695,64 @@ export class Gadgets {
   }
   // (los inhibidores de SILENCIO lo impedirán: Fase 6.5)
   canDetonate(it) { void it; return true; }
+
+  // ---------------------------------------------------------------- carga térmica (TERMO)
+  /** La carga térmica de `op` colocada y aún sin encender (o null). */
+  thermalOf(op) {
+    for (const c of this.placed) if (c.alive && c.owner === op && c.kind === 'thermal' && !c.burning) return c;
+    return null;
+  }
+  /** Enciende una carga térmica: arde THERMAL.fuse segundos y abre el muro. */
+  ignite(c) {
+    if (!c.alive || c.burning) return false;
+    if (!this.canDetonate(c)) { this.game.emit('gadgetJammed', c); return false; }
+    c.burning = true; c.burnT = 0;
+    // (encendida ya no se apaga de un disparo)
+    this._untarget(c);
+    this.game.emit('thermalIgnite', c);
+    return true;
+  }
+  _thermalTick(c, dt) {
+    c.burnT += dt;
+    if (c.burnT >= THERMAL.fuse) this._thermalBlast(c);
+  }
+  _thermalBlast(c) {
+    const g = this.game, w = g.world, p = c.pos, n = c.normal;
+    c.alive = false;
+    let destroyed;
+    if (c.axis === 1) destroyed = this._clearHatch(c.voxel);
+    else {
+      // hueco a ras de suelo (se cruza de pie), centrado donde está la carga
+      let floorY = c.floorY !== undefined ? c.floorY : Math.floor((p.y + 0.05) / 3.5) * 3.5;
+      if (p.y < floorY - 0.1 || p.y > floorY + 3.5) floorY = Math.floor((p.y + 0.05) / 3.5) * 3.5;
+      const cx = c.axis === 0 ? p.x - n.x * 0.12 : p.x, cz = c.axis === 2 ? p.z - n.z * 0.12 : p.z;
+      destroyed = breachRect(w, cx, floorY + THERMAL.h / 2 + 0.01, cz, c.axis, THERMAL.w, THERMAL.h, 0.6, { hardBreach: true, jag: 0.12 });
+    }
+    if (destroyed.length) g.emit('voxels', destroyed, 'blast', { ...p }, null);
+    this._blastDamage(p, THERMAL, c.owner, 'thermal');
+    g.emit('explosion', 'thermal', { ...p }, THERMAL, c.owner);
+  }
+  // La trampilla (reforzada o no) entera: vóxeles de trampilla o refuerzo conectados, cerca.
+  _clearHatch(v) {
+    const w = this.game.world, out = [], seen = new Set(), stack = [[v.x, v.y, v.z]];
+    const R = 12;      // 1,5 m alrededor del punto donde se puso (la trampilla mide 1,25 m)
+    let x0 = Infinity, y0 = Infinity, z0 = Infinity, x1 = -Infinity, y1 = -Infinity, z1 = -Infinity;
+    while (stack.length && out.length < 1200) {
+      const [x, y, z] = stack.pop();
+      if (Math.abs(x - v.x) > R || Math.abs(z - v.z) > R || Math.abs(y - v.y) > 2) continue;
+      const k = `${x},${y},${z}`;
+      if (seen.has(k)) continue;
+      seen.add(k);
+      const m = w.get(x, y, z);
+      if (m !== MAT.HATCH && m !== MAT.REINFORCED) continue;
+      w.setRaw(x, y, z, MAT.AIR);
+      out.push({ x, y, z, mat: m });
+      if (x < x0) x0 = x; if (y < y0) y0 = y; if (z < z0) z0 = z; if (x > x1) x1 = x; if (y > y1) y1 = y; if (z > z1) z1 = z;
+      stack.push([x + 1, y, z], [x - 1, y, z], [x, y + 1, z], [x, y - 1, z], [x, y, z + 1], [x, y, z - 1]);
+    }
+    if (out.length) w.notify(x0, y0, z0, x1, y1, z1);
+    return out;
+  }
   // Quita la barricada (o la trampilla) entera: los vóxeles de ese material conectados.
   _clearConnected(v, mat) {
     const w = this.game.world, out = [], seen = new Set(), stack = [[v.x, v.y, v.z]];

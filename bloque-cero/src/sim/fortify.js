@@ -138,8 +138,25 @@ export class Fortify {
     this.panels = [];
     this.barricades = [];
     this.work = new Map();
+    // un refuerzo abierto (carga térmica) deja de ser un panel entero: se quita su placa
+    game.on('voxels', (list) => this._onVoxels(list));
   }
   reset() { this.left.clear(); this.panels = []; this.barricades = []; this.work.clear(); }
+  _onVoxels(list) {
+    if (!this.panels.length || !list.some((v) => v.mat === MAT.REINFORCED)) return;
+    const w = this.world, c = H / 2;
+    const inside = (rec, v) => {
+      const x = w.wx(v.x) + c, y = w.wy(v.y) + c, z = w.wz(v.z) + c;
+      if (rec.kind === 'hatch') { const h = rec.hatch; return Math.abs(x - h.x) < 0.8 && Math.abs(z - h.z) < 0.8 && Math.abs(y - h.y) < 0.4; }
+      const P = rec.panel, n = P.axisN === 0 ? x : z, u = P.axisN === 0 ? z : x;
+      return Math.abs(n - P.line) < 0.2 && u > P.u0 - 0.05 && u < P.u1 + 0.05 && y > P.y0 - 0.05 && y < P.y1 + 0.05;
+    };
+    this.panels = this.panels.filter((rec) => {
+      if (!list.some((v) => v.mat === MAT.REINFORCED && inside(rec, v))) return true;
+      this.game.emit('panelBreached', rec);
+      return false;
+    });
+  }
   remaining(op) { return this.left.has(op) ? this.left.get(op) : REINFORCE_PER_OP; }
 
   /** Qué haría `op` si mantiene F ahora: refuerzo de pared/trampilla o barricada. */

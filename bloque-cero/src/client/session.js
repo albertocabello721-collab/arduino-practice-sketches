@@ -54,6 +54,7 @@ export class Session {
       drones: recon ? recon.drones : [], cams: recon ? recon.cams : [],
       panels: fort ? fort.panels : [], work: fort ? fort.work : null,
       defuser, myTeam, alpha, gadgets: gadgets ? gadgets.items : [], placed: gadgets ? gadgets.placed : [],
+      now: this.game ? this.game.time : 0,
       hide: feed && feed.active ? (feed.drone || feed.cam) : null,
     });
     if (recon && audio.ctx) {

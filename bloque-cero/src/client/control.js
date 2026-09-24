@@ -44,6 +44,7 @@ export class PlayerControl {
     if (input.pressed('melee')) I.melee = true;
     if (input.pressed('fireMode')) I.fireMode = true;
     if (op.gadget && input.pressed('gadget')) I.gadget = true;     // gadget secundario (G)
+    if (op.ability && input.pressed('ability')) I.ability = true;  // habilidad del operador (X)
     if (input.pressed('vault')) I.vault = true;
     if (input.pressed('primary')) I.switchTo = 0;
     if (input.pressed('secondary')) I.switchTo = 1;

@@ -28,6 +28,7 @@ import { SOLID } from '../world/materials.js';
 import { Fortify } from './fortify.js';
 import { Recon, rayAABB } from './recon.js';
 import { Gadgets } from './gadgets.js';
+import { Abilities } from './abilities.js';
 
 export const RULES = {
   selectTime: 25,     // selección de operador
@@ -99,6 +100,7 @@ export class Match extends Emitter {
     this.recon = new Recon(this.game, { cameras: map.cameras || [] });
     this.gadgets = new Gadgets(this.game);
     this.gadgets.recon = this.recon;
+    this.abilities = new Abilities(this.game, this.gadgets);
     this._bindGame();
   }
   get objectiveFound() { return this.recon.objectiveFound; }
@@ -165,6 +167,7 @@ export class Match extends Emitter {
     this.fort.reset();
     this.recon.reset({ defTeam: this.teamOfSide('def'), site: null });
     this.gadgets.reset();
+    this.abilities.reset();
     for (const s of this.slots) { s.op = null; s.ready = !s.human; }
     // cada bot mantiene su operador si sigue siendo del bando; si no, elige otro libre
     for (const s of this.slots) {
@@ -242,6 +245,7 @@ export class Match extends Emitter {
     this.fort.reset();
     this.recon.reset({ defTeam: this.teamOfSide('def'), site: this.site });
     this.gadgets.reset();
+    this.abilities.reset();
     for (const op of atk) this.recon.deployDrone(op, { thrown: false });
     this.emit('roundStart', this.round);
     if (this.rules.prepTime <= 0) this._beginAction();
@@ -310,7 +314,7 @@ export class Match extends Emitter {
       return;
     }
     this.game.tick(dt);
-    if (this.phase === 'prep' || this.phase === 'action' || this.phase === 'planted') { this._buildingTick(dt); this.gadgets.tick(dt); }
+    if (this.phase === 'prep' || this.phase === 'action' || this.phase === 'planted') { this._buildingTick(dt); this.abilities.tick(dt); this.gadgets.tick(dt); }
     if (this.phase === 'roundEnd') {
       this.timer -= dt;
       if (this.timer <= 0) this._afterRound();
