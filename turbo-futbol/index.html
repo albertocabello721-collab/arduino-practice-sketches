@@ -4653,17 +4653,25 @@ class PadsView {
     this.setPads(pads);
     const small = this.small, big = this.big;
     const dummy = new THREE.Object3D();
-    const discGeo = new THREE.CylinderGeometry(62 * INV_UU, 70 * INV_UU, 5 * INV_UU, 24);
-    const discMat = new THREE.MeshBasicMaterial({ color: 0xffffff, toneMapped: false });
-    this.smallMesh = new THREE.InstancedMesh(discGeo, discMat, small.length);
+    // Placa chica: base metálica iluminada (siempre visible) + disco luminoso (solo mientras está disponible)
+    const smallBaseGeo = new THREE.CylinderGeometry(60 * INV_UU, 68 * INV_UU, 4 * INV_UU, 24);
+    this.smallBase = new THREE.InstancedMesh(smallBaseGeo, new THREE.MeshStandardMaterial({ color: 0x59606e, metalness: 0.55, roughness: 0.45 }), small.length);
+    const glowGeo = new THREE.CylinderGeometry(46 * INV_UU, 54 * INV_UU, 6 * INV_UU, 24);
+    this.smallMesh = new THREE.InstancedMesh(glowGeo, new THREE.MeshBasicMaterial({ color: 0xffffff, toneMapped: false }), small.length);
+    // Placa grande: base, anillo en el piso y esfera flotante
     const ringGeo = new THREE.RingGeometry(150 * INV_UU, 190 * INV_UU, 32);
     ringGeo.rotateX(-Math.PI / 2);
     const baseGeo = new THREE.CylinderGeometry(140 * INV_UU, 160 * INV_UU, 8 * INV_UU, 32);
-    this.bigBase = new THREE.InstancedMesh(baseGeo, new THREE.MeshStandardMaterial({ color: 0x1a1d26, metalness: 0.6, roughness: 0.4 }), big.length);
+    this.bigBase = new THREE.InstancedMesh(baseGeo, new THREE.MeshStandardMaterial({ color: 0x2a2f3a, metalness: 0.6, roughness: 0.4 }), big.length);
     this.bigRing = new THREE.InstancedMesh(ringGeo, new THREE.MeshBasicMaterial({ color: 0xffffff, toneMapped: false, side: THREE.DoubleSide }), big.length);
     const orbGeo = new THREE.IcosahedronGeometry(58 * INV_UU, 2);
     this.bigOrb = new THREE.InstancedMesh(orbGeo, new THREE.MeshBasicMaterial({ color: 0xffffff, toneMapped: false }), big.length);
-    small.forEach((p, i) => { dummy.position.copy(toThree(p.x, p.y, 2.5, R.tmpV)); dummy.updateMatrix(); this.smallMesh.setMatrixAt(i, dummy.matrix); });
+    small.forEach((p, i) => {
+      dummy.position.copy(toThree(p.x, p.y, 2, R.tmpV)); dummy.updateMatrix();
+      this.smallBase.setMatrixAt(i, dummy.matrix);
+      dummy.position.copy(toThree(p.x, p.y, 4, R.tmpV)); dummy.updateMatrix();
+      this.smallMesh.setMatrixAt(i, dummy.matrix);
+    });
     big.forEach((p, i) => {
       dummy.position.copy(toThree(p.x, p.y, 4, R.tmpV)); dummy.scale.set(1, 1, 1); dummy.updateMatrix();
       this.bigBase.setMatrixAt(i, dummy.matrix);
@@ -4671,27 +4679,36 @@ class PadsView {
       this.bigRing.setMatrixAt(i, dummy.matrix);
     });
     this.onCol = new THREE.Color(0xffb52e).multiplyScalar(2.2);
-    this.offCol = new THREE.Color(0x2a2418);
     this.dummy = dummy;
-    for (const m of [this.smallMesh, this.bigBase, this.bigRing, this.bigOrb]) { m.frustumCulled = false; R.scene.add(m); }
+    for (const m of [this.smallBase, this.smallMesh, this.bigBase, this.bigRing, this.bigOrb]) { m.frustumCulled = false; R.scene.add(m); }
     this.col = new THREE.Color();
   }
   update(time) {
-    const d = this.dummy;
-    this.small.forEach((p, i) => { this.smallMesh.setColorAt(i, p.active ? this.onCol : this.offCol); });
+    const d = this.dummy, P = CONFIG.pads;
+    // disco chico: desaparece al tomarlo y reaparece creciendo en el último 0.3 s; brillo con pulso suave
+    this.small.forEach((p, i) => {
+      const k = p.active ? 1 : clamp(1 - p.timer / 0.3, 0, 1);
+      toThree(p.x, p.y, 4, d.position);
+      d.scale.set(Math.max(k, 1e-3), 1, Math.max(k, 1e-3));
+      d.updateMatrix();
+      this.smallMesh.setMatrixAt(i, d.matrix);
+      this.smallMesh.setColorAt(i, this.col.copy(this.onCol).multiplyScalar(0.88 + 0.12 * Math.sin(time * 3 + i * 1.7)));
+    });
+    d.scale.set(1, 1, 1);
     this.big.forEach((p, i) => {
-      const P = CONFIG.pads;
       const grow = p.active ? 1 : clamp(1 - p.timer / 1.2, 0, 1) * 0.35;
       const bob = Math.sin(time * 2.2 + i) * 8;
-      d.position.copy(toThree(p.x, p.y, 105 + bob, R.tmpV));
+      toThree(p.x, p.y, 105 + bob, d.position);
       d.rotation.set(time * 0.7, time * 1.1 + i, 0);
       d.scale.setScalar(Math.max(grow, 1e-3));
       d.updateMatrix();
       this.bigOrb.setMatrixAt(i, d.matrix);
-      this.bigOrb.setColorAt(i, p.active ? this.onCol : this.offCol);
-      this.bigRing.setColorAt(i, p.active ? this.onCol : this.col.copy(this.offCol).multiplyScalar(1 + (1 - p.timer / P.bigRespawn) * 2));
+      this.bigOrb.setColorAt(i, this.onCol);
+      // anillo: tenue mientras se recarga, se ilumina a medida que se acerca la reaparición
+      this.bigRing.setColorAt(i, p.active ? this.onCol : this.col.copy(this.onCol).multiplyScalar(0.05 + 0.3 * clamp(1 - p.timer / P.bigRespawn, 0, 1)));
       d.rotation.set(0, 0, 0); d.scale.setScalar(1);
     });
+    this.smallMesh.instanceMatrix.needsUpdate = true;
     this.smallMesh.instanceColor.needsUpdate = true;
     this.bigOrb.instanceMatrix.needsUpdate = true;
     this.bigOrb.instanceColor.needsUpdate = true;
@@ -5613,8 +5630,12 @@ const Stadium = {
 // Calidad: bloom con EffectComposer y ajuste automático si baja de 60 fps
 // ---------------------------------------------------------------------
 const Quality = {
-  composer: null, bloomPass: null, bloomActive: false, autoNoBloom: false, autoLowRes: false, acc: 0, frames: 0, warm: 0, lastFps: 60,
+  composer: null, bloomPass: null, bloomActive: false, autoNoBloom: false, autoLowRes: false, acc: 0, frames: 0, warm: 0, lastFps: 60, bloomSupported: true,
   init() {
+    // El bloom necesita render targets de coma flotante; sin esa extensión se dibuja directo (sin bloom)
+    const ext = R.renderer.extensions;
+    this.bloomSupported = ext.has('EXT_color_buffer_float') || ext.has('EXT_color_buffer_half_float');
+    if (!this.bloomSupported) { this.apply(false); return; }
     const rt = new THREE.WebGLRenderTarget(1, 1, { type: THREE.HalfFloatType, samples: 4 });
     this.composer = new EffectComposer(R.renderer, rt);
     this.composer.addPass(new RenderPass(R.scene, R.camera));
@@ -5632,7 +5653,7 @@ const Quality = {
   apply(user) {
     const q = Settings.data.quality;
     if (user) { this.autoNoBloom = false; this.autoLowRes = false; this.warm = 0; }
-    this.bloomActive = !!q.bloom && q.preset !== 'baja' && !this.autoNoBloom;
+    this.bloomActive = this.bloomSupported && !!this.composer && !!q.bloom && q.preset !== 'baja' && !this.autoNoBloom;
     const lim = q.preset === 'baja' ? 0.5 : (q.preset === 'media' ? 0.8 : 1);
     if (Effects.add) { Effects.add.scaleLimit = lim; Effects.smoke.scaleLimit = lim; }
     onResize();
@@ -5665,6 +5686,7 @@ const Quality = {
   describe() {
     const q = Settings.data.quality;
     let t = 'Rendimiento actual: ' + this.lastFps.toFixed(0) + ' fps. Resolución interna ×' + this.pixelRatio().toFixed(2) + '. Bloom: ' + (this.bloomActive ? 'activo' : 'apagado') + '.';
+    if (!this.bloomSupported) t += ' (Esta GPU no admite el bloom.)';
     if (q.preset === 'auto') t += this.autoNoBloom ? ' (Se apagó el bloom automáticamente para mantener 60 fps.)' : ' En modo automático el bloom se apaga solo si baja de 60 fps.';
     return t;
   },
@@ -6146,12 +6168,14 @@ const Main = {
       this.last = now;
       Debug.frame(dt);
       const G = Game;
+      let ticks = 0;
       if (G.match && G.playing()) {
         G.acc += dt;
-        let n = 0;
-        while (G.acc >= DT && n < CONFIG.physics.maxTicksPerFrame) { G.tick(); G.acc -= DT; n++; }
-        if (n >= CONFIG.physics.maxTicksPerFrame) G.acc = 0;
+        while (G.acc >= DT && ticks < CONFIG.physics.maxTicksPerFrame) { G.tick(); G.acc -= DT; ticks++; }
+        if (ticks >= CONFIG.physics.maxTicksPerFrame) G.acc = 0;
       }
+      // sin ticks (pausa, menús): el mando se sigue leyendo para navegar
+      if (ticks === 0) Input.pollPad();
       const alpha = clamp(G.acc / DT, 0, 1);
       // en pausa la escena queda congelada (partículas, cámara y animaciones incluidas)
       const vdt = G.paused ? 0 : dt;
@@ -6242,7 +6266,7 @@ async function boot() {
   Menu.init();
   Menu.show();
   document.getElementById('carga').classList.add('oculto');
-  window.__TF = { CONFIG, FreeCam, arenaSDF, R, V3, Game, Input, CameraRig, Settings, Menu, Pause, Quality, Effects, Sound };
+  window.__TF = { CONFIG, FreeCam, arenaSDF, R, V3, Game, Input, CameraRig, Settings, Menu, Pause, Quality, Effects, Sound, makeBot, HUD };
   window.__tfArrancado = true;
   Main.start();
 }
