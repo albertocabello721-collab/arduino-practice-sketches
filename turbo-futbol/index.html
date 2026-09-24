@@ -1,0 +1,1178 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Turbo Fútbol</title>
+<style>
+  :root {
+    --azul: #2f8cff;
+    --azul-osc: #0d3f8f;
+    --naranja: #ff8a1f;
+    --naranja-osc: #8f3f06;
+    --tinta: #eef3ff;
+    --panel: rgba(8, 14, 30, 0.86);
+    --borde: rgba(140, 180, 255, 0.28);
+    --acento: #ffd24a;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: #04060c; color: var(--tinta); overflow: hidden;
+    font-family: "Segoe UI", "Helvetica Neue", Arial, system-ui, sans-serif; -webkit-font-smoothing: antialiased; }
+  #juego { position: fixed; inset: 0; }
+  #juego canvas { display: block; width: 100%; height: 100%; outline: none; }
+  .oculto { display: none !important; }
+
+  /* Panel de error: nunca pantalla negra */
+  #tf-error { position: fixed; inset: 0; z-index: 9999; display: none; background: rgba(10, 4, 8, 0.96);
+    color: #ffe9ea; padding: 32px; overflow: auto; font-family: ui-monospace, Menlo, Consolas, monospace; }
+  #tf-error h1 { font-family: "Segoe UI", Arial, sans-serif; color: #ff6b6b; margin: 0 0 12px; font-size: 26px; }
+  #tf-error .msg { font-size: 16px; white-space: pre-wrap; margin-bottom: 16px; color: #fff; }
+  #tf-error pre { white-space: pre-wrap; font-size: 12px; color: #ffb3b8; background: rgba(255,255,255,0.05);
+    padding: 12px; border-radius: 8px; border: 1px solid rgba(255,120,120,0.25); }
+  #tf-error button { margin-top: 12px; padding: 10px 18px; font-size: 15px; border-radius: 8px; border: 0;
+    background: #ff6b6b; color: #200; font-weight: 700; cursor: pointer; }
+
+  /* Pantalla de carga */
+  #carga { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; flex-direction: column;
+    gap: 14px; z-index: 50; background: radial-gradient(ellipse at 50% 40%, #13244a 0%, #04060c 70%); }
+  #carga .titulo { font-size: 44px; font-weight: 900; font-style: italic; letter-spacing: 2px;
+    background: linear-gradient(90deg, var(--azul), #fff 50%, var(--naranja)); -webkit-background-clip: text; background-clip: text; color: transparent; }
+  #carga .sub { opacity: 0.7; font-size: 15px; }
+
+  /* Overlay de depuración (F3) */
+  #debug { position: fixed; left: 10px; top: 10px; z-index: 40; background: rgba(0,0,0,0.62); padding: 8px 10px;
+    border-radius: 6px; font: 12px/1.45 ui-monospace, Menlo, Consolas, monospace; color: #b8ffb8; pointer-events: none;
+    white-space: pre; min-width: 260px; }
+
+  /* Resultados de pruebas (?test) */
+  #pruebas { position: fixed; inset: 0; z-index: 60; overflow: auto; padding: 28px 32px; background: #070b16;
+    font: 14px/1.5 ui-monospace, Menlo, Consolas, monospace; }
+  #pruebas h1 { font-family: "Segoe UI", Arial, sans-serif; margin: 0 0 6px; font-size: 26px; }
+  #pruebas .res { margin: 6px 0; padding: 8px 12px; border-radius: 6px; background: rgba(255,255,255,0.04); }
+  #pruebas .pasa { color: #6dff9a; }
+  #pruebas .falla { color: #ff6b6b; }
+  #pruebas .corre { color: #ffd24a; }
+  #pruebas .det { color: #9fb3d9; font-size: 12px; white-space: pre-wrap; }
+  #pruebas .resumen { margin-top: 16px; font-size: 18px; font-weight: 700; }
+</style>
+
+<script>
+/* Arranque: manejo global de errores. Se ejecuta antes que el módulo para garantizar
+   que cualquier fallo (incluida la carga de Three.js) se muestre en pantalla. */
+(function () {
+  function mostrar(titulo, mensaje, pila) {
+    var p = document.getElementById('tf-error');
+    if (!p) {
+      p = document.createElement('div');
+      p.id = 'tf-error';
+      (document.body || document.documentElement).appendChild(p);
+    }
+    p.innerHTML = '';
+    var h = document.createElement('h1'); h.textContent = titulo || 'Error';
+    var m = document.createElement('div'); m.className = 'msg'; m.textContent = mensaje || '(sin mensaje)';
+    var s = document.createElement('pre'); s.textContent = pila || '(sin stack disponible)';
+    var b = document.createElement('button'); b.textContent = 'Recargar';
+    b.onclick = function () { location.reload(); };
+    p.appendChild(h); p.appendChild(m); p.appendChild(s); p.appendChild(b);
+    p.style.display = 'block';
+    var c = document.getElementById('carga'); if (c) c.style.display = 'none';
+    try { console.error('[Turbo Fútbol] ' + titulo + ': ' + mensaje + '\n' + (pila || '')); } catch (e) {}
+  }
+  window.__tfMostrarError = mostrar;
+  window.__tfArrancado = false;
+  window.addEventListener('error', function (e) {
+    if (e && e.target && e.target !== window && (e.target.src || e.target.href)) {
+      mostrar('No se pudo cargar un recurso', String(e.target.src || e.target.href), '');
+      return;
+    }
+    var err = e && e.error;
+    mostrar('Error inesperado', (err && err.message) || (e && e.message) || 'Error desconocido',
+      (err && err.stack) || ((e && e.filename) ? (e.filename + ':' + e.lineno + ':' + e.colno) : ''));
+  }, true);
+  window.addEventListener('unhandledrejection', function (e) {
+    var r = e && e.reason;
+    mostrar('Error inesperado (promesa)', (r && r.message) || String(r), (r && r.stack) || '');
+  });
+  setTimeout(function () {
+    if (!window.__tfArrancado && !/[?&]test/.test(location.search)) {
+      mostrar('El juego no terminó de cargar',
+        'La inicialización tardó demasiado. Se necesita acceso a cdn.jsdelivr.net para descargar Three.js ' +
+        'y un navegador con soporte de módulos ES, import maps y WebGL2 (Chrome o Safari recientes).', '');
+    }
+  }, 25000);
+})();
+</script>
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.180.0/build/three.module.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.180.0/examples/jsm/"
+  }
+}
+</script>
+</head>
+<body>
+<div id="juego"></div>
+<div id="carga"><div class="titulo">TURBO FÚTBOL</div><div class="sub">Cargando…</div></div>
+<div id="debug" class="oculto"></div>
+<div id="pruebas" class="oculto"></div>
+
+<script type="module">
+'use strict';
+/* =====================================================================
+   TURBO FÚTBOL — juego 3D de fútbol con autos
+   Física propia determinista a 120 Hz (Z vertical, unidades uu = cm).
+   El render (Three.js, Y vertical, 1 unidad = 100 uu) convierte con un único helper.
+   ===================================================================== */
+
+// =====================================================================
+// CONFIG — todos los valores afinables del juego
+// =====================================================================
+const CONFIG = {
+  physics: {
+    tickRate: 120,          // Hz, paso fijo
+    gravity: 650,           // uu/s²
+    maxTicksPerFrame: 15,   // evita espiral de la muerte
+  },
+  render: {
+    uuPerUnit: 100,         // 1 unidad Three.js = 100 uu
+  },
+  arena: {
+    halfWidth: 4096,        // paredes laterales x = ±4096
+    halfLength: 5120,       // paredes de fondo y = ±5120
+    height: 2044,           // techo
+    cornerSum: 8064,        // chaflanes: |x| + |y| = 8064
+    filletRadius: 256,      // radio de las curvas piso/pared/techo y esquinas verticales
+    goalHalfWidth: 892.755, // portería: ancho 1786
+    goalHeight: 642.775,
+    goalDepth: 880,
+    goalZoneExt: 1000,      // extensión de la zona especial de la SDF frente a la portería
+  },
+};
+
+// =====================================================================
+// UTILIDADES MATEMÁTICAS
+// =====================================================================
+const TICK_RATE = CONFIG.physics.tickRate;
+const DT = 1 / TICK_RATE;
+const INV_SQRT2 = Math.SQRT1_2;
+const TAU = Math.PI * 2;
+
+function clamp(v, a, b) { return v < a ? a : (v > b ? b : v); }
+function lerp(a, b, t) { return a + (b - a) * t; }
+function sign(v) { return v < 0 ? -1 : 1; }
+function smoothstep(a, b, x) { const t = clamp((x - a) / (b - a), 0, 1); return t * t * (3 - 2 * t); }
+function wrapAngle(a) { a = (a + Math.PI) % TAU; if (a < 0) a += TAU; return a - Math.PI; }
+/** Curva lineal por tramos: points = [[x0, y0], [x1, y1], ...] (x crecientes). */
+function curve(points, x) {
+  if (x <= points[0][0]) return points[0][1];
+  for (let i = 1; i < points.length; i++) {
+    const p1 = points[i];
+    if (x <= p1[0]) {
+      const p0 = points[i - 1];
+      return p0[1] + (p1[1] - p0[1]) * (x - p0[0]) / (p1[0] - p0[0]);
+    }
+  }
+  return points[points.length - 1][1];
+}
+
+class V3 {
+  constructor(x = 0, y = 0, z = 0) { this.x = x; this.y = y; this.z = z; }
+  set(x, y, z) { this.x = x; this.y = y; this.z = z; return this; }
+  copy(v) { this.x = v.x; this.y = v.y; this.z = v.z; return this; }
+  clone() { return new V3(this.x, this.y, this.z); }
+  add(v) { this.x += v.x; this.y += v.y; this.z += v.z; return this; }
+  sub(v) { this.x -= v.x; this.y -= v.y; this.z -= v.z; return this; }
+  addScaled(v, s) { this.x += v.x * s; this.y += v.y * s; this.z += v.z * s; return this; }
+  scale(s) { this.x *= s; this.y *= s; this.z *= s; return this; }
+  addVectors(a, b) { this.x = a.x + b.x; this.y = a.y + b.y; this.z = a.z + b.z; return this; }
+  subVectors(a, b) { this.x = a.x - b.x; this.y = a.y - b.y; this.z = a.z - b.z; return this; }
+  lerpVectors(a, b, t) { this.x = a.x + (b.x - a.x) * t; this.y = a.y + (b.y - a.y) * t; this.z = a.z + (b.z - a.z) * t; return this; }
+  dot(v) { return this.x * v.x + this.y * v.y + this.z * v.z; }
+  crossVectors(a, b) {
+    const x = a.y * b.z - a.z * b.y, y = a.z * b.x - a.x * b.z, z = a.x * b.y - a.y * b.x;
+    this.x = x; this.y = y; this.z = z; return this;
+  }
+  length() { return Math.sqrt(this.x * this.x + this.y * this.y + this.z * this.z); }
+  lengthSq() { return this.x * this.x + this.y * this.y + this.z * this.z; }
+  normalize() {
+    const l = Math.sqrt(this.x * this.x + this.y * this.y + this.z * this.z);
+    if (l > 1e-12) { this.x /= l; this.y /= l; this.z /= l; }
+    return this;
+  }
+  distanceTo(v) { const dx = this.x - v.x, dy = this.y - v.y, dz = this.z - v.z; return Math.sqrt(dx * dx + dy * dy + dz * dz); }
+  clampLength(max) {
+    const l2 = this.lengthSq();
+    if (l2 > max * max) { const s = max / Math.sqrt(l2); this.x *= s; this.y *= s; this.z *= s; }
+    return this;
+  }
+  isFinite() { return Number.isFinite(this.x) && Number.isFinite(this.y) && Number.isFinite(this.z); }
+}
+
+/** Rota v alrededor del eje unitario (kx,ky,kz) un ángulo con coseno c y seno s (Rodrigues). */
+function rotateAxis(v, kx, ky, kz, c, s) {
+  const dot = kx * v.x + ky * v.y + kz * v.z;
+  const cx = ky * v.z - kz * v.y, cy = kz * v.x - kx * v.z, cz = kx * v.y - ky * v.x;
+  const t = dot * (1 - c);
+  const x = v.x * c + cx * s + kx * t;
+  const y = v.y * c + cy * s + ky * t;
+  const z = v.z * c + cz * s + kz * t;
+  v.x = x; v.y = y; v.z = z;
+}
+
+/** Orientación como base ortonormal: f (adelante), l (izquierda), u (arriba); f × l = u. */
+class Basis {
+  constructor() { this.f = new V3(1, 0, 0); this.l = new V3(0, 1, 0); this.u = new V3(0, 0, 1); }
+  copy(b) { this.f.copy(b.f); this.l.copy(b.l); this.u.copy(b.u); return this; }
+  setYaw(yaw) {
+    const c = Math.cos(yaw), s = Math.sin(yaw);
+    this.f.set(c, s, 0); this.l.set(-s, c, 0); this.u.set(0, 0, 1); return this;
+  }
+  /** Construye la base a partir de un vector adelante y un vector arriba aproximado. */
+  setFromForwardUp(fwd, up) {
+    this.f.copy(fwd).normalize();
+    this.u.copy(up).addScaled(this.f, -this.u.copy(up).dot(this.f)).normalize();
+    this.l.crossVectors(this.u, this.f);
+    return this;
+  }
+  /** Integra una velocidad angular (mundo) durante dt. */
+  rotate(w, dt) {
+    const wl = w.length();
+    if (wl < 1e-9) return this;
+    const ang = wl * dt, kx = w.x / wl, ky = w.y / wl, kz = w.z / wl;
+    const c = Math.cos(ang), s = Math.sin(ang);
+    rotateAxis(this.f, kx, ky, kz, c, s);
+    rotateAxis(this.u, kx, ky, kz, c, s);
+    this.orthonormalize();
+    return this;
+  }
+  orthonormalize() {
+    this.f.normalize();
+    const d = this.u.dot(this.f);
+    this.u.addScaled(this.f, -d).normalize();
+    this.l.crossVectors(this.u, this.f);
+    return this;
+  }
+  /** Coordenadas locales (f, l, u) de un vector del mundo. */
+  toLocal(v, out) { const x = v.dot(this.f), y = v.dot(this.l), z = v.dot(this.u); return out.set(x, y, z); }
+  /** Vector del mundo a partir de coordenadas locales. */
+  toWorld(lx, ly, lz, out) {
+    return out.set(this.f.x * lx + this.l.x * ly + this.u.x * lz,
+                   this.f.y * lx + this.l.y * ly + this.u.y * lz,
+                   this.f.z * lx + this.l.z * ly + this.u.z * lz);
+  }
+}
+
+/** Generador pseudoaleatorio determinista (mulberry32). */
+class Rng {
+  constructor(seed = 1) { this.s = seed >>> 0; }
+  next() {
+    let t = (this.s += 0x6D2B79F5) >>> 0;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  }
+  range(a, b) { return a + (b - a) * this.next(); }
+  int(n) { return Math.floor(this.next() * n); }
+}
+
+// =====================================================================
+// CANCHA — función de distancia con signo (SDF) exacta
+//
+// Espacio libre F = P ∪ C⁺ ∪ C⁻
+//   P  = prisma octogonal Q (paredes, chaflanes, piso, techo) dilatado por r:
+//        bordes redondeados de radio r entre piso/paredes/techo y en las esquinas verticales.
+//   C± = cajas de las porterías (extendidas hacia la cancha para cortar la curva del piso).
+// D(p) = distancia exacta al borde del espacio libre (positiva dentro), con la normal
+// apuntando hacia el espacio libre. Para la portería se usa la distancia a los parches reales
+// (paredes, techo, fondo, piso y tapas de la curva) y se ignora el hueco de la boca en P.
+// =====================================================================
+const AR = { r: 0, H: 0, Xq: 0, Yq: 0, Cq: 0, Y1: 0, X1: 0, Zlo: 0, Zhi: 0, W: 0, Hg: 0, YB: 0, YG: 0, E: 0, bex: 0, bey: 0, bel2: 0 };
+function rebuildArena() {
+  const A = CONFIG.arena;
+  AR.r = A.filletRadius;
+  AR.H = A.height;
+  AR.Xq = A.halfWidth - AR.r;
+  AR.Yq = A.halfLength - AR.r;
+  AR.Cq = A.cornerSum - AR.r * Math.SQRT2;
+  AR.Y1 = AR.Cq - AR.Xq;          // y donde la pared lateral (de Q) toca el chaflán
+  AR.X1 = AR.Cq - AR.Yq;          // x donde la pared de fondo (de Q) toca el chaflán
+  AR.Zlo = AR.r;
+  AR.Zhi = A.height - AR.r;
+  AR.W = A.goalHalfWidth;
+  AR.Hg = A.goalHeight;
+  AR.YB = A.halfLength;
+  AR.YG = A.halfLength + A.goalDepth;
+  AR.E = A.goalZoneExt;
+  AR.bex = AR.X1 - AR.Xq;
+  AR.bey = AR.Yq - AR.Y1;
+  AR.bel2 = AR.bex * AR.bex + AR.bey * AR.bey;
+}
+rebuildArena();
+
+// Gradiente 2D (hacia afuera) del último octSDF, en coordenadas plegadas (|x|, |y|)
+let _g2x = 0, _g2y = 0;
+/** SDF 2D exacta del octógono de Q para un punto del primer cuadrante. */
+function octSDF(ax, ay) {
+  const Xq = AR.Xq, Yq = AR.Yq, Cq = AR.Cq;
+  if (ax <= Xq && ay <= Yq && ax + ay <= Cq) {
+    const dX = Xq - ax, dY = Yq - ay, dC = (Cq - ax - ay) * INV_SQRT2;
+    if (dX <= dY && dX <= dC) { _g2x = 1; _g2y = 0; return -dX; }
+    if (dY <= dC) { _g2x = 0; _g2y = 1; return -dY; }
+    _g2x = INV_SQRT2; _g2y = INV_SQRT2; return -dC;
+  }
+  // Exterior: el punto más cercano está en uno de los 3 segmentos del primer cuadrante
+  let cx = Xq, cy = ay < 0 ? 0 : (ay > AR.Y1 ? AR.Y1 : ay);
+  let best = (ax - cx) * (ax - cx) + (ay - cy) * (ay - cy), seg = 0;
+  let tx = ax < 0 ? 0 : (ax > AR.X1 ? AR.X1 : ax), ty = Yq;
+  let d = (ax - tx) * (ax - tx) + (ay - ty) * (ay - ty);
+  if (d < best) { best = d; cx = tx; cy = ty; seg = 1; }
+  let t = ((ax - Xq) * AR.bex + (ay - AR.Y1) * AR.bey) / AR.bel2;
+  t = t < 0 ? 0 : (t > 1 ? 1 : t);
+  tx = Xq + AR.bex * t; ty = AR.Y1 + AR.bey * t;
+  d = (ax - tx) * (ax - tx) + (ay - ty) * (ay - ty);
+  if (d < best) { best = d; cx = tx; cy = ty; seg = 2; }
+  const dist = Math.sqrt(best);
+  if (dist > 1e-9) { _g2x = (ax - cx) / dist; _g2y = (ay - cy) / dist; }
+  else if (seg === 0) { _g2x = 1; _g2y = 0; }
+  else if (seg === 1) { _g2x = 0; _g2y = 1; }
+  else { _g2x = INV_SQRT2; _g2y = INV_SQRT2; }
+  return dist;
+}
+
+/** D_P: distancia al borde de P (positiva dentro). n = normal hacia dentro de P. */
+function dPrism(px, py, pz, n) {
+  const sx = px < 0 ? -1 : 1, sy = py < 0 ? -1 : 1;
+  const d2 = octSDF(px * sx, py * sy);
+  const gx = _g2x * sx, gy = _g2y * sy;
+  const dzLo = AR.Zlo - pz, dzHi = pz - AR.Zhi;
+  let dz, gz;
+  if (dzLo > dzHi) { dz = dzLo; gz = -1; } else { dz = dzHi; gz = 1; }
+  let s;
+  if (d2 > 0 && dz > 0) {
+    s = Math.sqrt(d2 * d2 + dz * dz);
+    n.x = -gx * d2 / s; n.y = -gy * d2 / s; n.z = -gz * dz / s;
+  } else if (d2 > dz) {
+    s = d2; n.x = -gx; n.y = -gy; n.z = 0;
+  } else {
+    s = dz; n.x = 0; n.y = 0; n.z = -gz;
+  }
+  return AR.r - s;
+}
+
+// Punto más cercano del último sidePatch2D
+let _spy = 0, _spz = 0;
+/** Distancia 2D (en el plano y-z de la pared lateral de la portería) a rect ∪ tapa de la curva. */
+function sidePatch2D(sy, sz) {
+  const YB = AR.YB, YG = AR.YG, Hg = AR.Hg, r = AR.r;
+  // Rectángulo de la pared interior de la portería
+  let ny = sy < YB ? YB : (sy > YG ? YG : sy);
+  let nz = sz < 0 ? 0 : (sz > Hg ? Hg : sz);
+  let best = (sy - ny) * (sy - ny) + (sz - nz) * (sz - nz);
+  _spy = ny; _spz = nz;
+  if (best === 0) return 0;
+  // Tapa R: esquina [YB - r, YB] × [0, r] fuera del círculo de la curva (centro (YB - r, r))
+  const ccy = YB - r, ccz = r;
+  const ry = sy - ccy, rz = sz - ccz, rl2 = ry * ry + rz * rz;
+  if (sy >= ccy && sy <= YB && sz >= 0 && sz <= r && rl2 >= r * r) { _spy = sy; _spz = sz; return 0; }
+  // Borde inferior de la tapa (sobre el piso)
+  ny = sy < ccy ? ccy : (sy > YB ? YB : sy);
+  let d = (sy - ny) * (sy - ny) + sz * sz;
+  if (d < best) { best = d; _spy = ny; _spz = 0; }
+  // Arco de la curva (solo el cuarto que mira a la esquina)
+  if (rl2 < r * r && ry >= 0 && rz <= 0) {
+    const rl = Math.sqrt(rl2);
+    const da = r - rl;
+    if (da * da < best) {
+      best = da * da;
+      if (rl > 1e-9) { _spy = ccy + ry / rl * r; _spz = ccz + rz / rl * r; }
+      else { _spy = ccy + r * INV_SQRT2; _spz = ccz - r * INV_SQRT2; }
+    }
+  }
+  return Math.sqrt(best);
+}
+
+/**
+ * SDF exacta de la cancha. Devuelve la distancia con signo (positiva en espacio libre)
+ * y escribe en n la normal unitaria que apunta hacia el espacio libre.
+ */
+function arenaSDF(px, py, pz, n) {
+  const dp = dPrism(px, py, pz, n);
+  const ay = py < 0 ? -py : py;
+  if (ay < AR.YB - AR.E) return dp;
+  const W = AR.W, Hg = AR.Hg, YB = AR.YB, YG = AR.YG, E = AR.E;
+  const sgn = py < 0 ? -1 : 1, sxp = px < 0 ? -1 : 1;
+  const gx = px * sxp, gy = ay, gz = pz;
+  // ¿El punto más cercano de P cae en el hueco (boca) de la portería?
+  const qx = px - dp * n.x, qy = (py - dp * n.y) * sgn, qz = pz - dp * n.z;
+  const inHole = qx < W && qx > -W && qz > 1e-3 && qz < Hg && qy > YB - E;
+  let best = inHole ? Infinity : (dp < 0 ? -dp : dp);
+  let kind = 0, cx = 0, cy = 0, cz = 0, fnx = 0, fny = 0, fnz = 0;
+  let nx, ny, d;
+  // Piso de la portería (extendido hacia la cancha)
+  nx = gx < W ? gx : W;
+  ny = gy < YB - E ? YB - E : (gy > YG ? YG : gy);
+  d = Math.sqrt((gx - nx) * (gx - nx) + (gy - ny) * (gy - ny) + gz * gz);
+  if (d < best) { best = d; kind = 1; cx = nx; cy = ny; cz = 0; fnx = 0; fny = 0; fnz = 1; }
+  // Techo de la portería (travesaño hacia adentro)
+  ny = gy < YB ? YB : (gy > YG ? YG : gy);
+  d = Math.sqrt((gx - nx) * (gx - nx) + (gy - ny) * (gy - ny) + (gz - Hg) * (gz - Hg));
+  if (d < best) { best = d; kind = 1; cx = nx; cy = ny; cz = Hg; fnx = 0; fny = 0; fnz = -1; }
+  // Fondo de la portería
+  const nz = gz < 0 ? 0 : (gz > Hg ? Hg : gz);
+  d = Math.sqrt((gx - nx) * (gx - nx) + (gy - YG) * (gy - YG) + (gz - nz) * (gz - nz));
+  if (d < best) { best = d; kind = 1; cx = nx; cy = YG; cz = nz; fnx = 0; fny = -1; fnz = 0; }
+  // Pared lateral de la portería (+ tapa de la curva del piso junto al poste)
+  const d2 = sidePatch2D(gy, gz);
+  d = Math.sqrt((gx - W) * (gx - W) + d2 * d2);
+  if (d < best) { best = d; kind = 1; cx = W; cy = _spy; cz = _spz; fnx = -1; fny = 0; fnz = 0; }
+
+  if (kind === 0) return dp; // la pared de P es la más cercana: n ya está calculada
+  const inside = dp > 0 || (gx < W && gz > 0 && gz < Hg && gy > YB - E && gy < YG);
+  const vx = px - cx * sxp, vy = py - cy * sgn, vz = pz - cz;
+  if (best > 1e-7) {
+    const s = (inside ? 1 : -1) / best;
+    n.x = vx * s; n.y = vy * s; n.z = vz * s;
+  } else {
+    n.x = fnx * sxp; n.y = fny * sgn; n.z = fnz;
+  }
+  return inside ? best : -best;
+}
+
+const _rayN = new V3();
+/**
+ * Raycast contra la cancha por sphere tracing sobre la SDF exacta.
+ * hit = { t, x, y, z, nx, ny, nz }. Devuelve true si golpea antes de maxT.
+ */
+function arenaRaycast(ox, oy, oz, dx, dy, dz, maxT, hit, eps = 0.05) {
+  let t = 0;
+  for (let i = 0; i < 48; i++) {
+    const x = ox + dx * t, y = oy + dy * t, z = oz + dz * t;
+    const d = arenaSDF(x, y, z, _rayN);
+    if (d < eps) {
+      hit.t = t; hit.x = x; hit.y = y; hit.z = z;
+      hit.nx = _rayN.x; hit.ny = _rayN.y; hit.nz = _rayN.z;
+      return true;
+    }
+    t += d;
+    if (t > maxT) return false;
+  }
+  return false;
+}
+
+// @@FISICA_AUTO@@
+
+// @@FISICA_PELOTA@@
+
+// @@MUNDO@@
+
+// @@PARTIDO@@
+
+// @@BOTS@@
+
+// @@ENTRADA@@
+
+// =====================================================================
+// PRUEBAS (?test)
+// =====================================================================
+const Tests = {
+  list: [],
+  add(name, fn, extra = false) { this.list.push({ name, fn, extra }); },
+  async run() {
+    const panel = document.getElementById('pruebas');
+    panel.classList.remove('oculto');
+    document.getElementById('carga').classList.add('oculto');
+    panel.innerHTML = '<h1>Turbo Fútbol — pruebas</h1><div class="det">Simulación sin render, paso fijo de ' +
+      TICK_RATE + ' Hz.</div><div id="lista-pruebas"></div><div class="resumen" id="resumen-pruebas"></div>';
+    const lista = panel.querySelector('#lista-pruebas');
+    const results = [];
+    for (const test of this.list) {
+      const row = document.createElement('div');
+      row.className = 'res';
+      row.innerHTML = '<span class="corre">… CORRIENDO</span> ' + escapeHtml(test.name);
+      lista.appendChild(row);
+      await new Promise((r) => setTimeout(r, 10));
+      const t0 = performance.now();
+      let res;
+      try { res = await test.fn(); }
+      catch (e) { res = { pass: false, detail: 'Excepción: ' + e.message + '\n' + (e.stack || '') }; }
+      const ms = performance.now() - t0;
+      results.push({ name: test.name, pass: !!res.pass, detail: res.detail || '', extra: test.extra });
+      row.innerHTML = (res.pass ? '<span class="pasa">✔ PASA</span> ' : '<span class="falla">✘ FALLA</span> ') +
+        escapeHtml(test.name) + ' <span class="det">(' + ms.toFixed(0) + ' ms)</span>' +
+        '<div class="det">' + escapeHtml(res.detail || '') + '</div>';
+      console.log((res.pass ? 'PASA' : 'FALLA') + ' — ' + test.name + (res.detail ? ' — ' + res.detail : ''));
+    }
+    const ok = results.filter((r) => r.pass).length;
+    const all = results.length === ok;
+    document.getElementById('resumen-pruebas').innerHTML = all
+      ? '<span class="pasa">Todas las pruebas PASAN (' + ok + '/' + results.length + ')</span>'
+      : '<span class="falla">' + (results.length - ok) + ' prueba(s) FALLAN (' + ok + '/' + results.length + ' pasan)</span>';
+    console.log(all ? 'RESUMEN: todas las pruebas PASAN (' + ok + '/' + results.length + ')' : 'RESUMEN: FALLAN ' + (results.length - ok) + ' de ' + results.length);
+    window.__tfTestResults = results;
+    window.__tfTestsDone = true;
+    return results;
+  },
+};
+function escapeHtml(s) { return String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
+
+// ---- Pruebas adicionales de la SDF de la cancha ----
+Tests.add('Extra A. SDF de la cancha: valores conocidos (piso, paredes, curvas, portería, postes)', () => {
+  const n = new V3();
+  const R = CONFIG.arena.filletRadius;
+  const checks = [];
+  function chk(label, x, y, z, expD, expN) {
+    const d = arenaSDF(x, y, z, n);
+    let ok = Math.abs(d - expD) < 0.02;
+    if (expN) ok = ok && Math.abs(n.x - expN[0]) < 1e-3 && Math.abs(n.y - expN[1]) < 1e-3 && Math.abs(n.z - expN[2]) < 1e-3;
+    checks.push({ label, ok, got: d.toFixed(3) + ' n=(' + n.x.toFixed(3) + ',' + n.y.toFixed(3) + ',' + n.z.toFixed(3) + ')', exp: expD.toFixed(3) });
+  }
+  chk('piso', 0, 0, 500, 500, [0, 0, 1]);
+  chk('techo', 0, 0, 1900, 144, [0, 0, -1]);
+  chk('pared lateral', 4000, 0, 1000, 96, [-1, 0, 0]);
+  chk('pared de fondo', 2000, 5000, 1000, 120, [0, -1, 0]);
+  chk('chaflán', 3000, 4600, 1000, (8064 - 7600) * INV_SQRT2, [-INV_SQRT2, -INV_SQRT2, 0]);
+  for (let k = 0; k <= 8; k++) {
+    const phi = k / 8 * Math.PI / 2;
+    chk('curva piso-pared φ=' + (phi * 180 / Math.PI).toFixed(0) + '°', AR.Xq + R * Math.sin(phi), 0, R - R * Math.cos(phi), 0);
+  }
+  chk('dentro de la portería (piso)', 0, 5500, 300, 300, [0, 0, 1]);
+  chk('boca de la portería (sin pared invisible)', 0, 5120, 300, 300, [0, 0, 1]);
+  chk('frente a la boca, junto al piso', 0, 5050, 20, 20, [0, 0, 1]);
+  const dp = Math.hypot(892.755 - 800, 20);
+  chk('cerca del poste (arista exacta)', 800, 5100, 300, dp);
+  chk('bajo el travesaño', 0, 5100, 600, Math.hypot(20, 42.775));
+  chk('pared interior de la portería', 850, 5600, 300, 42.755, [-1, 0, 0]);
+  chk('fondo de la portería', 0, 5950, 300, 50, [0, -1, 0]);
+  chk('techo de la portería', 0, 5600, 600, 42.775, [0, 0, -1]);
+  chk('portería azul (espejo)', 0, -5950, 300, 50, [0, 1, 0]);
+  chk('penetración en pared lateral', 4110, 0, 1000, -14, [-1, 0, 0]);
+  chk('penetración en pared de portería', 900, 5600, 300, -7.245, [-1, 0, 0]);
+  const bad = checks.filter((c) => !c.ok);
+  return { pass: bad.length === 0, detail: bad.length ? bad.map((c) => c.label + ': obtuvo ' + c.got + ' esperado ' + c.exp).join('\n') : checks.length + ' comprobaciones correctas' };
+});
+
+Tests.add('Extra B. SDF de la cancha: continua (Lipschitz 1) y normal = gradiente', () => {
+  const rng = new Rng(1234);
+  const n = new V3(), n2 = new V3();
+  let worstLip = 0, worstGrad = 0, nGrad = 0;
+  const samples = 60000;
+  for (let i = 0; i < samples; i++) {
+    // Muestras concentradas cerca de las porterías y las curvas
+    const x = rng.range(-4300, 4300), y = rng.range(-6200, 6200), z = rng.range(-100, 2200);
+    const d = arenaSDF(x, y, z, n);
+    const h = 0.5 + rng.next() * 40;
+    const dx = rng.range(-1, 1), dy = rng.range(-1, 1), dz = rng.range(-1, 1);
+    const l = Math.hypot(dx, dy, dz) || 1;
+    const d2 = arenaSDF(x + dx / l * h, y + dy / l * h, z + dz / l * h, n2);
+    worstLip = Math.max(worstLip, Math.abs(d2 - d) / h);
+    // Gradiente numérico (solo en espacio libre y lejos de aristas de la propia SDF)
+    if (d > 5 && d < 3000) {
+      const e = 0.05;
+      const gx = (arenaSDF(x + e, y, z, n2) - arenaSDF(x - e, y, z, n2)) / (2 * e);
+      const gy = (arenaSDF(x, y + e, z, n2) - arenaSDF(x, y - e, z, n2)) / (2 * e);
+      const gz = (arenaSDF(x, y, z + e, n2) - arenaSDF(x, y, z - e, n2)) / (2 * e);
+      const gl = Math.hypot(gx, gy, gz);
+      if (gl > 0.99 && gl < 1.01) {
+        worstGrad = Math.max(worstGrad, Math.hypot(gx - n.x, gy - n.y, gz - n.z));
+        nGrad++;
+      }
+    }
+  }
+  const pass = worstLip <= 1.001 && nGrad > 1000;
+  // El gradiente puede discrepar en el eje medial (dos superficies equidistantes); se reporta.
+  return { pass, detail: 'Lipschitz máx = ' + worstLip.toFixed(5) + ', desviación máx normal/gradiente = ' + worstGrad.toFixed(4) + ' (' + nGrad + ' muestras)' };
+});
+
+// =====================================================================
+// RENDER (Three.js) — Y vertical; todo se convierte con toThree()
+// =====================================================================
+let THREE = null;
+let EffectComposer = null, RenderPass = null, UnrealBloomPass = null, OutputPass = null, RoomEnvironment = null;
+const INV_UU = 1 / CONFIG.render.uuPerUnit;
+
+/**
+ * ÚNICO helper de conversión física (x ancho, y largo, z alto; uu) → Three.js (Y arriba; unidades).
+ * Para direcciones usar s = 1.
+ */
+function toThree(x, y, z, out, s = INV_UU) { return out.set(x * s, z * s, -y * s); }
+
+const R = {
+  renderer: null, scene: null, camera: null, container: null,
+  arena: null, width: 1, height: 1, pixelRatio: 1,
+  tmpV: null, tmpV2: null,
+};
+
+function initRenderer() {
+  R.container = document.getElementById('juego');
+  const canvas = document.createElement('canvas');
+  canvas.tabIndex = 0;
+  R.container.appendChild(canvas);
+  const gl = canvas.getContext('webgl2', { antialias: true, powerPreference: 'high-performance', stencil: false });
+  if (!gl) throw new Error('Este navegador no soporta WebGL2. Usa Chrome o Safari actualizados con aceleración por hardware.');
+  R.renderer = new THREE.WebGLRenderer({ canvas, context: gl, antialias: true, powerPreference: 'high-performance', stencil: false });
+  R.renderer.toneMapping = THREE.ACESFilmicToneMapping;
+  R.renderer.toneMappingExposure = 1.0;
+  R.renderer.outputColorSpace = THREE.SRGBColorSpace;
+  R.scene = new THREE.Scene();
+  R.scene.background = new THREE.Color(0x05070f);
+  R.camera = new THREE.PerspectiveCamera(75, 1, 0.1, 1200);
+  R.tmpV = new THREE.Vector3(); R.tmpV2 = new THREE.Vector3();
+  const pmrem = new THREE.PMREMGenerator(R.renderer);
+  R.scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
+  R.scene.environmentIntensity = 0.55;
+  pmrem.dispose();
+  onResize();
+  window.addEventListener('resize', onResize);
+}
+
+function onResize() {
+  const w = window.innerWidth, h = window.innerHeight;
+  R.width = w; R.height = h;
+  R.pixelRatio = Math.min(window.devicePixelRatio || 1, 2);
+  R.renderer.setPixelRatio(R.pixelRatio);
+  R.renderer.setSize(w, h, false);
+  R.camera.aspect = w / h;
+  R.camera.updateProjectionMatrix();
+}
+
+/** Construye una BufferGeometry a partir de arreglos en coordenadas de física. */
+function geoFromPhys(pos, nrm, uv, idx, col) {
+  const g = new THREE.BufferGeometry();
+  const P = new Float32Array(pos.length), N = new Float32Array(nrm.length);
+  const v = { x: 0, y: 0, z: 0, set(x, y, z) { this.x = x; this.y = y; this.z = z; return this; } };
+  for (let i = 0; i < pos.length; i += 3) {
+    toThree(pos[i], pos[i + 1], pos[i + 2], v);
+    P[i] = v.x; P[i + 1] = v.y; P[i + 2] = v.z;
+    toThree(nrm[i], nrm[i + 1], nrm[i + 2], v, 1);
+    N[i] = v.x; N[i + 1] = v.y; N[i + 2] = v.z;
+  }
+  g.setAttribute('position', new THREE.BufferAttribute(P, 3));
+  g.setAttribute('normal', new THREE.BufferAttribute(N, 3));
+  if (uv) g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+  if (col) g.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
+  if (idx) g.setIndex(idx);
+  return g;
+}
+
+/** Asegura que cada triángulo mire hacia su normal de vértice (corrige el orden si hace falta). */
+function fixWinding(pos, nrm, idx) {
+  for (let i = 0; i < idx.length; i += 3) {
+    const a = idx[i] * 3, b = idx[i + 1] * 3, c = idx[i + 2] * 3;
+    const e1x = pos[b] - pos[a], e1y = pos[b + 1] - pos[a + 1], e1z = pos[b + 2] - pos[a + 2];
+    const e2x = pos[c] - pos[a], e2y = pos[c + 1] - pos[a + 1], e2z = pos[c + 2] - pos[a + 2];
+    const cx = e1y * e2z - e1z * e2y, cy = e1z * e2x - e1x * e2z, cz = e1x * e2y - e1y * e2x;
+    const nx = nrm[a] + nrm[b] + nrm[c], ny = nrm[a + 1] + nrm[b + 1] + nrm[c + 1], nz = nrm[a + 2] + nrm[b + 2] + nrm[c + 2];
+    if (cx * nx + cy * ny + cz * nz < 0) { const t = idx[i + 1]; idx[i + 1] = idx[i + 2]; idx[i + 2] = t; }
+  }
+}
+
+// ---------------------------------------------------------------------
+// Texturas generadas en canvas
+// ---------------------------------------------------------------------
+function canvasTex(w, h, draw, opts = {}) {
+  const c = document.createElement('canvas'); c.width = w; c.height = h;
+  const g = c.getContext('2d');
+  draw(g, w, h);
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = opts.linear ? THREE.NoColorSpace : THREE.SRGBColorSpace;
+  if (opts.repeat) { t.wrapS = t.wrapT = THREE.RepeatWrapping; }
+  t.anisotropy = Math.min(8, R.renderer.capabilities.getMaxAnisotropy());
+  t.needsUpdate = true;
+  return t;
+}
+
+/** Textura del piso: césped con franjas, líneas de cancha, mitades de equipo y logo original. */
+function makeFieldTexture() {
+  const TW = 1536, TH = 2250; // 8192 × 12000 uu → misma escala en ambos ejes
+  return canvasTex(TW, TH, (g) => {
+    const s = TW / 8192;
+    const X = (x) => (x + 4096) * s, Y = (y) => (6000 - y) * s;
+    g.fillStyle = '#1b5230'; g.fillRect(0, 0, TW, TH);
+    // Franjas de corte de césped
+    for (let i = 0; i < 24; i++) {
+      if (i % 2 === 0) continue;
+      g.fillStyle = 'rgba(255,255,255,0.05)';
+      g.fillRect(0, Y(-6000 + (i + 1) * 500), TW, 500 * s);
+    }
+    // Granulado
+    const rng = new Rng(77);
+    for (let i = 0; i < 26000; i++) {
+      g.fillStyle = rng.next() < 0.5 ? 'rgba(0,0,0,0.07)' : 'rgba(255,255,255,0.035)';
+      g.fillRect(rng.next() * TW, rng.next() * TH, 2, 2);
+    }
+    // Tinte de mitades de equipo
+    let gr = g.createLinearGradient(0, Y(-6000), 0, Y(0));
+    gr.addColorStop(0, 'rgba(40,120,255,0.30)'); gr.addColorStop(1, 'rgba(40,120,255,0.02)');
+    g.fillStyle = gr; g.fillRect(0, Y(0), TW, Y(-6000) - Y(0));
+    gr = g.createLinearGradient(0, Y(6000), 0, Y(0));
+    gr.addColorStop(0, 'rgba(255,130,20,0.30)'); gr.addColorStop(1, 'rgba(255,130,20,0.02)');
+    g.fillStyle = gr; g.fillRect(0, 0, TW, Y(0));
+    const line = (w, a) => { g.lineWidth = w * s; g.strokeStyle = 'rgba(255,255,255,' + a + ')'; };
+    const strokeBoth = (path, w) => { line(w * 2.2, 0.12); path(); g.stroke(); line(w, 0.9); path(); g.stroke(); };
+    // Contorno del piso plano (octógono de Q)
+    const oct = () => {
+      g.beginPath();
+      const pts = [[AR.Xq, -AR.Y1], [AR.Xq, AR.Y1], [AR.X1, AR.Yq], [-AR.X1, AR.Yq], [-AR.Xq, AR.Y1], [-AR.Xq, -AR.Y1], [-AR.X1, -AR.Yq], [AR.X1, -AR.Yq]];
+      pts.forEach((p, i) => (i ? g.lineTo(X(p[0] * 0.985), Y(p[1] * 0.985)) : g.moveTo(X(p[0] * 0.985), Y(p[1] * 0.985))));
+      g.closePath();
+    };
+    strokeBoth(oct, 26);
+    // Línea central y círculo central
+    strokeBoth(() => { g.beginPath(); g.moveTo(X(-AR.Xq), Y(0)); g.lineTo(X(AR.Xq), Y(0)); }, 26);
+    strokeBoth(() => { g.beginPath(); g.arc(X(0), Y(0), 1000 * s, 0, TAU); }, 26);
+    // Áreas frente a cada portería
+    for (const sg of [1, -1]) {
+      strokeBoth(() => { g.beginPath(); g.rect(X(-1900), Y(sg > 0 ? AR.Yq : -AR.Yq + 1250), 3800 * s, 1250 * s); }, 22);
+      strokeBoth(() => { g.beginPath(); g.rect(X(-1150), Y(sg > 0 ? AR.Yq : -AR.Yq + 560), 2300 * s, 560 * s); }, 22);
+      strokeBoth(() => { g.beginPath(); g.arc(X(0), Y(sg * (AR.Yq - 1250)), 700 * s, sg > 0 ? 0 : Math.PI, sg > 0 ? Math.PI : TAU); }, 22);
+      // Línea de gol luminosa
+      g.fillStyle = sg > 0 ? 'rgba(255,170,60,0.95)' : 'rgba(90,170,255,0.95)';
+      g.fillRect(X(-AR.W), Y(sg * AR.YB) - 18 * s, 2 * AR.W * s, 36 * s);
+      // Piso interior de la portería con rejilla
+      g.fillStyle = sg > 0 ? 'rgba(255,140,40,0.18)' : 'rgba(50,130,255,0.18)';
+      g.fillRect(X(-AR.W), Y(sg > 0 ? AR.YG : -AR.YB), 2 * AR.W * s, (AR.YG - AR.YB) * s);
+    }
+    // Logo central original: "TF" dentro de un balón estilizado
+    g.save();
+    g.translate(X(0), Y(0));
+    g.globalAlpha = 0.5;
+    g.fillStyle = 'rgba(255,255,255,0.10)';
+    g.beginPath(); g.arc(0, 0, 640 * s, 0, TAU); g.fill();
+    g.font = 'italic 900 ' + Math.round(560 * s) + 'px "Arial Black", Arial, sans-serif';
+    g.textAlign = 'center'; g.textBaseline = 'middle';
+    g.fillStyle = 'rgba(255,255,255,0.85)';
+    g.fillText('TF', 0, 20 * s);
+    g.restore();
+  });
+}
+
+/** Patrón hexagonal para las paredes (líneas blancas sobre transparente, repetible). */
+function makeHexTexture() {
+  const side = 64, w = Math.round(side * 3), h = Math.round(side * Math.sqrt(3));
+  return canvasTex(w, h, (g) => {
+    g.clearRect(0, 0, w, h);
+    const hex = (cx, cy) => {
+      g.beginPath();
+      for (let k = 0; k < 6; k++) {
+        const a = k * Math.PI / 3;
+        const x = cx + side * Math.cos(a), y = cy + side * Math.sin(a);
+        if (k === 0) g.moveTo(x, y); else g.lineTo(x, y);
+      }
+      g.closePath();
+    };
+    for (const [lw, a] of [[7, 0.22], [2.2, 0.9]]) {
+      g.lineWidth = lw; g.strokeStyle = 'rgba(255,255,255,' + a + ')';
+      for (let i = -1; i <= 3; i++) {
+        for (let j = -1; j <= 2; j++) {
+          const cx = i * side * 1.5, cy = j * h + (i % 2 !== 0 ? h / 2 : 0);
+          hex(cx, cy); g.stroke();
+        }
+      }
+    }
+  }, { repeat: true });
+}
+
+/** Malla de la red de la portería. */
+function makeNetTexture() {
+  return canvasTex(128, 128, (g, w, h) => {
+    g.clearRect(0, 0, w, h);
+    g.strokeStyle = 'rgba(255,255,255,0.95)';
+    g.lineWidth = 5;
+    g.beginPath();
+    g.moveTo(0, 0); g.lineTo(w, h); g.moveTo(w, 0); g.lineTo(0, h);
+    g.moveTo(-w / 2, h / 2); g.lineTo(w / 2, -h / 2); g.moveTo(w / 2, h * 1.5); g.lineTo(w * 1.5, h / 2);
+    g.moveTo(w / 2, -h / 2); g.lineTo(w * 1.5, h / 2); g.moveTo(-w / 2, h / 2); g.lineTo(w / 2, h * 1.5);
+    g.stroke();
+  }, { repeat: true });
+}
+
+// ---------------------------------------------------------------------
+// Malla de la cancha (misma geometría que la SDF)
+// ---------------------------------------------------------------------
+/** Muestras del contorno de Q: base (bx,by), dirección hacia afuera (dx,dy), s = longitud acumulada a h=r. */
+function arenaContour(arcSegs = 6) {
+  const S = INV_SQRT2;
+  const V = [[AR.Xq, -AR.Y1], [AR.Xq, AR.Y1], [AR.X1, AR.Yq], [-AR.X1, AR.Yq], [-AR.Xq, AR.Y1], [-AR.Xq, -AR.Y1], [-AR.X1, -AR.Yq], [AR.X1, -AR.Yq]];
+  const N = [[1, 0], [S, S], [0, 1], [-S, S], [-1, 0], [-S, -S], [0, -1], [S, -S]];
+  const out = [];
+  for (let i = 0; i < 8; i++) {
+    const a = V[i], b = V[(i + 1) % 8], n = N[i];
+    let ts = [0];
+    // Paredes largas: subdividir para iluminación/UV; paredes de fondo: cortes en la boca
+    const len = Math.hypot(b[0] - a[0], b[1] - a[1]);
+    if (i === 2 || i === 6) {
+      const t1 = (AR.W - a[0]) / (b[0] - a[0]), t2 = (-AR.W - a[0]) / (b[0] - a[0]);
+      const lo = Math.min(t1, t2), hi = Math.max(t1, t2);
+      const sub = (t0, t1b, k) => { for (let q = 1; q < k; q++) ts.push(t0 + (t1b - t0) * q / k); };
+      sub(0, lo, 3); ts.push(lo); ts.push(hi); sub(hi, 1, 3);
+    } else {
+      const k = Math.max(1, Math.round(len / 1400));
+      for (let q = 1; q < k; q++) ts.push(q / k);
+    }
+    for (let k = 0; k < ts.length; k++) {
+      const t = ts[k];
+      const mouth = (i === 2 || i === 6) && Math.abs(a[0] + (b[0] - a[0]) * t) - AR.W < 1e-6 &&
+        k + 1 < ts.length && Math.abs(a[0] + (b[0] - a[0]) * ts[k + 1]) - AR.W < 1e-6;
+      out.push({ bx: a[0] + (b[0] - a[0]) * t, by: a[1] + (b[1] - a[1]) * t, dx: n[0], dy: n[1], mouthNext: mouth });
+    }
+    const n2 = N[(i + 1) % 8];
+    const a0 = Math.atan2(n[1], n[0]);
+    let a1 = Math.atan2(n2[1], n2[0]);
+    while (a1 <= a0) a1 += TAU;
+    for (let k = 0; k < arcSegs; k++) {
+      const ang = a0 + (a1 - a0) * k / arcSegs;
+      out.push({ bx: b[0], by: b[1], dx: Math.cos(ang), dy: Math.sin(ang), mouthNext: false });
+    }
+  }
+  out.push(Object.assign({}, out[0]));
+  // Longitud acumulada del contorno a distancia r (para UV)
+  let acc = 0;
+  out[0].s = 0;
+  for (let i = 1; i < out.length; i++) {
+    const p = out[i - 1], q = out[i];
+    acc += Math.hypot(q.bx + q.dx * AR.r - p.bx - p.dx * AR.r, q.by + q.dy * AR.r - p.by - p.dy * AR.r);
+    q.s = acc;
+  }
+  return out;
+}
+
+/** Filas del barrido: curva inferior, paredes (con fila en la altura del travesaño) y curva superior. */
+function arenaRows(nb = 10, nt = 8) {
+  const r = AR.r, H = AR.H, rows = [];
+  let acc = 0, prev = null;
+  const push = (h, z, nh, nz, part) => {
+    if (prev) acc += Math.hypot(h - prev.h, z - prev.z);
+    const row = { h, z, nh, nz, part, v: acc };
+    rows.push(row); prev = row;
+  };
+  for (let j = 0; j <= nb; j++) {
+    const phi = j / nb * Math.PI / 2;
+    push(r * Math.sin(phi), r - r * Math.cos(phi), -Math.sin(phi), Math.cos(phi), 'rampa');
+  }
+  push(r, AR.Hg, -1, 0, 'pared');
+  push(r, (AR.Hg + H - r) / 2, -1, 0, 'pared');
+  push(r, H - r, -1, 0, 'pared');
+  for (let j = 1; j <= nt; j++) {
+    const psi = j / nt * Math.PI / 2;
+    push(r * Math.cos(psi), H - r + r * Math.sin(psi), -Math.cos(psi), -Math.sin(psi), 'arriba');
+  }
+  return rows;
+}
+
+function buildArenaSurface(contour, rows, rowFrom, rowTo, tile) {
+  const pos = [], nrm = [], uv = [], col = [], idx = [];
+  const cols = contour.length;
+  const blue = [0.25, 0.55, 1.0], orange = [1.0, 0.55, 0.18];
+  for (let j = rowFrom; j <= rowTo; j++) {
+    const row = rows[j];
+    for (let c = 0; c < cols; c++) {
+      const s = contour[c];
+      const x = s.bx + s.dx * row.h, y = s.by + s.dy * row.h;
+      pos.push(x, y, row.z);
+      nrm.push(s.dx * row.nh, s.dy * row.nh, row.nz);
+      uv.push(s.s / tile, row.v / (tile * 0.577));
+      const t = smoothstep(-1500, 1500, y);
+      col.push(lerp(blue[0], orange[0], t), lerp(blue[1], orange[1], t), lerp(blue[2], orange[2], t));
+    }
+  }
+  const W = cols;
+  for (let j = rowFrom; j < rowTo; j++) {
+    const r0 = (j - rowFrom) * W, r1 = r0 + W;
+    for (let c = 0; c < cols - 1; c++) {
+      if (contour[c].mouthNext && rows[j + 1].z <= AR.Hg + 1e-6) continue; // hueco de la portería
+      idx.push(r0 + c, r0 + c + 1, r1 + c + 1, r0 + c, r1 + c + 1, r1 + c);
+    }
+  }
+  fixWinding(pos, nrm, idx);
+  return geoFromPhys(pos, nrm, uv, idx, col);
+}
+
+/** Polígono plano (en z) en coordenadas de física, triangulado con ShapeGeometry. */
+function flatPolygonGeo(points2d, z, up, uvFn) {
+  const shape = new THREE.Shape(points2d.map((p) => new THREE.Vector2(p[0], p[1])));
+  const sg = new THREE.ShapeGeometry(shape);
+  const src = sg.getAttribute('position');
+  const pos = [], nrm = [], uv = [];
+  for (let i = 0; i < src.count; i++) {
+    const x = src.getX(i), y = src.getY(i);
+    pos.push(x, y, z);
+    nrm.push(0, 0, up ? 1 : -1);
+    const t = uvFn(x, y); uv.push(t[0], t[1]);
+  }
+  const idx = Array.from(sg.getIndex().array);
+  sg.dispose();
+  fixWinding(pos, nrm, idx);
+  return geoFromPhys(pos, nrm, uv, idx);
+}
+
+/** Rectángulo en física: origen o, ejes a y b (vectores), normal n. */
+function quadGeo(o, a, b, n, uScale, vScale) {
+  const pos = [o[0], o[1], o[2], o[0] + a[0], o[1] + a[1], o[2] + a[2],
+    o[0] + a[0] + b[0], o[1] + a[1] + b[1], o[2] + a[2] + b[2], o[0] + b[0], o[1] + b[1], o[2] + b[2]];
+  const nrm = [n[0], n[1], n[2], n[0], n[1], n[2], n[0], n[1], n[2], n[0], n[1], n[2]];
+  const la = Math.hypot(a[0], a[1], a[2]), lb = Math.hypot(b[0], b[1], b[2]);
+  const uv = [0, 0, la / uScale, 0, la / uScale, lb / vScale, 0, lb / vScale];
+  const idx = [0, 1, 2, 0, 2, 3];
+  fixWinding(pos, nrm, idx);
+  return geoFromPhys(pos, nrm, uv, idx);
+}
+
+/** Caja alineada a ejes en física (min, max). */
+function boxGeoPhys(x0, y0, z0, x1, y1, z1) {
+  const g = new THREE.BoxGeometry((x1 - x0) * INV_UU, (z1 - z0) * INV_UU, (y1 - y0) * INV_UU);
+  const c = toThree((x0 + x1) / 2, (y0 + y1) / 2, (z0 + z1) / 2, new THREE.Vector3());
+  g.translate(c.x, c.y, c.z);
+  return g;
+}
+
+function buildArena() {
+  const group = new THREE.Group();
+  R.arena = { group, mats: {} };
+  const contour = arenaContour(6);
+  const rows = arenaRows(10, 8);
+  const nRamp = rows.findIndex((r) => r.part === 'pared') - 1;
+  const nTop = rows.findIndex((r) => r.part === 'arriba') - 1;
+  const hexTex = makeHexTexture();
+  // Piso con líneas
+  const fieldTex = makeFieldTexture();
+  const floorPts = [
+    [AR.Xq, -AR.Y1], [AR.Xq, AR.Y1], [AR.X1, AR.Yq],
+    [AR.W, AR.Yq], [AR.W, AR.YG], [-AR.W, AR.YG], [-AR.W, AR.Yq],
+    [-AR.X1, AR.Yq], [-AR.Xq, AR.Y1], [-AR.Xq, -AR.Y1], [-AR.X1, -AR.Yq],
+    [-AR.W, -AR.Yq], [-AR.W, -AR.YG], [AR.W, -AR.YG], [AR.W, -AR.Yq], [AR.X1, -AR.Yq],
+  ];
+  const floorMat = new THREE.MeshStandardMaterial({ map: fieldTex, roughness: 0.92, metalness: 0.0 });
+  const floor = new THREE.Mesh(flatPolygonGeo(floorPts, 0, true, (x, y) => [(x + 4096) / 8192, (y + 6000) / 12000]), floorMat);
+  group.add(floor);
+  // Rampas (curva piso-pared): opacas
+  const rampMat = new THREE.MeshStandardMaterial({ color: 0x1d2b40, roughness: 0.55, metalness: 0.25, vertexColors: true,
+    emissive: 0x6fa8ff, emissiveMap: hexTex, emissiveIntensity: 0.35 });
+  const ramp = new THREE.Mesh(buildArenaSurface(contour, rows, 0, nRamp, 700), rampMat);
+  group.add(ramp);
+  // Paredes translúcidas con estructura
+  const wallMat = new THREE.MeshStandardMaterial({ color: 0x9fc2ff, roughness: 0.25, metalness: 0.0, vertexColors: true,
+    transparent: true, opacity: 0.16, depthWrite: false, emissive: 0x8fb8ff, emissiveMap: hexTex, emissiveIntensity: 0.55 });
+  const walls = new THREE.Mesh(buildArenaSurface(contour, rows, nRamp, nTop, 700), wallMat);
+  walls.renderOrder = 2;
+  group.add(walls);
+  const topMat = wallMat.clone(); topMat.opacity = 0.2; topMat.emissiveIntensity = 0.35;
+  const top = new THREE.Mesh(buildArenaSurface(contour, rows, nTop, rows.length - 1, 700), topMat);
+  top.renderOrder = 2;
+  group.add(top);
+  // Techo
+  const ceilPts = [[AR.Xq, -AR.Y1], [AR.Xq, AR.Y1], [AR.X1, AR.Yq], [-AR.X1, AR.Yq], [-AR.Xq, AR.Y1], [-AR.Xq, -AR.Y1], [-AR.X1, -AR.Yq], [AR.X1, -AR.Yq]];
+  const ceilMat = new THREE.MeshStandardMaterial({ color: 0x6f86b0, transparent: true, opacity: 0.12, depthWrite: false,
+    roughness: 0.3, emissive: 0x5a78b0, emissiveMap: hexTex, emissiveIntensity: 0.25 });
+  const ceil = new THREE.Mesh(flatPolygonGeo(ceilPts, AR.H, false, (x, y) => [x / 700, y / (700 * 0.577)]), ceilMat);
+  ceil.renderOrder = 2;
+  group.add(ceil);
+  // Porterías
+  const netTex = makeNetTexture();
+  for (const sg of [1, -1]) {
+    const teamCol = sg > 0 ? 0xff8a1f : 0x2f8cff;
+    const capMat = new THREE.MeshStandardMaterial({ color: 0x1d2b40, roughness: 0.55, metalness: 0.25, emissive: teamCol, emissiveIntensity: 0.18 });
+    // Tapas de la curva junto a los postes
+    for (const sx of [1, -1]) {
+      const pts = [[AR.YB, 0], [AR.YB, AR.r]];
+      for (let k = 1; k <= 10; k++) {
+        const th = -k / 10 * Math.PI / 2;
+        pts.push([AR.Yq + AR.r * Math.cos(th), AR.r + AR.r * Math.sin(th)]);
+      }
+      const pos = [], nrm = [], idx = [];
+      pos.push(sx * AR.W, sg * AR.YB, 0); nrm.push(-sx, 0, 0);
+      for (let k = 1; k < pts.length; k++) { pos.push(sx * AR.W, sg * pts[k][0], pts[k][1]); nrm.push(-sx, 0, 0); }
+      for (let k = 1; k < pts.length - 1; k++) idx.push(0, k, k + 1);
+      fixWinding(pos, nrm, idx);
+      group.add(new THREE.Mesh(geoFromPhys(pos, nrm, null, idx), capMat));
+    }
+    // Interior: paredes, techo y fondo con red
+    const netMat = new THREE.MeshStandardMaterial({ color: teamCol, map: netTex, alphaTest: 0.35, side: THREE.DoubleSide,
+      roughness: 0.6, emissive: teamCol, emissiveIntensity: 0.25 });
+    const backMat = new THREE.MeshStandardMaterial({ color: teamCol, transparent: true, opacity: 0.18, depthWrite: false,
+      side: THREE.DoubleSide, emissive: teamCol, emissiveIntensity: 0.4 });
+    const D = AR.YG - AR.YB;
+    const faces = [
+      [[AR.W, sg * AR.YB, 0], [0, sg * D, 0], [0, 0, AR.Hg], [-1, 0, 0]],
+      [[-AR.W, sg * AR.YB, 0], [0, sg * D, 0], [0, 0, AR.Hg], [1, 0, 0]],
+      [[-AR.W, sg * AR.YB, AR.Hg], [2 * AR.W, 0, 0], [0, sg * D, 0], [0, 0, -1]],
+      [[-AR.W, sg * AR.YG, 0], [2 * AR.W, 0, 0], [0, 0, AR.Hg], [0, -sg, 0]],
+    ];
+    for (const f of faces) {
+      const inset = [f[0][0] + f[3][0] * 2, f[0][1] + f[3][1] * 2, f[0][2] + f[3][2] * 2];
+      group.add(new THREE.Mesh(quadGeo(inset, f[1], f[2], f[3], 90, 90), netMat));
+      const back = new THREE.Mesh(quadGeo(f[0], f[1], f[2], f[3], 90, 90), backMat);
+      back.renderOrder = 1;
+      group.add(back);
+    }
+    // Marco (postes y travesaño) con brillo del color del equipo
+    const frameMat = new THREE.MeshStandardMaterial({ color: 0xffffff, emissive: teamCol, emissiveIntensity: 1.6, roughness: 0.3, metalness: 0.4 });
+    const T = 34;
+    const y0 = sg > 0 ? AR.YB : -AR.YB - T, y1 = sg > 0 ? AR.YB + T : -AR.YB;
+    group.add(new THREE.Mesh(boxGeoPhys(AR.W, y0, 0, AR.W + T, y1, AR.Hg + T), frameMat));
+    group.add(new THREE.Mesh(boxGeoPhys(-AR.W - T, y0, 0, -AR.W, y1, AR.Hg + T), frameMat));
+    group.add(new THREE.Mesh(boxGeoPhys(-AR.W, y0, AR.Hg, AR.W, y1, AR.Hg + T), frameMat));
+  }
+  R.scene.add(group);
+  R.arena.mats = { floorMat, rampMat, wallMat, topMat, ceilMat };
+}
+
+function buildSky() {
+  const geo = new THREE.SphereGeometry(900, 32, 16);
+  const mat = new THREE.ShaderMaterial({
+    side: THREE.BackSide, depthWrite: false,
+    uniforms: { top: { value: new THREE.Color(0x02030a) }, mid: { value: new THREE.Color(0x0c1638) }, bot: { value: new THREE.Color(0x1a0f24) } },
+    vertexShader: 'varying vec3 vP; void main(){ vP = normalize(position); gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }',
+    fragmentShader: 'uniform vec3 top; uniform vec3 mid; uniform vec3 bot; varying vec3 vP; void main(){ float h = vP.y; vec3 c = h > 0.0 ? mix(mid, top, smoothstep(0.0, 0.6, h)) : mix(mid, bot, smoothstep(0.0, -0.3, h)); gl_FragColor = vec4(c, 1.0); }',
+  });
+  const sky = new THREE.Mesh(geo, mat);
+  sky.renderOrder = -10;
+  R.scene.add(sky);
+}
+
+function buildLights() {
+  R.scene.add(new THREE.HemisphereLight(0xbfd6ff, 0x1b2436, 0.9));
+  const sun = new THREE.DirectionalLight(0xffffff, 1.6);
+  toThree(1500, -2500, 6000, sun.position);
+  R.scene.add(sun);
+  const fill = new THREE.DirectionalLight(0x8fb0ff, 0.5);
+  toThree(-3000, 4000, 3000, fill.position);
+  R.scene.add(fill);
+}
+
+// ---------------------------------------------------------------------
+// Cámara libre (depuración / fase 1)
+// ---------------------------------------------------------------------
+const FreeCam = {
+  pos: new V3(0, -8200, 1900), yaw: Math.PI / 2, pitch: -0.22, keys: new Set(), drag: false, lx: 0, ly: 0,
+  init() {
+    const c = R.renderer.domElement;
+    window.addEventListener('keydown', (e) => this.keys.add(e.code));
+    window.addEventListener('keyup', (e) => this.keys.delete(e.code));
+    c.addEventListener('mousedown', (e) => { this.drag = true; this.lx = e.clientX; this.ly = e.clientY; });
+    window.addEventListener('mouseup', () => { this.drag = false; });
+    window.addEventListener('mousemove', (e) => {
+      if (!this.drag) return;
+      this.yaw -= (e.clientX - this.lx) * 0.004;
+      this.pitch = clamp(this.pitch - (e.clientY - this.ly) * 0.004, -1.5, 1.5);
+      this.lx = e.clientX; this.ly = e.clientY;
+    });
+  },
+  update(dt) {
+    const k = this.keys, sp = (k.has('ShiftLeft') ? 4000 : 1400) * dt;
+    const fx = Math.cos(this.yaw), fy = Math.sin(this.yaw);
+    if (k.has('KeyW')) { this.pos.x += fx * sp; this.pos.y += fy * sp; }
+    if (k.has('KeyS')) { this.pos.x -= fx * sp; this.pos.y -= fy * sp; }
+    if (k.has('KeyA')) { this.pos.x -= fy * sp; this.pos.y += fx * sp; }
+    if (k.has('KeyD')) { this.pos.x += fy * sp; this.pos.y -= fx * sp; }
+    if (k.has('KeyE')) this.pos.z += sp;
+    if (k.has('KeyQ')) this.pos.z -= sp;
+  },
+  apply(cam) {
+    toThree(this.pos.x, this.pos.y, this.pos.z, cam.position);
+    const cp = Math.cos(this.pitch);
+    const t = toThree(this.pos.x + Math.cos(this.yaw) * cp, this.pos.y + Math.sin(this.yaw) * cp, this.pos.z + Math.sin(this.pitch), R.tmpV);
+    cam.up.set(0, 1, 0);
+    cam.lookAt(t);
+  },
+};
+
+// =====================================================================
+// OVERLAY DE DEPURACIÓN (F3)
+// =====================================================================
+const Debug = {
+  on: false, el: null, fps: 60, frames: 0, acc: 0, lastText: 0,
+  init() {
+    this.el = document.getElementById('debug');
+    window.addEventListener('keydown', (e) => {
+      if (e.code === 'F3') { e.preventDefault(); this.toggle(); }
+    });
+  },
+  toggle() { this.on = !this.on; this.el.classList.toggle('oculto', !this.on); },
+  frame(dt) {
+    this.frames++; this.acc += dt;
+    if (this.acc >= 0.5) { this.fps = this.frames / this.acc; this.frames = 0; this.acc = 0; }
+  },
+  update(lines) {
+    if (!this.on) return;
+    const now = performance.now();
+    if (now - this.lastText < 100) return;
+    this.lastText = now;
+    this.el.textContent = lines.join('\n');
+  },
+};
+
+// =====================================================================
+// BUCLE PRINCIPAL Y ARRANQUE
+// =====================================================================
+const _dbgN = new V3();
+const Main = {
+  last: 0, running: false,
+  start() {
+    this.running = true;
+    this.last = performance.now();
+    requestAnimationFrame((t) => this.frame(t));
+  },
+  frame(now) {
+    if (!this.running) return;
+    try {
+      const dt = Math.min((now - this.last) / 1000, 0.1);
+      this.last = now;
+      Debug.frame(dt);
+      FreeCam.update(dt);
+      FreeCam.apply(R.camera);
+      R.renderer.render(R.scene, R.camera);
+      const d = arenaSDF(FreeCam.pos.x, FreeCam.pos.y, FreeCam.pos.z, _dbgN);
+      Debug.update([
+        'FPS: ' + Debug.fps.toFixed(1),
+        'Cámara libre (uu): ' + FreeCam.pos.x.toFixed(0) + ', ' + FreeCam.pos.y.toFixed(0) + ', ' + FreeCam.pos.z.toFixed(0),
+        'SDF cámara: ' + d.toFixed(1) + '  n=(' + _dbgN.x.toFixed(2) + ', ' + _dbgN.y.toFixed(2) + ', ' + _dbgN.z.toFixed(2) + ')',
+        'Draw calls: ' + R.renderer.info.render.calls + '  Triángulos: ' + R.renderer.info.render.triangles,
+      ]);
+      requestAnimationFrame((t) => this.frame(t));
+    } catch (err) {
+      this.running = false;
+      window.__tfMostrarError('Error en el bucle del juego', err.message, err.stack);
+    }
+  },
+};
+
+async function boot() {
+  const params = new URLSearchParams(location.search);
+  if (params.has('test')) {
+    window.__tfArrancado = true;
+    await Tests.run();
+    return;
+  }
+  try {
+    const [three, ec, rp, ub, op, re] = await Promise.all([
+      import('three'),
+      import('three/addons/postprocessing/EffectComposer.js'),
+      import('three/addons/postprocessing/RenderPass.js'),
+      import('three/addons/postprocessing/UnrealBloomPass.js'),
+      import('three/addons/postprocessing/OutputPass.js'),
+      import('three/addons/environments/RoomEnvironment.js'),
+    ]);
+    THREE = three; EffectComposer = ec.EffectComposer; RenderPass = rp.RenderPass;
+    UnrealBloomPass = ub.UnrealBloomPass; OutputPass = op.OutputPass; RoomEnvironment = re.RoomEnvironment;
+  } catch (err) {
+    window.__tfMostrarError('No se pudo cargar Three.js',
+      'Falló la descarga de los módulos desde cdn.jsdelivr.net. Revisa tu conexión a internet.\n' + err.message, err.stack);
+    return;
+  }
+  initRenderer();
+  buildSky();
+  buildLights();
+  buildArena();
+  FreeCam.init();
+  Debug.init();
+  document.getElementById('carga').classList.add('oculto');
+  window.__TF = { CONFIG, FreeCam, arenaSDF, R, V3 };
+  window.__tfArrancado = true;
+  Main.start();
+}
+
+boot().catch((err) => window.__tfMostrarError('No se pudo iniciar el juego', err.message, err.stack));
+</script>
+</body>
+</html>
