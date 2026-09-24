@@ -21,7 +21,7 @@ export class MapBuilder {
     this.stairs = [];
     this.ladders = [];
     this.zones = [];      // zonas exteriores con nombre
-    this.softWalls = [];  // tramos de pared blanda (paneles reforzables en F4)
+    this.arches = [];     // huecos anchos sin marco (no admiten barricada)
   }
 
   // ---------- primitivas ----------
@@ -173,7 +173,9 @@ export class MapBuilder {
   }
   // Hueco ancho sin marco (arco entre salas).
   arch(levelKey, axis, line, center, width, height = 2.5) {
-    return this._opening(levelKey, axis, line, center, width, 0, height, 'arch', { trim: null });
+    const rec = this._opening(levelKey, axis, line, center, width, 0, height, 'arch', { trim: null });
+    this.arches.push(rec);
+    return rec;
   }
   window(levelKey, axis, line, center, width = 1.25, sill = 1.0, height = 1.25, opts = {}) {
     const rec = this._opening(levelKey, axis, line, center, width, sill, height, 'window', opts);

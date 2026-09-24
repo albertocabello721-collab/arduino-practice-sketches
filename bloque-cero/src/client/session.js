@@ -29,6 +29,44 @@ export class Session {
   onKey() {}
   dispose() { for (const d of this.disposers) d(); this.disposers = []; }
 
+  // Aviso de fortificación para el jugador (qué hará F) y barra de progreso.
+  fortifyHud(fort, op) {
+    const { hud } = this.ctx;
+    if (!fort || !op || op.state !== 'alive') return '';
+    if (op.channel && (op.channel.kind === 'reinforce' || op.channel.kind === 'barricade')) {
+      hud.setRevive(op.channel.kind === 'reinforce' ? 'Reforzando' : 'Poniendo la barricada', op.channel.t / op.channel.total);
+      return '';
+    }
+    if (op.reviving || !fort.canFortify(op)) return '';
+    const t = fort.targetFor(op);
+    if (!t) return '';
+    if (t.kind === 'barricade') return t.valid ? 'Mantén F para poner una barricada' : t.reason;
+    const left = fort.remaining(op);
+    const what = t.kind === 'hatch' ? 'la trampilla' : 'la pared';
+    if (t.valid) return left > 0 ? `Mantén F para reforzar ${what} · ${Number.isFinite(left) ? left : '∞'}` : 'No te quedan refuerzos';
+    return t.reason === 'Ya está reforzada' || t.kind === 'hatch' ? t.reason : '';
+  }
+
+  // Objetos 3D del reconocimiento y la fortificación, y el motor de los drones.
+  syncProps(dt, alpha, { recon, fort, defuser = null, feed = null, myTeam = 0 }) {
+    const { props, audio } = this.ctx;
+    props.sync(dt, {
+      drones: recon ? recon.drones : [], cams: recon ? recon.cams : [],
+      panels: fort ? fort.panels : [], work: fort ? fort.work : null,
+      defuser, myTeam, alpha,
+      hide: feed && feed.active ? (feed.drone || feed.cam) : null,
+    });
+    if (recon && audio.ctx) {
+      for (const d of recon.drones) {
+        if (!d.alive) continue;
+        const p = d.body.pos;
+        const local = feed && feed.drone === d && feed.piloting;
+        audio.droneLoop(d.id, { x: p.x, y: p.y + 0.1, z: p.z }, d.moveSpeed, local || !this.ctx.occlusion ? 0 : this.ctx.occlusion(p), local);
+      }
+      audio.droneSweep();
+    }
+  }
+
   // Estado del operador visto: derribo, reanimación, avisos de F.
   statusHud(op) {
     const { hud } = this.ctx;

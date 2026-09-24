@@ -19,6 +19,8 @@ import { Operator } from './operator.js';
 import { OP_BY_ID, opsForSide } from './operators.js';
 import { boxFree } from './physics.js';
 import { SOLID } from '../world/materials.js';
+import { Fortify } from './fortify.js';
+import { Recon } from './recon.js';
 
 export const RULES = {
   selectTime: 25,     // selección de operador
@@ -81,8 +83,12 @@ export class Match extends Emitter {
     this.lastResult = null;
     this.winner = null;
     this.time = 0;
+    // fortificación de la defensa y reconocimiento (drones y cámaras) — Fase 4
+    this.fort = new Fortify(this.game, { canFortify: (op) => op.side === 'def' && (this.phase === 'prep' || this.phase === 'action' || this.phase === 'planted') });
+    this.recon = new Recon(this.game, { cameras: map.cameras || [] });
     this._bindGame();
   }
+  get objectiveFound() { return this.recon.objectiveFound; }
 
   // ------------------------------------------------------------------ consultas
   sideOf(team, round = this.round) {
@@ -136,6 +142,8 @@ export class Match extends Emitter {
     this.lastResult = null;
     this.world.resetToPristine();
     this.game.operators.length = 0;
+    this.fort.reset();
+    this.recon.reset({ defTeam: this.teamOfSide('def'), site: null });
     for (const s of this.slots) { s.op = null; s.ready = !s.human; }
     // cada bot mantiene su operador si sigue siendo del bando; si no, elige otro libre
     for (const s of this.slots) {
@@ -207,6 +215,10 @@ export class Match extends Emitter {
     const human = atk.find((o) => o.slot.human);
     const carrier = human || atk[this.rng.int(0, atk.length - 1)];
     this.defuser = { carrier, pos: null, planted: false, site: null, plantPos: null, fuse: 0 };
+    // preparación: fortificación limpia, cámaras operativas y un dron por atacante en el suelo
+    this.fort.reset();
+    this.recon.reset({ defTeam: this.teamOfSide('def'), site: this.site });
+    for (const op of atk) this.recon.deployDrone(op, { thrown: false });
     this.emit('roundStart', this.round);
     if (this.rules.prepTime <= 0) this._beginAction();
   }
@@ -276,13 +288,17 @@ export class Match extends Emitter {
     }
     if (this.phase === 'prep') {
       this.timer -= dt;
+      this.fort.tick(dt);
+      this.recon.tick(dt);
       if (this._checkElimination()) return;
       if (this.timer <= 0) this._beginAction();
       return;
     }
     if (this.phase === 'action') {
       this.timer -= dt;
-      this._defuserTick(dt);
+      this._defuserTick(dt);                  // plantar tiene prioridad sobre fortificar
+      this.fort.tick(dt);
+      this.recon.tick(dt);
       if (this.phase !== 'action') return;   // se plantó este tick
       if (this._checkElimination()) return;
       if (this.timer <= 0) this._endRound('def', 'timeUp');
@@ -291,7 +307,8 @@ export class Match extends Emitter {
     if (this.phase === 'planted') {
       this.timer -= dt;
       this.defuser.fuse = this.timer;
-      this._disableTick(dt);
+      this._disableTick(dt);                  // inutilizar tiene prioridad sobre fortificar
+      if (this.phase === 'planted') { this.fort.tick(dt); this.recon.tick(dt); }
       if (this.phase !== 'planted') return;
       if (this.aliveCount('def') === 0) { this._endRound('atk', 'defendersDown'); return; }
       if (this.timer <= 0) this._endRound('atk', 'defused');

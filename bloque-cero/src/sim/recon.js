@@ -1,0 +1,235 @@
+// Reconocimiento: drones del ataque y cámaras de seguridad de la defensa.
+//  · Dron: cuerpo pequeño con ruedas (0,26 × 0,17 m) que cabe por agujeros bajos,
+//    3,5 m/s, salto de ~0,5 m, se destruye de un disparo. 2 por atacante; en la
+//    preparación el ataque ve el edificio a través de ellos.
+//  · Cámara: fija en la pared, gira dentro de un arco, se destruye de un disparo.
+//  · Marcar (clic): el enemigo al que apunta queda señalado 6 s para su equipo.
+//  · Objetivo: el ataque lo localiza al verlo (dron o en persona) a menos de 14 m.
+import { Body, stepBody } from './physics.js';
+import { lineOfSight } from '../world/raycast.js';
+import { rayHitRig } from './skeleton.js';
+import { clamp } from '../core/math.js';
+
+export const DRONE = { speed: 3.5, accel: 16, radius: 0.13, height: 0.17, jump: 4.4, jumpCd: 0.9, eye: 0.13, fov: 96 };
+export const DRONES_PER_OP = 2;
+export const SPOT_TIME = 6;
+export const MARK_RANGE = 40;
+export const OBJECTIVE_RANGE = 14;
+
+export class Drone {
+  constructor(id, owner, x, y, z, yaw) {
+    this.kind = 'drone';
+    this.id = id;
+    this.owner = owner;
+    this.team = owner.team;
+    this.body = new Body(x, y, z);
+    this.body.radius = DRONE.radius;
+    this.body.height = DRONE.height;
+    this.yaw = yaw;
+    this.pitch = -0.05;
+    this.alive = true;
+    this.jumpCd = 0;
+    this.markCd = 0;
+    this.moveSpeed = 0;
+    this.intent = { moveX: 0, moveZ: 0, jump: false, mark: false };
+    this.prev = { x, y, z };
+    this.pilot = null;       // operador que lo maneja ahora (o null)
+  }
+  get name() { return `Dron de ${this.owner.name}`; }
+  eyePos(out = { x: 0, y: 0, z: 0 }) { const p = this.body.pos; out.x = p.x; out.y = p.y + DRONE.eye; out.z = p.z; return out; }
+  viewDir(out = { x: 0, y: 0, z: 0 }) {
+    const cp = Math.cos(this.pitch);
+    out.x = -Math.sin(this.yaw) * cp; out.y = Math.sin(this.pitch); out.z = -Math.cos(this.yaw) * cp;
+    return out;
+  }
+  center() { const p = this.body.pos; return { x: p.x, y: p.y + 0.09, z: p.z }; }
+  update(dt, game) {
+    const b = this.body, I = this.intent;
+    this.prev.x = b.pos.x; this.prev.y = b.pos.y; this.prev.z = b.pos.z;
+    const f = Math.hypot(I.moveX, I.moveZ);
+    const mx = f > 1 ? I.moveX / f : I.moveX, mz = f > 1 ? I.moveZ / f : I.moveZ;
+    const sy = Math.sin(this.yaw), cy = Math.cos(this.yaw);
+    const tx = (mx * cy - mz * sy) * DRONE.speed, tz = (-mx * sy - mz * cy) * DRONE.speed;
+    const accel = b.onGround ? DRONE.accel : 2;
+    const ddx = tx - b.vel.x, ddz = tz - b.vel.z, dl = Math.hypot(ddx, ddz), maxD = accel * dt;
+    if (dl > maxD) { b.vel.x += ddx / dl * maxD; b.vel.z += ddz / dl * maxD; } else { b.vel.x = tx; b.vel.z = tz; }
+    if (I.jump && b.onGround && this.jumpCd <= 0) { b.vel.y = DRONE.jump; this.jumpCd = DRONE.jumpCd; game.emit('droneJump', this); }
+    I.jump = false;
+    this.jumpCd -= dt;
+    this.markCd -= dt;
+    stepBody(game.world, b, dt, { bounds: game.bounds, maxStep: 1, noLadder: true, gravity: 20 });
+    this.moveSpeed = Math.hypot(b.vel.x, b.vel.z);
+  }
+  // Rayo contra la caja del dron (para las balas).
+  rayTest(o, d, maxT) {
+    const p = this.body.pos;
+    return rayAABB(o, d, p.x - 0.16, p.y, p.z - 0.16, p.x + 0.16, p.y + 0.2, p.z + 0.16, maxT);
+  }
+}
+
+export class SecurityCam {
+  constructor(def) {
+    this.kind = 'cam';
+    this.id = def.id;
+    this.name = def.name;
+    this.pos = { x: def.x, y: def.y, z: def.z };
+    this.baseYaw = def.yaw;
+    this.basePitch = def.pitch;
+    this.yaw = def.yaw;
+    this.pitch = def.pitch;
+    this.alive = true;
+    this.team = -1;
+  }
+  eyePos(out = { x: 0, y: 0, z: 0 }) { out.x = this.pos.x; out.y = this.pos.y - 0.05; out.z = this.pos.z; return out; }
+  viewDir(out = { x: 0, y: 0, z: 0 }) {
+    const cp = Math.cos(this.pitch);
+    out.x = -Math.sin(this.yaw) * cp; out.y = Math.sin(this.pitch); out.z = -Math.cos(this.yaw) * cp;
+    return out;
+  }
+  center() { return { x: this.pos.x, y: this.pos.y, z: this.pos.z }; }
+  // girar dentro de su arco
+  look(dyaw, dpitch) {
+    this.yaw = this.baseYaw + clamp(this.yaw - this.baseYaw + dyaw, -1.15, 1.15);
+    this.pitch = clamp(this.pitch + dpitch, -1.0, 0.35);
+  }
+  rayTest(o, d, maxT) {
+    const p = this.pos;
+    return raySphere(o, d, p.x, p.y, p.z, 0.15, maxT);
+  }
+}
+
+export class Recon {
+  constructor(game, { cameras = [] } = {}) {
+    this.game = game;
+    this.drones = [];
+    this.cams = cameras.map((c) => new SecurityCam(c));
+    this.left = new Map();         // operador → drones que le quedan
+    this.spotted = new Map();      // operador enemigo → {until, team, by}
+    this.objectiveFound = false;
+    this._objT = 0;
+    this._nextId = 1;
+    this.site = null;
+    this.attackTeam = 0;
+    this._syncTargets();
+  }
+
+  reset({ defTeam = 1, site = null } = {}) {
+    this.drones = [];
+    this.left.clear();
+    this.spotted.clear();
+    this.objectiveFound = false;
+    this.site = site;
+    this.attackTeam = 1 - defTeam;
+    for (const c of this.cams) { c.alive = true; c.team = defTeam; c.yaw = c.baseYaw; c.pitch = c.basePitch; }
+    this._syncTargets();
+  }
+  _syncTargets() {
+    const g = this.game;
+    g.targets = g.targets.filter((t) => t.kind !== 'drone' && t.kind !== 'cam');
+    for (const c of this.cams) g.targets.push(c);
+    for (const d of this.drones) g.targets.push(d);
+  }
+  dronesLeft(op) { return this.left.has(op) ? this.left.get(op) : DRONES_PER_OP; }
+  droneOf(op) { return this.drones.find((d) => d.owner === op && d.alive) || null; }
+  aliveCams() { return this.cams.filter((c) => c.alive); }
+
+  /** Lanza un dron delante de `op` (en la preparación, se deja en el suelo). */
+  deployDrone(op, { thrown = true } = {}) {
+    if (this.dronesLeft(op) <= 0) return null;
+    const p = op.body.pos;
+    const fx = -Math.sin(op.yaw), fz = -Math.cos(op.yaw);
+    const x = p.x + fx * 0.6, z = p.z + fz * 0.6;
+    const y = thrown ? p.y + 0.8 : p.y + 0.05;
+    const d = new Drone(`dron${this._nextId++}`, op, x, y, z, op.yaw);
+    if (thrown) { d.body.vel.x = fx * 4.5; d.body.vel.z = fz * 4.5; d.body.vel.y = 1.5; }
+    this.left.set(op, this.dronesLeft(op) - 1);
+    this.drones.push(d);
+    this.game.targets.push(d);
+    this.game.emit('droneDeployed', d, op);
+    return d;
+  }
+
+  tick(dt) {
+    const g = this.game;
+    for (const d of this.drones) {
+      if (!d.alive) continue;
+      d.update(dt, g);
+      if (d.intent.mark) { d.intent.mark = false; if (d.markCd <= 0) { d.markCd = 0.4; this.mark(d, d.team); } }
+    }
+    // señalados que caducan o mueren
+    for (const [op, s] of this.spotted) if (s.until <= g.time || op.state === 'dead') this.spotted.delete(op);
+    // localizar el objetivo
+    this._objT -= dt;
+    if (!this.objectiveFound && this.site && this._objT <= 0) {
+      this._objT = 0.25;
+      const eyes = [];
+      for (const d of this.drones) if (d.alive) eyes.push({ who: d, e: d.eyePos() });
+      for (const op of g.operators) if (op.team === this.attackTeam && op.state === 'alive') eyes.push({ who: op, e: op.eyePos() });
+      for (const k of ['A', 'B']) {
+        const b = this.site.bombs[k];
+        for (const { who, e } of eyes) {
+          const dist = Math.hypot(b.x - e.x, b.y + 0.6 - e.y, b.z - e.z);
+          if (dist > OBJECTIVE_RANGE) continue;
+          if (!lineOfSight(g.world, e.x, e.y, e.z, b.x, b.y + 0.6, b.z)) continue;
+          this.objectiveFound = true;
+          g.emit('objectiveFound', who, k);
+          return;
+        }
+      }
+    }
+  }
+
+  /**
+   * Marcar: el enemigo al que apunta el visor (dron, cámara u operador) queda señalado.
+   * Devuelve el operador señalado o null.
+   */
+  mark(viewer, team) {
+    const g = this.game;
+    const e = viewer.eyePos(), d = viewer.viewDir();
+    let best = null, bt = MARK_RANGE;
+    for (const t of g.operators) {
+      if (t.team === team || t.state === 'dead' || t.frozen) continue;
+      // tolerancia: probar el rayo y dos rayos algo desviados (marcar es generoso)
+      for (const off of [0, 0.03, -0.03]) {
+        const dir = off ? norm({ x: d.x + off * Math.cos(viewer.yaw), y: d.y + Math.abs(off) * 0.5, z: d.z - off * Math.sin(viewer.yaw) }) : d;
+        const r = rayHitRig(t.rig, e, dir, bt);
+        if (!r) continue;
+        const px = e.x + dir.x * r.t, py = e.y + dir.y * r.t, pz = e.z + dir.z * r.t;
+        if (!lineOfSight(g.world, e.x, e.y, e.z, px - dir.x * 0.1, py - dir.y * 0.1, pz - dir.z * 0.1)) continue;
+        if (r.t < bt) { bt = r.t; best = t; }
+        break;
+      }
+    }
+    g.emit('markTry', viewer, best);
+    if (!best) return null;
+    this.spotted.set(best, { until: g.time + SPOT_TIME, team, by: viewer });
+    g.emit('spotted', best, viewer, team);
+    return best;
+  }
+  isSpottedFor(op, team) { const s = this.spotted.get(op); return !!s && s.team === team; }
+}
+
+function norm(v) { const l = Math.hypot(v.x, v.y, v.z) || 1; return { x: v.x / l, y: v.y / l, z: v.z / l }; }
+
+export function rayAABB(o, d, x0, y0, z0, x1, y1, z1, maxT) {
+  let tmin = 0, tmax = maxT;
+  for (const [oo, dd, a, b] of [[o.x, d.x, x0, x1], [o.y, d.y, y0, y1], [o.z, d.z, z0, z1]]) {
+    if (Math.abs(dd) < 1e-9) { if (oo < a || oo > b) return -1; continue; }
+    let t1 = (a - oo) / dd, t2 = (b - oo) / dd;
+    if (t1 > t2) { const t = t1; t1 = t2; t2 = t; }
+    if (t1 > tmin) tmin = t1;
+    if (t2 < tmax) tmax = t2;
+    if (tmin > tmax) return -1;
+  }
+  return tmin;
+}
+export function raySphere(o, d, cx, cy, cz, r, maxT) {
+  const ox = o.x - cx, oy = o.y - cy, oz = o.z - cz;
+  const b = ox * d.x + oy * d.y + oz * d.z;
+  const c = ox * ox + oy * oy + oz * oz - r * r;
+  const disc = b * b - c;
+  if (disc < 0) return -1;
+  const t = -b - Math.sqrt(disc);
+  if (t < 0 || t > maxT) return -1;
+  return t;
+}

@@ -86,7 +86,7 @@ function sweep(world, b, axis, d) {
 }
 
 // Movimiento horizontal con subida de escalón.
-function moveHorizontal(world, b, axis, d, canStep) {
+function moveHorizontal(world, b, axis, d, canStep, maxStep = 3) {
   if (d === 0) return false;
   const start = axis === 0 ? b.pos.x : b.pos.z;
   const y0 = b.pos.y;
@@ -94,7 +94,7 @@ function moveHorizontal(world, b, axis, d, canStep) {
   if (!hit || !canStep) return hit;
   const moved = (axis === 0 ? b.pos.x : b.pos.z) - start;
   const remaining = d - moved;
-  for (let h = 1; h <= 3; h++) {
+  for (let h = 1; h <= maxStep; h++) {
     const up = h * VS;
     // el cuerpo levantado debe caber aquí mismo
     if (!boxFree(world, b.pos.x, y0 + up + GAP, b.pos.z, b.radius, b.height)) break;
@@ -125,10 +125,10 @@ export function isOnLadder(world, b) {
  * Integra el cuerpo un paso. `gravity` en m/s². Devuelve {hitX, hitZ, landed, impactSpeed}.
  */
 export function stepBody(world, b, dt, opts = {}) {
-  const { gravity = 22, bounds = null, climbInput = 0 } = opts;
+  const { gravity = 22, bounds = null, climbInput = 0, maxStep = 3, noLadder = false } = opts;
   const wasOnGround = b.onGround;
   b.lastStep = 0;
-  b.onLadder = isOnLadder(world, b);
+  b.onLadder = noLadder ? false : isOnLadder(world, b);
   if (b.onLadder && (climbInput !== 0 || !b.onGround)) {
     b.vel.y = climbInput * 2.6;
   } else {
@@ -141,8 +141,8 @@ export function stepBody(world, b, dt, opts = {}) {
   const dx = b.vel.x * dt, dz = b.vel.z * dt;
   const steps = Math.max(1, Math.ceil(Math.max(Math.abs(dx), Math.abs(dz)) / 0.25));
   for (let i = 0; i < steps; i++) {
-    if (moveHorizontal(world, b, 0, dx / steps, canStep)) { res.hitX = true; }
-    if (moveHorizontal(world, b, 2, dz / steps, canStep)) { res.hitZ = true; }
+    if (moveHorizontal(world, b, 0, dx / steps, canStep, maxStep)) { res.hitX = true; }
+    if (moveHorizontal(world, b, 2, dz / steps, canStep, maxStep)) { res.hitZ = true; }
   }
   if (res.hitX) b.vel.x = 0;
   if (res.hitZ) b.vel.z = 0;

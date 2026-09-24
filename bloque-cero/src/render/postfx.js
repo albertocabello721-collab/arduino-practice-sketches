@@ -47,16 +47,38 @@ const GradeShader = {
     uDamage: { value: 0 },
     uFlash: { value: 0 },
     uRes: { value: new THREE.Vector2(1, 1) },
+    uFeed: { value: 0 },      // 0 ojos, 1 dron, 2 cámara de seguridad
+    uStatic: { value: 0 },    // interferencia (señal perdida)
   },
   vertexShader: `varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }`,
   fragmentShader: /* glsl */ `
-    uniform sampler2D tDiffuse; uniform float uTime, uVignette, uGrain, uSat, uDamage, uFlash; uniform vec3 uTint; uniform vec2 uRes;
+    uniform sampler2D tDiffuse; uniform float uTime, uVignette, uGrain, uSat, uDamage, uFlash, uFeed, uStatic; uniform vec3 uTint; uniform vec2 uRes;
     varying vec2 vUv;
     float h(vec2 p){ return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453); }
     void main(){
-      vec3 c = texture2D(tDiffuse, vUv).rgb;
+      vec2 uv = vUv;
+      vec3 c;
+      if (uFeed > 0.5) {
+        // lente de ojo de pez y aberración cromática de una cámara pequeña
+        vec2 d = uv - 0.5;
+        float r2 = dot(d, d);
+        uv = 0.5 + d * (1.0 + 0.22 * r2 + 0.18 * r2 * r2) * 0.94;
+        vec2 ca = d * 0.006;
+        c = vec3(texture2D(tDiffuse, uv + ca).r, texture2D(tDiffuse, uv).g, texture2D(tDiffuse, uv - ca).b);
+        if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0) c = vec3(0.0);
+      } else c = texture2D(tDiffuse, uv).rgb;
       float l = dot(c, vec3(0.2126, 0.7152, 0.0722));
       c = mix(vec3(l), c, uSat) * uTint;
+      if (uFeed > 0.5 && uFeed < 1.5) {
+        // dron: color apagado con tinte verdoso y líneas de barrido
+        c = mix(vec3(l), c, 0.55) * vec3(0.92, 1.05, 0.98);
+        c *= 0.9 + 0.1 * sin(vUv.y * uRes.y * 1.57 + uTime * 40.0);
+      } else if (uFeed > 1.5) {
+        // cámara de seguridad: casi monocromo, azulado, más contraste
+        c = mix(vec3(l), c, 0.2) * vec3(0.9, 0.98, 1.08);
+        c = (c - 0.5 * l) * 1.15 + 0.5 * l;
+        c *= 0.92 + 0.08 * sin(vUv.y * uRes.y * 2.0);
+      }
       // sombras ligeramente frías, luces cálidas (gradación tipo Siege)
       c = mix(c * vec3(0.96, 1.0, 1.05), c * vec3(1.03, 1.0, 0.96), smoothstep(0.1, 1.2, l));
       vec2 q = vUv - 0.5;
@@ -65,8 +87,13 @@ const GradeShader = {
       // daño: bordes rojos
       c = mix(c, c * vec3(1.6, 0.35, 0.3), uDamage * smoothstep(0.15, 0.7, length(q) * 1.4));
       c += uFlash;
-      float g = (h(vUv * uRes + fract(uTime * 13.7) * 91.0) - 0.5) * uGrain;
+      float g = (h(vUv * uRes + fract(uTime * 13.7) * 91.0) - 0.5) * (uGrain + (uFeed > 0.5 ? 0.06 : 0.0));
       c += g * (0.3 + l);
+      if (uStatic > 0.0) {
+        float n = h(floor(vUv * uRes / 2.0) + fract(uTime * 31.0) * 57.0);
+        float band = step(0.94, h(vec2(floor(vUv.y * 40.0), floor(uTime * 20.0))));
+        c = mix(c, vec3(n * 0.8 + band * 0.2), uStatic);
+      }
       gl_FragColor = vec4(max(c, 0.0), 1.0);
     }`,
 };

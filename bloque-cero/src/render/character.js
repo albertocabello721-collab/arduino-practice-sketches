@@ -337,7 +337,8 @@ export class CharacterRenderer {
     let nb = 0;
     for (const v of this.views.values()) {
       const op = v.op;
-      const hidden = op === localOp;
+      // el operador propio no se dibuja; los atacantes en preparación aún no están en el mapa
+      const hidden = op === localOp || op.frozen;
       v.mesh.visible = !hidden;
       const bones = v.mesh.material.uniforms.uBones.value;
       // reutiliza la pose que la simulación ya calculó este tick (misma que las zonas de impacto)

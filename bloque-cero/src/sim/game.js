@@ -2,12 +2,16 @@
 // corre igual en el navegador que en Node (tests de partidas completas).
 import { Emitter } from '../core/events.js';
 import { RNG } from '../core/rng.js';
-import { traceBullet, applyBulletPlan, powerAt } from '../world/destruction.js';
+import { traceBullet, applyBulletPlan, powerAt, meleeBreak } from '../world/destruction.js';
 import { falloffAt } from './weapons.js';
 import { rayHitRig } from './skeleton.js';
+import { raycastFirst, lineOfSight } from '../world/raycast.js';
+import { SOLID, MAT } from '../world/materials.js';
 
 export const TICK = 1 / 60;
 export const LIMB_MUL = 0.75;
+export const MELEE_DAMAGE = 45;
+export const MELEE_RANGE = 1.6;
 const DOWN_OVERKILL = 30;   // si el golpe sobrepasa la vida en más de esto, muerte directa
 
 export class Game extends Emitter {
@@ -20,6 +24,7 @@ export class Game extends Emitter {
     this.time = 0;
     this.tickCount = 0;
     this.operators = [];
+    this.targets = [];        // objetos que las balas destruyen: drones, cámaras (y gadgets en la Fase 6)
     this.friendlyFire = false;
   }
   addOperator(op) { this.operators.push(op); return op; }
@@ -44,7 +49,7 @@ export class Game extends Emitter {
     // impactos con operadores (ignora al tirador y, sin fuego amigo, a los compañeros)
     let hitOp = null, hitT = Infinity, hitZone = null;
     for (const t of this.operators) {
-      if (t === op || t.state === 'dead') continue;
+      if (t === op || t.state === 'dead' || t.frozen) continue;   // congelado = aún no desplegado
       if (!this.friendlyFire && op && t.team === op.team) continue;
       const c = t.body.pos;
       const cx = c.x - origin.x, cy = c.y + 0.7 - origin.y, cz = c.z - origin.z;
@@ -55,13 +60,22 @@ export class Game extends Emitter {
       const r = rayHitRig(t.rig, origin, dir, maxT);
       if (r && r.t < hitT) { hitT = r.t; hitOp = t; hitZone = r.zone; }
     }
-    const cutT = hitOp ? hitT : maxT;
+    // objetos disparables (drones, cámaras): la bala se detiene en el primero que toque
+    let hitTarget = null, targetT = Infinity;
+    for (const tg of this.targets) {
+      if (!tg.alive || (op && !this.friendlyFire && tg.team === op.team)) continue;
+      const t = tg.rayTest(origin, dir, Math.min(maxT, hitT));
+      if (t >= 0 && t < targetT) { targetT = t; hitTarget = tg; }
+    }
+    if (hitTarget) { hitOp = null; hitT = Infinity; hitZone = null; }
+    const cutT = hitTarget ? targetT : hitOp ? hitT : maxT;
     const destroyed = applyBulletPlan(this.world, plan, cutT, this.rng);
     let hit = null;
-    if (!hitOp) for (const s of plan.segments) if (s.action === 'stop') { hit = s; break; }
+    if (!hitOp && !hitTarget) for (const s of plan.segments) if (s.action === 'stop') { hit = s; break; }
     const end = cutT === Infinity ? d.range : cutT;
     const point = { x: origin.x + dir.x * end, y: origin.y + dir.y * end, z: origin.z + dir.z * end };
-    const res = { origin: { ...origin }, dir: { ...dir }, end, hit, point, segments: plan.segments, destroyed, power: plan.finalPower, hitOp, zone: hitZone, damage: 0 };
+    const res = { origin: { ...origin }, dir: { ...dir }, end, hit, point, segments: plan.segments, destroyed, power: plan.finalPower, hitOp, zone: hitZone, damage: 0, hitTarget };
+    if (hitTarget) this.destroyTarget(hitTarget, op, point);
     if (hitOp) {
       const pen = powerAt(plan, hitT, 1.0);
       const fall = falloffAt(d, hitT);
@@ -82,7 +96,7 @@ export class Game extends Emitter {
    * a un derribado lo remata.
    */
   damage(target, amount, info = {}) {
-    if (!target || target.state === 'dead') return;
+    if (!target || target.state === 'dead' || target.frozen) return;
     const by = info.by || null;
     if (by && by !== target) { by.stats.damage += Math.min(amount, Math.max(0, target.hp)); target.lastHitBy = by; }
     target.hitFlinch = 1;
@@ -117,6 +131,50 @@ export class Game extends Emitter {
     target.becomeDead();
     if (by && by !== target) { by.stats.kills++; if (ev.headshot) by.stats.headshots++; }
     this.emit('killed', target, { ...ev, by });
+  }
+
+  destroyTarget(tg, by = null, point = null) {
+    if (!tg.alive) return;
+    tg.alive = false;
+    this.emit('targetDestroyed', tg, by, point || (tg.center ? tg.center() : null));
+  }
+
+  /**
+   * Golpe cuerpo a cuerpo: daña a un enemigo que esté delante (a menos de 1,6 m)
+   * o, si no hay nadie, rompe el material blando que tenga delante (barricadas,
+   * pladur, suelos de madera). No afecta a refuerzos, ladrillo ni trampillas.
+   */
+  melee(op) {
+    const eye = op.eyePos(), dir = op.viewDir();
+    let target = null, best = MELEE_RANGE, tp = null;
+    for (const t of this.operators) {
+      if (t === op || t.state === 'dead' || t.frozen || (!this.friendlyFire && t.team === op.team)) continue;
+      const c = t.center();
+      const dx = c.x - eye.x, dy = c.y - eye.y, dz = c.z - eye.z;
+      const d = Math.hypot(dx, dy, dz);
+      if (d > best + 0.3) continue;
+      if ((dx * dir.x + dy * dir.y + dz * dir.z) / Math.max(1e-6, d) < 0.72) continue;
+      if (!lineOfSight(this.world, eye.x, eye.y, eye.z, c.x, c.y, c.z)) continue;
+      best = d; target = t; tp = c;
+    }
+    if (target) {
+      this.damage(target, MELEE_DAMAGE, { by: op, zone: 'body', dir, point: tp, melee: true });
+      this.emit('melee', op, { target, point: tp });
+      return;
+    }
+    for (const tg of this.targets) {
+      if (!tg.alive || tg.team === op.team) continue;
+      const t = tg.rayTest(eye, dir, 1.4);
+      if (t >= 0) { this.destroyTarget(tg, op); this.emit('melee', op, { point: tg.center() }); return; }
+    }
+    const hit = raycastFirst(this.world, eye.x, eye.y, eye.z, dir.x, dir.y, dir.z, 1.45, SOLID, true);
+    if (!hit) { this.emit('melee', op, {}); return; }
+    const px = eye.x + dir.x * hit.t, py = eye.y + dir.y * hit.t, pz = eye.z + dir.z * hit.t;
+    // la madera de las barricadas salta en trozos grandes; el pladur cede un parche
+    const r = hit.mat === MAT.BARRICADE ? 0.62 : 0.36;
+    const list = meleeBreak(this.world, px + dir.x * 0.1, py + dir.y * 0.1, pz + dir.z * 0.1, r);
+    if (list.length) this.emit('voxels', list, 'melee', { x: px, y: py, z: pz }, dir);
+    this.emit('melee', op, { point: { x: px, y: py, z: pz }, mat: hit.mat, destroyed: list });
   }
 
   // Compañero derribado más cercano al alcance de `op` (para reanimar con F).

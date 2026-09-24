@@ -42,12 +42,43 @@ export class BotSquad {
         target: null, seeT: 0, react: 0, burst: 0, pause: 0, err: { x: 0, y: 0, t: -9 },
         lastSeen: null, lostT: 0, alertYaw: null, alertT: 0,
         thinkT: rng.next() * 0.1, trailIdx: 0, stuckT: 0, lastX: op.body.pos.x, lastZ: op.body.pos.z,
-        followRank: 0, scanT: rng.next() * 4, scanYaw: op.yaw, semi: false,
+        followRank: 0, scanT: rng.next() * 4, scanYaw: op.yaw, semi: false, tasks: [], drone: null, dr: null,
       });
     }
     // orden de seguimiento de los atacantes
     let k = 1;
     for (const [op, B] of this.brains) if (op.side === 'atk') B.followRank = k++;
+    this._planFortification();
+  }
+
+  // Reparte refuerzos (2 por bot) y barricadas de las salas del sitio entre los defensores bot.
+  _planFortification() {
+    const M = this.match, site = M.site;
+    if (!site || !M.fort) return;
+    const rooms = [site.A, site.B].map((id) => M.map.rooms.find((r) => r.id === id));
+    const plan = M.fort.planFor(rooms);
+    const rng = this.game.rng;
+    const defs = [...this.brains].filter(([op]) => op.side === 'def');
+    const roomOf = (op) => {
+      const p = op.body.pos;
+      const i = rooms.findIndex((r) => p.x > r.x0 && p.x < r.x1 && p.z > r.z0 && p.z < r.z1);
+      return i < 0 ? 0 : i;
+    };
+    const pools = [0, 1].map((ri) => ({
+      reinf: rng.shuffle([...plan.hatches.filter((h) => h.room === ri), ...rng.shuffle(plan.walls.filter((w) => w.room === ri))]),
+      open: rng.shuffle(plan.openings.filter((o) => o.room === ri)),
+    }));
+    // las trampillas primero (bloquean el ataque vertical), luego paredes al azar
+    for (const pool of pools) pool.reinf.sort((a, b) => (a.kind === 'hatch' ? -1 : 0) - (b.kind === 'hatch' ? -1 : 0));
+    for (const [op, B] of defs) {
+      const pool = pools[roomOf(op)];
+      B.tasks = [];
+      for (let i = 0; i < 2 && pool.reinf.length; i++) B.tasks.push({ ...pool.reinf.shift(), t: 0, walkT: 0 });
+      for (let i = 0; i < 2 && pool.open.length; i++) B.tasks.push({ ...pool.open.shift(), t: 0, walkT: 0 });
+      // ordenar por cercanía para no cruzar la sala dos veces
+      const p = op.body.pos;
+      B.tasks.sort((a, b) => Math.hypot(a.stand.x - p.x, a.stand.z - p.z) - Math.hypot(b.stand.x - p.x, b.stand.z - p.z));
+    }
   }
 
   _heard(src, pos, range) {
@@ -93,6 +124,12 @@ export class BotSquad {
       if (B.thinkT <= 0) { B.thinkT = 0.1; this._perceive(op, B); }
       if (B.target) { this._fight(op, B, dt); continue; }
       B.seeT = 0; B.react = Math.max(0, B.react - dt * 1.5);
+      // atacantes en la preparación: pilotar su dron
+      if (op.side === 'atk' && phase === 'prep') { this._driveDrone(op, B, dt); continue; }
+      // defensores: disparar a drones a la vista
+      if (op.side === 'def' && B.drone) { this._shootDrone(op, B, dt); continue; }
+      // defensores: reforzar y poner barricadas (preparación y primeros segundos de acción)
+      if (op.side === 'def' && B.tasks && B.tasks.length && (phase === 'prep' || phase === 'action')) { this._fortifyTask(op, B, dt); continue; }
       // recargar con calma
       if (op.weapon.ammo < op.weapon.def.mag * 0.4 && op.weapon.reserve > 0) I.reload = true;
       // compañeros de un humano: seguir su rastro
@@ -104,7 +141,7 @@ export class BotSquad {
     }
   }
 
-  _enemiesOf(op) { return this.game.operators.filter((o) => o.team !== op.team && o.state !== 'dead'); }
+  _enemiesOf(op) { return this.game.operators.filter((o) => o.team !== op.team && o.state !== 'dead' && !o.frozen); }
 
   _perceive(op, B) {
     const D = this.diff;
@@ -125,6 +162,22 @@ export class BotSquad {
       // prioridad: vivos antes que derribados, cerca antes que lejos
       const score = dist + (t.state === 'downed' ? 30 : 0);
       if (score < bestScore) { bestScore = score; best = t; }
+    }
+    // sin operadores a la vista: ¿algún dron enemigo cerca? (la defensa los caza)
+    B.drone = null;
+    if (!best && op.side === 'def' && this.match.recon) {
+      let bd = 16;
+      for (const d of this.match.recon.drones) {
+        if (!d.alive || d.team === op.team) continue;
+        const c = d.center();
+        const dx = c.x - e.x, dy = c.y - e.y, dz = c.z - e.z;
+        const dist = Math.hypot(dx, dy, dz);
+        if (dist > bd) continue;
+        const cos = (dx * vx + dz * vz) / Math.max(0.001, Math.hypot(dx, dz));
+        if (cos < Math.cos(D.fov) && dist > 3) continue;
+        if (!lineOfSight(this.game.world, e.x, e.y, e.z, c.x, c.y + 0.05, c.z)) continue;
+        bd = dist; B.drone = d;
+      }
     }
     if (best) {
       if (B.target !== best) { B.target = best; B.react = 0; B.seeT = 0; }
@@ -227,6 +280,124 @@ export class BotSquad {
     if (moved < dt * 0.4 && I.moveZ > 0) B.stuckT += dt; else B.stuckT = Math.max(0, B.stuckT - dt);
     if (B.stuckT > 0.6) I.vault = true;
     if (B.stuckT > 2.5) { B.trailIdx++; B.stuckT = 0; }
+  }
+
+  // Ir al punto de apoyo, mirar la pared/hueco/trampilla y mantener F hasta terminar.
+  _fortifyTask(op, B, dt) {
+    const I = op.intent;
+    const T = B.tasks[0];
+    const p = op.body.pos;
+    I.stance = 'stand';
+    if (!T.started) {
+      const dx = T.stand.x - p.x, dz = T.stand.z - p.z;
+      const d = Math.hypot(dx, dz);
+      T.walkT += dt;
+      if (T.walkT > 9) { B.tasks.shift(); return; }                 // no llega: siguiente tarea
+      if (d > 0.22) {
+        const want = Math.atan2(-dx, -dz);
+        op.yaw += clamp(angleDiff(op.yaw, want), -dt * 7, dt * 7);
+        op.pitch += (0 - op.pitch) * Math.min(1, dt * 5);
+        if (Math.abs(angleDiff(op.yaw, want)) < 0.5) { I.moveZ = Math.min(1, d * 1.5 + 0.25); I.sprint = d > 3; }
+        return;
+      }
+      // en posición: encarar el objetivo
+      op.yaw += clamp(angleDiff(op.yaw, T.face), -dt * 6, dt * 6);
+      op.pitch += clamp(T.pitch - op.pitch, -dt * 4, dt * 4);
+      if (Math.abs(angleDiff(op.yaw, T.face)) < 0.04 && Math.abs(T.pitch - op.pitch) < 0.04) { T.started = true; T.t = 0; }
+      return;
+    }
+    op.yaw = T.face; op.pitch = T.pitch;
+    I.interact = true;
+    T.t += dt;
+    const working = op.channel && (op.channel.kind === 'reinforce' || op.channel.kind === 'barricade');
+    if ((!working && T.t > 0.25) || T.t > 7) { I.interact = false; B.tasks.shift(); }
+  }
+
+  // Atacante en la preparación: conduce su dron hacia la casa, entra por una puerta y
+  // explora; marca a los defensores que ve.
+  _driveDrone(op, B, dt) {
+    const recon = this.match.recon;
+    const d = recon ? recon.droneOf(op) : null;
+    if (!d || d.pilot) return;                 // sin dron o lo maneja el jugador
+    const D = B.dr || (B.dr = this._droneRoute(d));
+    const I = d.intent;
+    const p = d.body.pos;
+    I.moveX = 0; I.moveZ = 0;
+    D.t += dt; D.markT -= dt; D.turnT -= dt;
+    // marcar defensores visibles
+    if (D.markT <= 0) {
+      D.markT = 0.35;
+      const e = d.eyePos();
+      let tgt = null, bd = 22;
+      for (const t of this.game.operators) {
+        if (t.team === op.team || t.state === 'dead' || t.frozen || recon.isSpottedFor(t, op.team)) continue;
+        const c = t.center();
+        const dist = Math.hypot(c.x - e.x, c.y - e.y, c.z - e.z);
+        if (dist > bd || !lineOfSight(this.game.world, e.x, e.y, e.z, c.x, c.y, c.z)) continue;
+        bd = dist; tgt = t;
+      }
+      D.mark = tgt;
+    }
+    if (D.mark && D.mark.state !== 'dead') {
+      const e = d.eyePos(), c = D.mark.center();
+      const want = Math.atan2(-(c.x - e.x), -(c.z - e.z));
+      d.yaw += clamp(angleDiff(d.yaw, want), -dt * 3, dt * 3);
+      d.pitch = Math.atan2(c.y - e.y, Math.hypot(c.x - e.x, c.z - e.z));
+      if (Math.abs(angleDiff(d.yaw, want)) < 0.05) { I.mark = true; D.mark = null; }
+      return;
+    }
+    d.pitch += (-0.05 - d.pitch) * Math.min(1, dt * 3);
+    // ruta: fuera de la puerta → dentro → explorar
+    let goal = D.wp[D.i];
+    if (goal) {
+      const dx = goal.x - p.x, dz = goal.z - p.z;
+      if (Math.hypot(dx, dz) < 0.45) { D.i++; goal = D.wp[D.i]; }
+    }
+    let want = goal ? Math.atan2(-(goal.x - p.x), -(goal.z - p.z)) : D.wander;
+    if (!goal && D.turnT <= 0) { D.turnT = 1.5 + this.game.rng.next() * 2; D.wander = d.yaw + (this.game.rng.next() - 0.5) * 2.4; }
+    if (D.avoid > 0) { D.avoid -= dt; want = D.avoidYaw; }
+    d.yaw += clamp(angleDiff(d.yaw, want), -dt * 3.5, dt * 3.5);
+    if (Math.abs(angleDiff(d.yaw, want)) < 0.6) I.moveZ = 1;
+    // atascos: saltar y, si sigue, girar
+    if (d.moveSpeed < 0.4 && I.moveZ > 0) D.stuck += dt; else D.stuck = Math.max(0, D.stuck - dt);
+    if (D.stuck > 0.5) I.jump = true;
+    if (D.stuck > 1.4) { D.stuck = 0; D.avoid = 1.1; D.avoidYaw = d.yaw + (this.game.rng.next() < 0.5 ? 1.3 : -1.3); if (goal && D.t > 20) D.i++; }
+  }
+  _droneRoute(d) {
+    const map = this.match.map, p = d.body.pos;
+    // puerta exterior más cercana de la planta baja o del sótano
+    let best = null, bd = Infinity;
+    for (const o of map.doors) {
+      if (!o.out) continue;
+      const out = { x: o.axis === 'z' ? o.line + o.out * 1.3 : o.center, z: o.axis === 'z' ? o.center : o.line + o.out * 1.3 };
+      const dist = Math.hypot(out.x - p.x, out.z - p.z) + (o.level === '1' ? 0 : 6);
+      if (dist < bd) { bd = dist; best = o; }
+    }
+    const wp = [];
+    if (best) {
+      const o = best;
+      wp.push(o.axis === 'z' ? { x: o.line + o.out * 1.3, z: o.center } : { x: o.center, z: o.line + o.out * 1.3 });
+      wp.push(o.axis === 'z' ? { x: o.line - o.out * 2.6, z: o.center } : { x: o.center, z: o.line - o.out * 2.6 });
+    }
+    return { wp, i: 0, t: 0, markT: 0.5, turnT: 0, wander: d.yaw, stuck: 0, avoid: 0, avoidYaw: 0, mark: null };
+  }
+
+  // Defensor: dispara al dron enemigo que tiene a la vista.
+  _shootDrone(op, B, dt) {
+    const d = B.drone, I = op.intent;
+    if (!d.alive) { B.drone = null; return; }
+    const e = op.eyePos(), c = d.center();
+    const dx = c.x - e.x, dy = c.y - e.y, dz = c.z - e.z;
+    const dist = Math.hypot(dx, dz);
+    const wantYaw = Math.atan2(-dx, -dz), wantPitch = Math.atan2(dy, dist);
+    op.yaw += clamp(angleDiff(op.yaw, wantYaw), -dt * this.diff.turn, dt * this.diff.turn);
+    op.pitch += clamp(wantPitch - op.pitch, -dt * this.diff.turn, dt * this.diff.turn);
+    I.ads = dist > 4;
+    if (Math.abs(angleDiff(op.yaw, wantYaw)) < 0.03 && Math.abs(wantPitch - op.pitch) < 0.04) {
+      B.semi = !B.semi;
+      I.fire = op.weapon.def.auto ? true : B.semi;
+    }
+    if (op.weapon.ammo === 0) I.reload = true;
   }
 
   _reviveNearby(op, B) {

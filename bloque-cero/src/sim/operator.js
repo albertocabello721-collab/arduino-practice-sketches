@@ -23,7 +23,7 @@ export function makeIntent() {
     sprint: false,
     stance: 'stand',          // postura deseada
     lean: 0,                  // -1 izquierda, 0, 1 derecha
-    ads: false, fire: false, reload: false, vault: false,
+    ads: false, fire: false, reload: false, vault: false, melee: false,
     switchTo: -1,
     interact: false,          // mantener F (reanimar, más adelante: reforzar, plantar…)
     holdWound: false,         // derribado: presionar la herida (sangra más despacio)
@@ -67,6 +67,7 @@ export class Operator {
     this.isBot = !!opts.bot;
     this.meta = opts.meta || {};
     this.frozen = false;     // preparación: el ataque no puede moverse ni disparar
+    this.meleeT = 0;         // enfriamiento del golpe cuerpo a cuerpo
     this.channel = null;     // acción mantenida (plantar, inutilizar): {kind, t, total}
     // pose (compartida por zonas de impacto y render)
     this.pose = makePoseState();
@@ -246,6 +247,15 @@ export class Operator {
     }
     // ---------------- reanimar a un compañero (mantener F)
     this._reviveTick(dt, game);
+    // ---------------- cuerpo a cuerpo (V)
+    this.meleeT = Math.max(0, this.meleeT - dt);
+    if (I.melee && !downed && !busy && !this.reviving && this.meleeT <= 0) {
+      this.meleeT = 0.8;
+      this.weapon.reloadT = 0;
+      this.ads = Math.min(this.ads, 0.2);
+      game.melee(this);
+    }
+    I.melee = false;
     // ---------------- arma
     this._weaponTick(dt, game, downed || busy);
     this.updatePose(dt);

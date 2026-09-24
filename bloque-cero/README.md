@@ -14,7 +14,7 @@ Es un único archivo HTML autónomo: no necesita servidor ni conexión.
 | F1 | Motor de vóxeles, mapa Villa, materiales PBR, iluminación, movimiento FPS, asomarse, disparos que agujerean | ✅ |
 | F2 | Operadores tácticos, zonas de impacto, derribo con sangrado, reanimación, arsenal de 11 armas | ✅ |
 | F3 | Rondas 5v5, 3 ubicaciones de sitios (los defensores eligen), desactivador, HUD con reloj y 10 retratos | ✅ (bots provisionales hasta F5) |
-| F4 | Preparación: refuerzos, barricadas, trampillas, drones, cámaras | pendiente |
+| F4 | Preparación: refuerzos, barricadas, trampillas, drones, cámaras, cuerpo a cuerpo | ✅ |
 | F5 | Bots: navegación, percepción, combate, tácticas | pendiente |
 | F6 | Operadores 8 + 8 y contrajuego de gadgets | pendiente |
 | F7 | Animaciones en primera y tercera persona | pendiente |
@@ -43,6 +43,24 @@ Reglas de Siege, contra bots:
 - Bots provisionales: los defensores sostienen el sitio y disparan a lo que ven; tus
   compañeros atacantes siguen tu rastro. La IA completa llega en la Fase 5.
 
+## Preparación y fortificación (Fase 4)
+
+- **Refuerzos** (defensa, 2 por operador): mira un tramo de pared blanda o una trampilla (desde
+  arriba) y mantén **F** 4 s. La placa de acero se despliega con sus pistones hidráulicos y el
+  golpe metálico final; la media pared de tu lado pasa a ser acero: ni balas, ni cuerpo a
+  cuerpo, ni cargas normales la atraviesan (solo una brecha dura, en la Fase 6).
+- **Barricadas** (ilimitadas): mira una puerta o ventana y mantén **F** 1,5 s. Se agujerean a
+  balazos y se rompen a golpes (**V**, unos tres golpes para pasar agachado).
+- **Drones** (2 por atacante): en la preparación el ataque ve por su dron (**WASD**, **Espacio**
+  salta, **clic** marca enemigos 6 s). Cabe por huecos bajos; se destruye de un disparo. En la
+  acción, **5** lanza o recupera el dron. El objetivo se localiza al verlo (dron o en persona) y
+  entonces aparecen los marcadores A y B.
+- **Cámaras** (defensa): **5** para verlas, **A/D** para cambiar, **clic** marca. Seis cámaras
+  fijas (dentro y fuera); se destruyen de un disparo.
+- Los bots defensores refuerzan el sitio y ponen barricadas durante la preparación, y disparan a
+  los drones que ven; los bots atacantes conducen sus drones hacia la casa y marcan defensores.
+- Durante la preparación el ataque aún no está desplegado: no se le puede disparar.
+
 ## Controles
 
 | Tecla | Acción |
@@ -54,7 +72,9 @@ Reglas de Siege, contra bots:
 | Clic / clic derecho | Disparar / apuntar |
 | R | Recargar |
 | 1–4, rueda | Cambiar de arma |
-| F | Plantar / inutilizar el desactivador, reanimar a un compañero (mantener) / presionar la herida si estás derribado |
+| F | Reforzar, poner barricada, plantar / inutilizar el desactivador, reanimar (mantener) / presionar la herida si estás derribado |
+| V | Golpe cuerpo a cuerpo (rompe barricadas y pladur) |
+| 5 | Dron (ataque) / cámaras (defensa) |
 | Tab | Marcador |
 | Clic / Espacio | (Muerto) cambiar de compañero observado |
 | G | (Campo de pruebas) carga de brecha en la pared que miras |
@@ -70,6 +90,7 @@ npm run build        # genera dist/bloque-cero.html y dist/artifact.html
 npm test             # tests de simulación en Node (sin navegador)
 node tools/smoke.mjs <carpeta>   # prueba de humo en Chromium headless con capturas
 node tools/smoke3.mjs <carpeta>  # partida completa en el navegador (selección → final)
+node tools/smoke4.mjs <carpeta>  # refuerzos, barricadas, golpes, drones y cámaras en el navegador
 node tools/mapslice.mjs <carpeta> # cortes cenitales del mapa por planta
 ```
 
@@ -77,7 +98,8 @@ node tools/mapslice.mjs <carpeta> # cortes cenitales del mapa por planta
 
 - `src/world/` mundo de vóxeles (chunks de 32³), materiales, trazado de rayos, destrucción, constructor de mapas y el mapa Villa.
 - `src/sim/` simulación sin render (corre en Node): física de personaje, operadores, armas,
-  plantilla de 16 operadores (`operators.js`), partida por rondas (`match.js`) y bots (`bots.js`).
+  plantilla de 16 operadores (`operators.js`), partida por rondas (`match.js`), fortificación
+  (`fortify.js`), drones y cámaras (`recon.js`) y bots (`bots.js`).
 - `src/client/` sesiones de juego (campo de pruebas, partida), control del jugador y puente
   eventos → sonido/efectos/HUD.
 - `src/render/` Three.js: texturas PBR procedurales, mallado voraz por celdas de 16³, shader PBR con volumen de luz y sombra del sol, efectos, arma en primera persona, post-proceso (bloom + ACES).

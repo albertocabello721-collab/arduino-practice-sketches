@@ -275,8 +275,18 @@ export function buildVilla(world) {
     { id: 'jardin', name: 'Jardín trasero', x: 14, y: 0, z: 40.5, yaw: 0 },
     { id: 'lateral', name: 'Camino lateral', x: 50.5, y: 0, z: 17, yaw: Math.PI / 2 },
   ];
+  // cámaras de seguridad de la defensa (yaw 0 mira hacia -Z)
+  const cameras = [
+    { id: 'cam_entrada', name: 'Entrada principal', x: 13.6, y: 2.95, z: -0.4, yaw: -0.35, pitch: -0.22 },
+    { id: 'cam_garaje', name: 'Garaje', x: 39.5, y: 2.9, z: 25.5, yaw: 0.38, pitch: -0.3 },
+    { id: 'cam_hall', name: 'Hall', x: 12.45, y: 2.9, z: 15.55, yaw: -0.46, pitch: -0.3 },
+    { id: 'cam_sotano', name: 'Pasillo del sótano', x: 29.55, y: -0.6, z: 15.55, yaw: 1.1, pitch: -0.28 },
+    { id: 'cam_jardin', name: 'Jardín trasero', x: 12.6, y: 2.9, z: 26.45, yaw: -2.6, pitch: -0.25 },
+    { id: 'cam_rellano', name: 'Rellano', x: 12.45, y: 6.4, z: 7.45, yaw: -2.24, pitch: -0.35 },
+  ];
   return {
     name: 'Villa',
+    cameras,
     builder: b,
     rooms: b.rooms, zones: b.zones, doors: b.doors, windows: b.windows, hatches: b.hatches,
     lights: b.lights, stairs: b.stairs, ladders: b.ladders,

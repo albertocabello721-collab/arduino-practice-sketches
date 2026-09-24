@@ -2,6 +2,9 @@
 // practicar la reanimación y arsenales intercambiables.
 import { Session } from './session.js';
 import { bindGameFx } from './fx.js';
+import { FeedController } from './feeds.js';
+import { Fortify } from '../sim/fortify.js';
+import { Recon } from '../sim/recon.js';
 import { Game } from '../sim/game.js';
 import { Operator } from '../sim/operator.js';
 import { WeaponState, WEAPONS } from '../sim/weapons.js';
@@ -24,6 +27,14 @@ export class RangeSession extends Session {
     this.loadoutIdx = 0;
     this._player = this._game.addOperator(new Operator('jugador', { name: 'Tú', team: 0, x: SPAWN.x, y: SPAWN.y, z: SPAWN.z, yaw: SPAWN.yaw, loadout: LOADOUTS[0], armor: 2 }));
     this.dummies = spawnRangeDummies(this._game);
+    // en el campo de pruebas el jugador puede reforzar, poner barricadas y usar drones sin límite
+    this.fort = new Fortify(this._game, { canFortify: (op) => op === this._player });
+    this.fort.left.set(this._player, Infinity);
+    this.recon = new Recon(this._game, { cameras: map.cameras || [] });
+    this.recon.reset({ defTeam: 1, site: null });
+    this.recon.left.set(this._player, Infinity);
+    this.feed = new FeedController(ctx, () => this.recon);
+    this.promptText = '';
     chars.clear();
     chars.add(this._player, defaultLook(0, 0));
     this.dummies.forEach((d, i) => chars.add(d, defaultLook(d.team, i)));
@@ -38,16 +49,33 @@ export class RangeSession extends Session {
   }
   get player() { return this._player; }
   get game() { return this._game; }
+  get viewOp() { return this.feed.active ? null : this._player; }
+  get viewCam() { return this.feed.active ? this.feed : null; }
+
+  input(active) {
+    if (this.feed.active) {
+      const I = this._player.intent; I.moveX = 0; I.moveZ = 0; I.fire = false; I.ads = false; I.interact = false;
+      return this.feed.input(active, 0);
+    }
+    return super.input(active);
+  }
 
   tick(dt) {
     driveDummies(this._game, this.dummies, this._player, dt);
     this._game.tick(dt);
+    this.fort.tick(dt);
+    this.recon.tick(dt);
   }
 
   onKey() {
     const { input } = this.ctx;
     const I = this._player.intent;
     const take = (code) => { if (input.pressedQ.has(code)) { input.pressedQ.delete(code); return true; } return false; };
+    if (input.pressed('drone') && this._player.state === 'alive') {
+      if (this.feed.active) this.feed.exit();
+      else { const d = this.recon.droneOf(this._player) || this.recon.deployDrone(this._player, { thrown: true }); if (d) this.feed.enterDrone(d, true); }
+    }
+    if (this.feed.active) return;
     if (take('Digit3')) I.switchTo = 2;
     if (take('Digit4')) I.switchTo = 3;
     if (input.pressed('gadget')) this.testBreach();
@@ -57,10 +85,15 @@ export class RangeSession extends Session {
     if (this._player.state === 'dead' && input.pressed('reload')) this.respawn();
   }
 
-  frame() {
-    this.statusHud(this._player);
-    this.ctx.hud.hints(true);
-    this.ctx.hud.setTopbar('Campo de pruebas', 'Fase 3');
+  frame(dt, alpha = 1) {
+    const F = this.feed;
+    if (F.mode === 'drone' && F.drone && !F.drone.alive && F.lostT <= 0) F.lose(1.0, () => this.feed.exit());
+    this.syncProps(dt, alpha, { recon: this.recon, fort: this.fort, feed: F, myTeam: 0 });
+    F.frame(dt, { canExit: true });
+    this.statusHud(this.viewOp);
+    this.promptText = this.feed.active ? '' : this.fortifyHud(this.fort, this._player);
+    this.ctx.hud.hints(!this.feed.active);
+    this.ctx.hud.setTopbar('Campo de pruebas', 'Fase 4');
   }
 
   setLoadout(i) {
@@ -85,6 +118,9 @@ export class RangeSession extends Session {
   reset() {
     this.ctx.world.resetToPristine();
     this.ctx.effects.clearAll();
+    this.feed.exit();
+    this.fort.reset(); this.fort.left.set(this._player, Infinity);
+    this.recon.reset({ defTeam: 1, site: null }); this.recon.left.set(this._player, Infinity);
     resetDummies(this.dummies);
     this.respawn();
     this.ctx.hud.toast('Campo reiniciado');
@@ -114,7 +150,9 @@ export class RangeSession extends Session {
 
   dispose() {
     super.dispose();
+    this.feed.exit();
     this.ctx.chars.clear();
+    this.ctx.props.clear();
     this.ctx.audio.stopDowned();
   }
 }

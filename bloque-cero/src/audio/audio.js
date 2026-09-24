@@ -422,6 +422,156 @@ export class AudioEngine {
         this._tone(g, t, { f0: 1000, f1: 1000, a: 0.005, peak: 0.2, d: 0.1 });
     }
   }
+  // ------------------------------------------------------------ fortificación
+  // Metal resonante: parciales inarmónicos con caída exponencial (placa de acero).
+  _metalRing(dest, t, base, dur, peak) {
+    const ratios = [1, 1.83, 2.95, 4.34, 5.98, 7.9];
+    ratios.forEach((r, i) => {
+      const o = this.ctx.createOscillator();
+      o.type = 'sine';
+      o.frequency.value = base * r * (1 + (Math.random() - 0.5) * 0.01);
+      const g = this.ctx.createGain();
+      const p = peak / (1 + i * 0.6);
+      g.gain.setValueAtTime(0.0001, t);
+      g.gain.exponentialRampToValueAtTime(p, t + 0.004);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + dur / (1 + i * 0.45));
+      o.connect(g).connect(dest);
+      o.start(t); o.stop(t + dur + 0.1);
+    });
+  }
+  /**
+   * Refuerzo de Siege en tres tiempos: 'place' (la placa golpea la pared),
+   * 'hydraulic' (siseo y servo de los pistones) y 'lock' (el golpe metálico final).
+   */
+  reinforce(pos, stage, occl = 0) {
+    if (!this.ctx) return;
+    const t = this.ctx.currentTime;
+    const out = this._out(pos, { gain: 1.0, ref: 3, rolloff: 0.9, occl: occl * 0.6, reverb: 0.45 });
+    if (stage === 'place') {
+      this._tone(out, t, { f0: 95, f1: 55, a: 0.003, peak: 0.9, d: 0.35 });
+      this._burst(out, t, { type: 'lowpass', freq: 500, q: 0.8, a: 0.002, peak: 0.6, d: 0.12 });
+      this._metalRing(out, t + 0.005, 230, 0.9, 0.22);
+      this._burst(out, t + 0.12, { type: 'bandpass', freq: 3200, q: 1.5, a: 0.02, peak: 0.12, d: 0.35 });
+    } else if (stage === 'hydraulic') {
+      // siseo que sube
+      const n = this._noiseSrc(false);
+      const bp = this.ctx.createBiquadFilter(); bp.type = 'bandpass'; bp.Q.value = 1.4;
+      bp.frequency.setValueAtTime(700, t); bp.frequency.exponentialRampToValueAtTime(2600, t + 1.3);
+      const g = this.ctx.createGain(); g.gain.setValueAtTime(0.0001, t);
+      g.gain.exponentialRampToValueAtTime(0.28, t + 0.15); g.gain.exponentialRampToValueAtTime(0.0001, t + 1.5);
+      n.connect(bp).connect(g).connect(out); n.start(t); n.stop(t + 1.6);
+      // servo
+      const o = this.ctx.createOscillator(); o.type = 'sawtooth';
+      o.frequency.setValueAtTime(150, t); o.frequency.linearRampToValueAtTime(260, t + 1.2);
+      const lp = this.ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 900;
+      const og = this.ctx.createGain(); og.gain.setValueAtTime(0.0001, t); og.gain.exponentialRampToValueAtTime(0.1, t + 0.1); og.gain.exponentialRampToValueAtTime(0.0001, t + 1.3);
+      o.connect(lp).connect(og).connect(out); o.start(t); o.stop(t + 1.4);
+      // trinquetes
+      for (let i = 0; i < 5; i++) this._burst(out, t + 0.15 + i * 0.22, { type: 'bandpass', freq: 2400, q: 4, a: 0.001, peak: 0.25, d: 0.025 });
+    } else if (stage === 'lock') {
+      // KA-CHUNK: dos golpes y el acero vibrando
+      this._tone(out, t, { f0: 80, f1: 38, a: 0.002, peak: 1.0, d: 0.45 });
+      this._burst(out, t, { type: 'lowpass', freq: 700, q: 0.7, a: 0.001, peak: 0.9, d: 0.1 });
+      this._metalRing(out, t + 0.003, 205, 1.6, 0.3);
+      this._tone(out, t + 0.07, { f0: 70, f1: 34, a: 0.002, peak: 0.8, d: 0.5 });
+      this._metalRing(out, t + 0.072, 145, 2.2, 0.28);
+      this._burst(out, t + 0.07, { type: 'bandpass', freq: 1800, q: 2, a: 0.001, peak: 0.35, d: 0.06 });
+    }
+  }
+  // Barricada: martillazos sobre madera.
+  barricade(pos, occl = 0) {
+    if (!this.ctx) return;
+    const t = this.ctx.currentTime;
+    const out = this._out(pos, { gain: 0.8, ref: 2.5, rolloff: 1.1, occl, reverb: 0.3 });
+    for (let i = 0; i < 3; i++) {
+      const k = t + i * 0.36;
+      this._tone(out, k, { f0: 190, f1: 120, a: 0.001, peak: 0.6, d: 0.1, type: 'triangle' });
+      this._burst(out, k, { type: 'bandpass', freq: 900 + i * 80, q: 2.2, a: 0.001, peak: 0.55, d: 0.07 });
+    }
+    this._burst(out, t + 1.1, { type: 'bandpass', freq: 650, q: 1, a: 0.01, peak: 0.3, d: 0.25 });
+  }
+  // Cuerpo a cuerpo: zarpazo de aire (el impacto lo pone quien recibe el golpe).
+  meleeSwing(pos, local = false) {
+    if (!this.ctx) return;
+    const t = this.ctx.currentTime;
+    const out = local ? (() => { const g = this.ctx.createGain(); g.gain.value = 0.4; g.connect(this.sfx); return g; })() : this._out(pos, { gain: 0.5, ref: 2, rolloff: 1.3 });
+    const n = this._noiseSrc(false);
+    const bp = this.ctx.createBiquadFilter(); bp.type = 'bandpass'; bp.Q.value = 2;
+    bp.frequency.setValueAtTime(600, t); bp.frequency.exponentialRampToValueAtTime(2400, t + 0.12);
+    const g = this.ctx.createGain(); g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.7, t + 0.05); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.18);
+    n.connect(bp).connect(g).connect(out); n.start(t); n.stop(t + 0.2);
+  }
+  // Motor de dron: bucle por dron que se actualiza cada fotograma (volumen según velocidad).
+  droneLoop(id, pos, speed, occl = 0, local = false) {
+    if (!this.ctx) return;
+    this._drones = this._drones || new Map();
+    let d = this._drones.get(id);
+    const ctx = this.ctx, t = ctx.currentTime;
+    if (!d) {
+      const out = ctx.createGain();
+      const o = ctx.createOscillator(); o.type = 'sawtooth'; o.frequency.value = 90;
+      const lp = ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 700;
+      const n = this._noiseSrc(false); n.loop = true;
+      const bp = ctx.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = 2200; bp.Q.value = 3;
+      const ng = ctx.createGain(); ng.gain.value = 0.15;
+      o.connect(lp).connect(out); n.connect(bp).connect(ng).connect(out);
+      const p = ctx.createPanner(); p.panningModel = 'HRTF'; p.distanceModel = 'inverse'; p.refDistance = 1.2; p.rolloffFactor = 1.6;
+      const direct = ctx.createGain(), spatial = ctx.createGain();
+      out.connect(spatial).connect(p).connect(this.sfx);
+      out.connect(direct).connect(this.sfx);
+      out.gain.value = 0; direct.gain.value = 0;
+      o.start(); n.start();
+      d = { out, o, n, p, direct, spatial, lp };
+      this._drones.set(id, d);
+    }
+    d.seen = t;
+    const k = Math.min(1, speed / 3.5);
+    d.o.frequency.setTargetAtTime(80 + k * 70, t, 0.08);
+    d.lp.frequency.setTargetAtTime(500 + k * 900, t, 0.08);
+    d.out.gain.setTargetAtTime((0.02 + k * 0.16) * (1 - occl * 0.6), t, 0.08);
+    if (d.p.positionX) { d.p.positionX.setValueAtTime(pos.x, t); d.p.positionY.setValueAtTime(pos.y, t); d.p.positionZ.setValueAtTime(pos.z, t); }
+    else d.p.setPosition(pos.x, pos.y, pos.z);
+    // el dron propio (el que se pilota) suena directo y bajo
+    d.direct.gain.setTargetAtTime(local ? 0.45 : 0, t, 0.05);
+    d.spatial.gain.setTargetAtTime(local ? 0 : 1, t, 0.05);
+  }
+  // Apaga los motores que no se han actualizado en este fotograma.
+  droneSweep() {
+    if (!this._drones) return;
+    const t = this.ctx.currentTime;
+    for (const [id, d] of this._drones) {
+      if (t - d.seen < 0.2) continue;
+      d.out.gain.setTargetAtTime(0, t, 0.05);
+      d.o.stop(t + 0.3); d.n.stop(t + 0.3);
+      this._drones.delete(id);
+    }
+  }
+  // Marca, objetivo localizado, estática al cambiar de cámara, aparato destruido.
+  ping(kind) {
+    if (!this.ctx) return;
+    const t = this.ctx.currentTime;
+    const g = this.ctx.createGain(); g.gain.value = 0.22; g.connect(this.master);
+    if (kind === 'mark') {
+      this._tone(g, t, { f0: 1760, f1: 1750, a: 0.002, peak: 0.4, d: 0.06, type: 'square' });
+      this._tone(g, t + 0.08, { f0: 2350, f1: 2340, a: 0.002, peak: 0.35, d: 0.09, type: 'square' });
+    } else if (kind === 'objective') {
+      this._tone(g, t, { f0: 880, f1: 880, a: 0.01, peak: 0.35, d: 0.15, type: 'triangle' });
+      this._tone(g, t + 0.14, { f0: 1320, f1: 1320, a: 0.01, peak: 0.35, d: 0.3, type: 'triangle' });
+    } else if (kind === 'static') {
+      this._burst(g, t, { type: 'highpass', freq: 1200, q: 0.5, a: 0.002, peak: 0.6, d: 0.14 });
+    } else if (kind === 'deny') {
+      this._tone(g, t, { f0: 220, f1: 200, a: 0.005, peak: 0.35, d: 0.12, type: 'square' });
+    }
+  }
+  electronicPop(pos, occl = 0) {
+    if (!this.ctx) return;
+    const t = this.ctx.currentTime;
+    const out = this._out(pos, { gain: 0.7, ref: 2, rolloff: 1.2, occl, reverb: 0.2 });
+    this._burst(out, t, { type: 'highpass', freq: 2500, q: 0.7, a: 0.001, peak: 0.7, d: 0.09 });
+    this._tone(out, t, { f0: 900, f1: 90, a: 0.001, peak: 0.4, d: 0.15, type: 'square' });
+    for (let i = 0; i < 4; i++) this._burst(out, t + 0.05 + Math.random() * 0.25, { type: 'bandpass', freq: 3000 + Math.random() * 3000, q: 3, a: 0.001, peak: 0.25, d: 0.02 });
+  }
+
   // Pitido del desactivador plantado (posicional; se acelera al final).
   defuserBeep(pos, urgency = 0, occl = 0) {
     if (!this.ctx) return;

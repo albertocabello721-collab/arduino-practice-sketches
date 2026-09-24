@@ -41,6 +41,7 @@ export class PlayerControl {
     I.fire = input.mouse.left;
     I.ads = input.mouse.right;
     if (input.pressed('reload')) I.reload = true;
+    if (input.pressed('melee')) I.melee = true;
     if (input.pressed('vault')) I.vault = true;
     if (input.pressed('primary')) I.switchTo = 0;
     if (input.pressed('secondary')) I.switchTo = 1;

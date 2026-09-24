@@ -122,6 +122,50 @@ export function bindGameFx(ctx, game, view) {
     setTimeout(() => audio.weaponFoley('magin'), T * 580);
     if (empty) setTimeout(() => audio.weaponFoley('bolt'), T * 830);
   });
+  // ---------------- fortificación, cuerpo a cuerpo y reconocimiento (Fase 4)
+  const fortTimers = new Map();
+  const stopTimer = (op) => { clearTimeout(fortTimers.get(op)); fortTimers.delete(op); };
+  on('fortifyStart', (op, tgt) => {
+    const p = tgt.center;
+    if (tgt.kind === 'barricade') { audio.barricade(p, occlusion(p)); return; }
+    audio.reinforce(p, 'place', occlusion(p));
+    fortTimers.set(op, setTimeout(() => audio.reinforce(p, 'hydraulic', occlusion(p)), 1500));
+  });
+  on('fortifyCancel', stopTimer);
+  on('fortifyFail', stopTimer);
+  on('reinforced', (op, rec) => {
+    stopTimer(op);
+    const p = rec.center;
+    audio.reinforce(p, 'lock', occlusion(p));
+    const e = ctx.camEye;
+    const near = Math.hypot(p.x - e.x, p.y - e.y, p.z - e.z);
+    if (near < 6) ctx.shake = Math.min(1.2, ctx.shake + (6 - near) * 0.12);
+    // polvo del tabique al encajar el panel
+    for (let i = 0; i < 10; i++) effects.spawnDust(p.x + (Math.random() - 0.5) * 0.9, p.y - 1.2 + Math.random() * 2.4, p.z + (Math.random() - 0.5) * 0.9, rec.normal.x * 0.3 + (Math.random() - 0.5) * 0.2, Math.random() * 0.15, rec.normal.z * 0.3 + (Math.random() - 0.5) * 0.2, 0.14, [0.55, 0.54, 0.51], 1.2, 0.2);
+  });
+  on('melee', (op, info) => {
+    const e = op.eyePos();
+    audio.meleeSwing(e, op === viewer());
+    if (op === viewer()) vm.onMelee();
+    if (info.point && info.mat !== undefined) audio.impact(MATS[info.mat].snd, info.point, occlusion(info.point));
+    if (info.target && op === me()) { hud.hitmarker('hit'); audio.hitConfirm('hit'); }
+  });
+  on('droneDeployed', (d) => { const p = d.body.pos; audio.impact(5, p, occlusion(p)); });
+  on('targetDestroyed', (t, by, point) => {
+    const p = point || (t.center ? t.center() : null);
+    if (!p) return;
+    audio.electronicPop(p, occlusion(p));
+    effects.flash(p.x, p.y, p.z, 12, 10, 6, 3, 0.12);
+    for (let i = 0; i < 16; i++) effects.spawnSpark(p.x, p.y, p.z, (Math.random() - 0.5) * 5, Math.random() * 4, (Math.random() - 0.5) * 5, 1);
+    if (by && by === me()) { hud.hitmarker('kill'); audio.hitConfirm('kill'); }
+    const what = t.kind === 'drone' ? 'dron' : 'cámara';
+    hud.feed(`${nameHtml(by)} <span class="w">destruye ${t.kind === 'drone' ? 'un' : 'una'} ${what}</span>`, by === me() ? 'mine' : '');
+  });
+  on('spotted', (target, viewerObj, team) => {
+    const my = me();
+    if (my && team === my.team) audio.ping('mark');
+  });
+
   on('dryfire', (op) => { if (op === viewer()) audio.weaponFoley('dry'); });
   on('switch', (op) => { if (op === viewer()) audio.weaponFoley('switch'); });
   on('land', (op, v) => { if (op === viewer()) { audio.weaponFoley('land'); vm.onLand(v); } });

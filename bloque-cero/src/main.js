@@ -17,6 +17,7 @@ import { Operator } from './sim/operator.js';
 import { breachRect } from './world/destruction.js';
 import { DEG, damp, clamp, angleDiff } from './core/math.js';
 import { CharacterRenderer } from './render/character.js';
+import { PropRenderer } from './render/props.js';
 import { RangeSession } from './client/range.js';
 import { MatchSession } from './client/matchsession.js';
 
@@ -67,6 +68,7 @@ async function boot() {
   camera.rotation.order = 'YXZ';
   const effects = new Effects(scene, world, wr);
   const chars = new CharacterRenderer(scene, wr.uniforms);
+  const props = new PropRenderer(scene, wr);
   const vm = new ViewModel();
   vm.initEnvironment(renderer);
   const post = new PostFX(renderer, scene, camera, vm.scene, vm.camera, settings.quality, wr.prepassMat);
@@ -106,7 +108,7 @@ async function boot() {
   let session = null;
   let lockFailed = false;
   const ctx = {
-    THREE, renderer, scene, camera, world, map, wr, effects, chars, vm, post, audio, input, hud, settings, canvas,
+    THREE, renderer, scene, camera, world, map, wr, effects, chars, props, vm, post, audio, input, hud, settings, canvas,
     shake: 0, damageFlash: 0, camEye: camera.position, occlusion: null,
     // la cámara salta al operador visto sin interpolar (cambio de vista, reaparición)
     resetView() { view.op = null; },
@@ -297,18 +299,28 @@ async function boot() {
       if (Math.abs(camera.fov - fov) > 0.01) { camera.fov = fov; camera.updateProjectionMatrix(); }
     } else {
       view.op = null;
-      const fc = s ? s.freeCam : null;
+      const vc = s ? s.viewCam : null;
+      const fc = vc ? vc.pose(acc / TICK) : null;
       if (fc) {
         camera.position.set(fc.x, fc.y, fc.z);
-        camera.rotation.set(fc.pitch, fc.yaw, 0);
+        camera.rotation.set(fc.pitch, fc.yaw, fc.roll || 0);
+        const f = fc.fov || settings.fov;
+        if (Math.abs(camera.fov - f) > 0.01) { camera.fov = f; camera.updateProjectionMatrix(); }
       } else {
         // vuelo lento alrededor de la villa (menú, selección de operador)
         menuT += dt * 0.05;
         const r = 34;
         camera.position.set(20 + Math.cos(menuT) * r, 9 + Math.sin(menuT * 0.7) * 2, 13 + Math.sin(menuT) * r);
         camera.lookAt(18, 2, 13);
+        if (Math.abs(camera.fov - settings.fov) > 0.01) { camera.fov = settings.fov; camera.updateProjectionMatrix(); }
       }
-      if (Math.abs(camera.fov - settings.fov) > 0.01) { camera.fov = settings.fov; camera.updateProjectionMatrix(); }
+    }
+    // señal de dron o cámara: lente, grano e interferencia en el post-proceso
+    {
+      const vc = !v && s ? s.viewCam : null;
+      const pose = vc && vc.pose ? vc.pose(acc / TICK) : null;
+      post.grade.uniforms.uFeed.value = pose ? pose.feed || 0 : 0;
+      post.grade.uniforms.uStatic.value = pose ? pose.staticK || 0 : 0;
     }
     // exposición automática según la luz ambiente del lugar
     wr.lightVolume.sample(camera.position.x, camera.position.y, camera.position.z, lightS);
@@ -325,9 +337,10 @@ async function boot() {
     wr.renderShadowIfNeeded();
     effects.update(dt, camera.position);
     chars.update(dt, v, camera.position);
+    if (!s) props.clear();
     ctx.damageFlash = Math.max(0, ctx.damageFlash - dt * 1.4);
     post.grade.uniforms.uDamage.value = v ? Math.max(ctx.damageFlash, v.state === 'downed' ? 0.55 + Math.sin(performance.now() / 300) * 0.1 : 0, v.state === 'alive' && v.hp < v.maxHp * 0.3 ? 0.25 : 0) : 0;
-    if (s) s.frame(dt);
+    if (s) s.frame(dt, acc / TICK);
     if (v) vm.update(dt, v, lightS, v === s.player ? mouse.dx || 0 : 0, v === s.player ? mouse.dy || 0 : 0);
     vm.root.visible = !!v && v.state !== 'dead';
     post.render(dt);

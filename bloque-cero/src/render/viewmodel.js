@@ -224,6 +224,8 @@ export class ViewModel {
     this.flash.scale.set(sc, sc, sc);
   }
   onLand(v) { this.state.land = Math.min(1, v / 8); }
+  // Golpe cuerpo a cuerpo: el arma sale hacia delante con la culata girada.
+  onMelee() { this.state.melee = 1; }
 
   /**
    * op: operador local; light: {sky,warm,cool} en la posición de los ojos; mouse: delta de ratón este frame
@@ -250,6 +252,8 @@ export class ViewModel {
     s.equip = Math.max(0, w.equipT / Math.max(0.01, w.def.equip));
     // manos ocupadas (plantar, inutilizar, reanimar): el arma baja
     s.lower = damp(s.lower || 0, op.channel || op.reviving ? 1 : 0, 7, dt);
+    s.melee = Math.max(0, (s.melee || 0) - dt * 2.2);
+    const mk = s.melee > 0 ? Math.sin((1 - s.melee) * Math.PI) : 0;   // 0 → 1 → 0 en ~0,45 s
     const reloadK = w.reloadT > 0 ? 1 - w.reloadT / w.reloadTotal : 0;
     s.reload = reloadK;
     const speed = op.moveSpeed;
@@ -272,11 +276,12 @@ export class ViewModel {
     // recarga: bajar y girar el arma; desenfunde: subir desde abajo
     const rk = Math.sin(Math.min(1, reloadK) * Math.PI);
     pos.y -= rk * 0.07 + s.equip * 0.25 + s.lower * 0.32;
+    pos.x -= mk * 0.12; pos.z -= mk * 0.2; pos.y += mk * 0.03;
     pos.z += rk * 0.03;
     this.root.position.copy(pos);
     this.root.rotation.set(
       s.kick * 0.09 + rk * 0.35 + s.sprint * -0.25 + s.equip * 0.8 + s.lower * 0.7 + s.swayY * 0.5,
-      s.sprint * 0.9 + s.swayX * 0.6 + s.kickRot,
+      s.sprint * 0.9 + s.swayX * 0.6 + s.kickRot + mk * 0.9,
       rk * 0.5 + s.sprint * 0.3 + Math.sin(s.bob * 0.5) * 0.01 * bobAmp,
     );
     // cargador: fuera durante la recarga

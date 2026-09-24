@@ -67,8 +67,8 @@ const LIST = [
   ['CARPET_GREY', { surf: 'carpet', edge: 'wood_raw', tint: 'carpet_grey', snd: SND.carpet, penCost: 0.1, breakChance: 0.5, name: 'Moqueta', debris: [0.45, 0.45, 0.45] }],
   ['CEILING', { surf: 'ceiling', edge: 'gypsum', snd: SND.plaster, penCost: 0.07, breakChance: 0.6, name: 'Techo', debris: [0.9, 0.9, 0.88] }],
   // ---------- especiales de Siege ----------
-  ['REINFORCED', { hard: 1, reinforced: 1, blastRes: 1, surf: 'steel_plate', edge: 'metal_dark', snd: SND.metal, name: 'Refuerzo', debris: [0.5, 0.52, 0.55] }],
-  ['HATCH', { bulletBreak: 0, surf: 'hatch', edge: 'wood_raw', snd: SND.wood, penCost: 0.2, name: 'Trampilla', debris: [0.45, 0.32, 0.2] }],
+  ['REINFORCED', { hard: 1, reinforced: 1, blastRes: 1, surf: 'steel_plate', edge: 'steel_plate', snd: SND.metal, name: 'Refuerzo', debris: [0.5, 0.52, 0.55] }],
+  ['HATCH', { bulletBreak: 0, melee: 0, surf: 'hatch', edge: 'wood_raw', snd: SND.wood, penCost: 0.2, name: 'Trampilla', debris: [0.45, 0.32, 0.2] }],
   ['BARRICADE', { surf: 'barricade', edge: 'wood_raw', snd: SND.wood, penCost: 0.05, name: 'Barricada', debris: [0.62, 0.46, 0.28] }],
   ['GLASS', { opaque: 0, pass: 2, glass: 1, sight: 0, surf: 'glass', snd: SND.glass, penCost: 0.02, name: 'Cristal', debris: [0.75, 0.85, 0.9] }],
   ['TRIM', { surf: 'trim', edge: 'wood_raw', snd: SND.wood, penCost: 0.1, name: 'Moldura', debris: [0.9, 0.9, 0.88] }],
