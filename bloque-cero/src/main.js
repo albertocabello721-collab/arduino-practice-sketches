@@ -20,6 +20,7 @@ import { CharacterRenderer } from './render/character.js';
 import { PropRenderer } from './render/props.js';
 import { RangeSession } from './client/range.js';
 import { MatchSession } from './client/matchsession.js';
+import { navFor } from './sim/bots.js';
 
 const $ = (id) => document.getElementById(id);
 const nextFrame = () => new Promise((r) => requestAnimationFrame(() => r()));
@@ -58,6 +59,9 @@ async function boot() {
   await setStep('Construyendo la villa…', 0.44);
   const world = createVillaWorld();
   const map = buildVilla(world);
+  // rejilla de navegación de los bots (una vez; los bots la comparten y se actualiza con la destrucción)
+  await setStep('Calculando rutas…', 0.48);
+  const nav = navFor(world, map);
   await setStep('Calculando la luz…', 0.52);
   const scene = new THREE.Scene();
   const wr = new WorldRenderer(renderer, scene, world, map, tex, { shadowSize: settings.quality === 'baja' ? 2048 : 4096 });
@@ -108,7 +112,7 @@ async function boot() {
   let session = null;
   let lockFailed = false;
   const ctx = {
-    THREE, renderer, scene, camera, world, map, wr, effects, chars, props, vm, post, audio, input, hud, settings, canvas,
+    THREE, renderer, scene, camera, world, map, nav, wr, effects, chars, props, vm, post, audio, input, hud, settings, canvas,
     shake: 0, damageFlash: 0, camEye: camera.position, occlusion: null,
     // la cámara salta al operador visto sin interpolar (cambio de vista, reaparición)
     resetView() { view.op = null; },

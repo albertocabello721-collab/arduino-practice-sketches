@@ -10,7 +10,7 @@ import { lineOfSight } from '../world/raycast.js';
 import { rayHitRig } from './skeleton.js';
 import { clamp } from '../core/math.js';
 
-export const DRONE = { speed: 3.5, accel: 16, radius: 0.13, height: 0.17, jump: 4.4, jumpCd: 0.9, eye: 0.13, fov: 96 };
+export const DRONE = { speed: 3.5, accel: 16, radius: 0.13, height: 0.17, jump: 4.4, jumpCd: 0.9, hop: 1.6, eye: 0.13, fov: 96 };
 export const DRONES_PER_OP = 2;
 export const SPOT_TIME = 6;
 export const MARK_RANGE = 40;
@@ -53,7 +53,15 @@ export class Drone {
     const accel = b.onGround ? DRONE.accel : 2;
     const ddx = tx - b.vel.x, ddz = tz - b.vel.z, dl = Math.hypot(ddx, ddz), maxD = accel * dt;
     if (dl > maxD) { b.vel.x += ddx / dl * maxD; b.vel.z += ddz / dl * maxD; } else { b.vel.x = tx; b.vel.z = tz; }
-    if (I.jump && b.onGround && this.jumpCd <= 0) { b.vel.y = DRONE.jump; this.jumpCd = DRONE.jumpCd; game.emit('droneJump', this); }
+    if (I.jump && b.onGround && this.jumpCd <= 0) {
+      b.vel.y = DRONE.jump; this.jumpCd = DRONE.jumpCd;
+      // saltar hacia delante (subir peldaños): impulso horizontal en la dirección pedida
+      if (f > 0.1) {
+        const hs = Math.max(Math.hypot(b.vel.x, b.vel.z), DRONE.hop);
+        b.vel.x = tx / DRONE.speed * hs; b.vel.z = tz / DRONE.speed * hs;
+      }
+      game.emit('droneJump', this);
+    }
     I.jump = false;
     this.jumpCd -= dt;
     this.markCd -= dt;

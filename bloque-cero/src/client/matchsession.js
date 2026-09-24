@@ -18,7 +18,7 @@ export class MatchSession extends Session {
     this.opts = { startSide: opts.startSide || 'atk', difficulty: opts.difficulty || 'normal' };
     const { world, map, hud } = ctx;
     this.match = new Match({ world, map, seed: opts.seed ?? ((Date.now() ^ 0x5eed) & 0x7fffffff), human: true, startSide: this.opts.startSide, rules: opts.rules || {} });
-    this.bots = new BotSquad(this.match, this.opts.difficulty);
+    this.bots = new BotSquad(this.match, this.opts.difficulty, { nav: ctx.nav });
     this.disposers.push(() => this.bots.dispose());
     this.ui = new MatchUI(ctx, this);
     this.feed = new FeedController(ctx, () => this.match.recon);

@@ -210,6 +210,8 @@ export function buildVilla(world) {
   b.box(20.625, 0, -2, 21, 3.25, -1.625, MAT.BRICK);
   b.box(13, -0.125, -2, 21, 0, 0, MAT.STONE);
   b.ladder('x', -2.0, 20.5, 0, 4.25, -1);
+  // celosía detrás de la escalera de mano (sin ella, se atravesaría hacia el porche)
+  b.box(20.125, 0, -2.0, 20.625, 3.25, -1.875, MAT.FENCE);
   // escaleras de mano: garaje (norte) y del tejado del garaje al principal
   b.ladder('x', 26.125, 38, 0, 4.25, 1);
   b.ladder('z', 30.125, 24.375, 3.5, 7.75, 1);

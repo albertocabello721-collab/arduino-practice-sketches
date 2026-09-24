@@ -13,7 +13,7 @@ export const DEFAULT_SETTINGS = {
   invertY: false,
   quality: 'alta',      // 'baja' | 'media' | 'alta'
   showPerf: false,
-  difficulty: 'normal',  // bots: 'recluta' | 'normal' | 'veterano'
+  difficulty: 'normal',  // bots: 'novato' | 'normal' | 'veterano' | 'elite'
   startSide: 'random',   // partida rápida: 'random' | 'atk' | 'def'
 };
 
@@ -38,6 +38,7 @@ export function loadSettings() {
     if (!raw) return out;
     const parsed = JSON.parse(raw);
     for (const k of Object.keys(DEFAULT_SETTINGS)) if (k in parsed && typeof parsed[k] === typeof DEFAULT_SETTINGS[k]) out[k] = parsed[k];
+    if (out.difficulty === 'recluta') out.difficulty = 'novato';   // nombre anterior
   } catch (e) { /* valores por defecto */ }
   return out;
 }

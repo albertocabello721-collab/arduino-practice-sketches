@@ -96,8 +96,9 @@ function moveHorizontal(world, b, axis, d, canStep, maxStep = 3) {
   const remaining = d - moved;
   for (let h = 1; h <= maxStep; h++) {
     const up = h * VS;
-    // el cuerpo levantado debe caber aquí mismo
-    if (!boxFree(world, b.pos.x, y0 + up + GAP, b.pos.z, b.radius, b.height)) break;
+    // el cuerpo levantado debe caber aquí mismo (con la misma tolerancia que el barrido:
+    // si no, un cuerpo que ha rozado el peldaño en 0,05 mm ya no podría subirlo)
+    if (!boxFree(world, b.pos.x, y0 + up + GAP, b.pos.z, b.radius - 2 * EPS, b.height)) break;
     const save = { x: b.pos.x, y: b.pos.y, z: b.pos.z };
     b.pos.y = y0 + up + GAP;
     const hit2 = sweep(world, b, axis, remaining);
