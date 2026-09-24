@@ -3,10 +3,12 @@
 //    3,5 m/s, salto de ~0,5 m, se destruye de un disparo. 2 por atacante; en la
 //    preparación el ataque ve el edificio a través de ellos.
 //  · Cámara: fija en la pared, gira dentro de un arco, se destruye de un disparo.
-//  · Marcar (clic): el enemigo al que apunta queda señalado 6 s para su equipo.
+//  · Marcar (clic, T o botón central): el enemigo al que apunta queda señalado 6 s para su equipo.
+//    En persona, si no hay enemigo a la vista, se pone una marca de posición donde se mira:
+//    la ve todo el equipo 15 s (una por jugador; la nueva sustituye a la anterior).
 //  · Objetivo: el ataque lo localiza al verlo (dron o en persona) a menos de 14 m.
 import { Body, stepBody } from './physics.js';
-import { lineOfSight } from '../world/raycast.js';
+import { lineOfSight, raycastFirst } from '../world/raycast.js';
 import { rayHitRig } from './skeleton.js';
 import { clamp } from '../core/math.js';
 
@@ -15,6 +17,8 @@ export const DRONES_PER_OP = 2;
 export const SPOT_TIME = 6;
 export const MARK_RANGE = 40;
 export const OBJECTIVE_RANGE = 14;
+export const PING_TIME = 15;
+export const PING_RANGE = 60;
 
 export class Drone {
   constructor(id, owner, x, y, z, yaw) {
@@ -113,6 +117,7 @@ export class Recon {
     this.cams = cameras.map((c) => new SecurityCam(c));
     this.left = new Map();         // operador → drones que le quedan
     this.spotted = new Map();      // operador enemigo → {until, team, by}
+    this.pings = new Map();        // operador → su marca de posición {x, y, z, team, by, t, until}
     this.objectiveFound = false;
     this._objT = 0;
     this._nextId = 1;
@@ -125,6 +130,7 @@ export class Recon {
     this.drones = [];
     this.left.clear();
     this.spotted.clear();
+    this.pings.clear();
     this.objectiveFound = false;
     this.site = site;
     this.attackTeam = 1 - defTeam;
@@ -166,6 +172,7 @@ export class Recon {
     }
     // señalados que caducan o mueren
     for (const [op, s] of this.spotted) if (s.until <= g.time || op.state === 'dead') this.spotted.delete(op);
+    for (const [op, p] of this.pings) if (p.until <= g.time) this.pings.delete(op);
     // localizar el objetivo
     this._objT -= dt;
     if (!this.objectiveFound && this.site && this._objT <= 0) {
@@ -223,6 +230,31 @@ export class Recon {
     return best;
   }
   isSpottedFor(op, team) { const s = this.spotted.get(op); return !!s && s.team === team; }
+
+  /**
+   * Marcar en persona (T o botón central): el enemigo al que apunta `op` o, si no hay
+   * ninguno, una marca de posición donde mira. Devuelve {kind: 'enemy', op} o
+   * {kind: 'ping', ping}, o null si no mira a nada a menos de 60 m.
+   */
+  markOrPing(op) {
+    const enemy = this.mark(op, op.team, op);
+    if (enemy) return { kind: 'enemy', op: enemy };
+    const g = this.game, e = op.eyePos(), d = op.viewDir();
+    const hit = raycastFirst(g.world, e.x, e.y, e.z, d.x, d.y, d.z, PING_RANGE);
+    if (!hit) return null;
+    const t = Math.max(0, hit.t - 0.06);
+    const ping = { x: e.x + d.x * t, y: e.y + d.y * t, z: e.z + d.z * t, team: op.team, by: op, t: g.time, until: g.time + PING_TIME };
+    this.pings.set(op, ping);
+    g.emit('pinged', op, ping);
+    return { kind: 'ping', ping };
+  }
+  /** La marca de posición más reciente del equipo (o la de `by`, si se indica). */
+  pingOf(team, by = null) {
+    if (by) { const p = this.pings.get(by); return p && p.team === team ? p : null; }
+    let best = null;
+    for (const p of this.pings.values()) if (p.team === team && (!best || p.t > best.t)) best = p;
+    return best;
+  }
 }
 
 function norm(v) { const l = Math.hypot(v.x, v.y, v.z) || 1; return { x: v.x / l, y: v.y / l, z: v.z / l }; }

@@ -172,6 +172,10 @@ export function bindGameFx(ctx, game, view) {
     const my = me();
     if (my && team === my.team) audio.ping('mark');
   });
+  on('pinged', (op, ping) => {
+    const my = me();
+    if (my && ping.team === my.team) audio.ping('ping');
+  });
 
   on('dryfire', (op) => { if (op === viewer()) audio.weaponFoley('dry'); });
   on('switch', (op) => { if (op === viewer()) audio.weaponFoley('switch'); });

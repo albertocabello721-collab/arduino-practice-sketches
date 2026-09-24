@@ -27,6 +27,7 @@ export class MatchSession extends Session {
     this.beepT = 0;
     this.lastTick = -1;
     this.promptText = '';
+    this.markAt = -9;
     this.disposers.push(bindGameFx(ctx, this.match.game, {
       viewer: () => this.viewOp,
       me: () => this.match.player,
@@ -116,7 +117,7 @@ export class MatchSession extends Session {
       const side = this.mySide();
       this.ui.showPhase('Fase de preparación', side === 'def' ? `Defiendes ${m.site.name}` : 'Localiza el objetivo con tu dron', 3);
       this.ui.setPrepInfo(side === 'atk'
-        ? '<b>Preparación</b> · Pilota tu dron: <kbd>WASD</kbd> mover, <kbd>Espacio</kbd> saltar, <kbd>Clic</kbd> marcar enemigos. Busca el objetivo: los drones caben por huecos bajos. Llevas el desactivador.'
+        ? '<b>Preparación</b> · Pilota tu dron: <kbd>WASD</kbd> mover, <kbd>Espacio</kbd> saltar, <kbd>Clic</kbd> o <kbd>T</kbd> marcar enemigos. Busca el objetivo: los drones caben por huecos bajos. Llevas el desactivador.'
         : `<b>Preparación</b> · Defendéis <b>${m.site.name}</b>. Mira una pared blanda y mantén <kbd>F</kbd> para reforzarla (2 refuerzos) o un hueco para poner una barricada. <kbd>5</kbd> cámaras · dispara a los drones.`);
     });
     on('action', () => {
@@ -205,6 +206,12 @@ export class MatchSession extends Session {
     if (this.feed.mode === 'drone' && !this.feed.piloting && input.mouseClicked(0)) {
       const d = this._nextTeamDrone(this.feed.drone);
       if (d) this.feed.enterDrone(d, false);
+    }
+    // T o botón central: marcar al enemigo que miras o, si no hay ninguno, poner una marca de posición
+    const markKey = input.pressed('mark') || input.mouseClicked(1);
+    if (markKey && p && p.state === 'alive' && !this.feed.active && (m.phase === 'prep' || m.phase === 'action' || m.phase === 'planted') && m.time - this.markAt >= 0.4) {
+      this.markAt = m.time;
+      if (!m.recon.markOrPing(p)) audio.ping('deny');
     }
     // 5: dron (ataque) o cámaras (defensa)
     if (input.pressed('drone') && p && p.state === 'alive' && (m.phase === 'prep' || m.phase === 'action' || m.phase === 'planted')) {
@@ -345,6 +352,11 @@ export class MatchSession extends Session {
       } else if (m.recon.isSpottedFor(op, 0)) {
         list.push({ x: h.x, y: h.y + 0.5, z: h.z, cls: 'spot', icon: '', label: op.name });
       }
+    }
+    // marcas de posición del equipo
+    for (const pg of m.recon.pings.values()) {
+      if (pg.team !== 0) continue;
+      list.push({ x: pg.x, y: pg.y + 0.1, z: pg.z, cls: 'ping', icon: '', label: pg.by === this.player ? dist(pg) : `${pg.by.name} · ${dist(pg)}` });
     }
     return list;
   }

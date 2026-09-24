@@ -67,14 +67,14 @@ export class FeedController {
       I.moveZ = (input.isDown('forward') ? 1 : 0) - (input.isDown('back') ? 1 : 0);
       I.moveX = (input.isDown('right') ? 1 : 0) - (input.isDown('left') ? 1 : 0);
       if (input.pressed('vault')) I.jump = true;
-      if (input.mouseClicked(0)) I.mark = true;
+      if (input.mouseClicked(0) || input.mouseClicked(1) || input.pressed('mark')) I.mark = true;
       d.yaw -= m.dx * sens;
       d.pitch = clamp(d.pitch - m.dy * sens * inv, -0.75, 0.6);
     } else if (this.mode === 'cams' && this.cam && this.lostT <= 0) {
       this.cam.look(-m.dx * sens * 0.8, -m.dy * sens * inv * 0.8);
       if (input.pressed('left')) this.cycleCam(-1);
       if (input.pressed('right')) this.cycleCam(1);
-      if (input.mouseClicked(0)) { const r = this.getRecon(); if (r) r.mark(this.cam, myTeam, this.getPlayer()); }
+      if (input.mouseClicked(0) || input.mouseClicked(1) || input.pressed('mark')) { const r = this.getRecon(); if (r) r.mark(this.cam, myTeam, this.getPlayer()); }
     }
     return m;
   }
@@ -108,13 +108,13 @@ export class FeedController {
     if (this.mode === 'drone' && this.drone) {
       title = this.piloting ? 'Dron' : `Dron de ${this.drone.owner.name}`;
       sub = `<i class="rec"></i>${info.dronesLeft !== undefined ? `En directo · ${info.dronesLeft} de reserva` : 'En directo'}`;
-      keys = this.piloting ? `WASD mover · Espacio saltar · Clic marcar${info.canExit ? ' · 5 volver' : ''}` : 'Clic para cambiar de dron';
+      keys = this.piloting ? `WASD mover · Espacio saltar · Clic/T marcar${info.canExit ? ' · 5 volver' : ''}` : 'Clic para cambiar de dron';
     } else if (cams && this.cam) {
       const recon = this.getRecon();
       const list = recon ? recon.cams : [];
       title = `Cámara ${list.indexOf(this.cam) + 1} · ${this.cam.name}`;
       sub = '<i class="rec"></i>Seguridad';
-      keys = 'A/D cambiar de cámara · Clic marcar · 5 volver';
+      keys = 'A/D cambiar de cámara · Clic/T marcar · 5 volver';
     }
     if (info.objective !== undefined) status = info.objective;
     this._set('t', this.el.title, title, true);

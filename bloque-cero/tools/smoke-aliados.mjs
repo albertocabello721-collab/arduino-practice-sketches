@@ -1,4 +1,5 @@
-// Prueba de humo en el navegador de las ayudas de equipo: capa de depuración (P).
+// Prueba de humo en el navegador de las ayudas de equipo: capa de depuración (P) y
+// marcar con T (marca de posición y enemigo marcado).
 // Uso: node tools/smoke-aliados.mjs <carpeta de capturas>
 import { createRequire } from 'node:module';
 import path from 'node:path';
@@ -40,15 +41,56 @@ const dbg = await page.evaluate(() => {
 });
 console.log('depuración:', JSON.stringify(dbg));
 await shot('a1_depuracion', 600);
-// la acción con la capa encendida: el ataque entra
-await ticks(60 * 45);
+
+// ---------------- 2) T: marca de posición (preparación) y enemigo marcado (acción)
+await page.evaluate(() => { const bc = window.__bc; const p = bc.player.body.pos; bc.place(p.x, p.y, p.z, bc.player.yaw, -0.25); });
+await ticks(2);
+await page.keyboard.press('KeyT');
+await page.waitForFunction(() => window.__bc.match.recon.pings.size > 0, null, { timeout: 20000 }).catch(() => {});
+await page.waitForTimeout(800);
+const pingInfo = await page.evaluate(() => {
+  const bc = window.__bc, m = bc.match, pg = m.recon.pingOf(0, bc.player);
+  const mk = [...document.querySelectorAll('#markers .mk.ping')].filter((e) => e.style.display !== 'none').map((e) => e.textContent);
+  return { ping: pg && { x: +pg.x.toFixed(2), y: +pg.y.toFixed(2), z: +pg.z.toFixed(2), vence: +(pg.until - m.time).toFixed(1) }, marcadores: mk };
+});
+console.log('marca de posición:', JSON.stringify(pingInfo));
+await shot('a2_marca_posicion', 400);
+await ticks(60 * 42);
+const marked = await page.evaluate(() => {
+  const bc = window.__bc, m = bc.match;
+  const foe = m.game.operators.find((o) => o.team === 1 && o.state === 'alive');
+  if (!foe) return null;
+  const p = foe.body.pos;
+  // detrás del enemigo, a 5 m, mirándolo
+  const bx = p.x + Math.sin(foe.yaw) * 5, bz = p.z + Math.cos(foe.yaw) * 5;
+  bc.place(bx, p.y, bz, foe.yaw, 0);
+  return foe.name;
+});
+await page.evaluate(() => {
+  const bc = window.__bc, m = bc.match, me = bc.player;
+  const foe = m.game.operators.find((o) => o.team === 1 && o.state === 'alive');
+  const e = me.eyePos(), c = foe.center();
+  me.yaw = Math.atan2(-(c.x - e.x), -(c.z - e.z)); me.pitch = Math.atan2(c.y - e.y, Math.hypot(c.x - e.x, c.z - e.z));
+});
+await page.keyboard.press('KeyT');
+await page.waitForTimeout(700);
+const spotted = await page.evaluate(() => {
+  const bc = window.__bc, m = bc.match;
+  const list = [...m.recon.spotted.entries()].filter(([, s]) => s.team === 0).map(([op]) => op.name);
+  const mk = [...document.querySelectorAll('#markers .mk.spot')].filter((e) => e.style.display !== 'none').map((e) => e.textContent);
+  return { marcados: list, marcadores: mk, puntos: m.humanSlot.stats.marks };
+});
+console.log('enemigo marcado con T:', marked, JSON.stringify(spotted));
+await shot('a3_enemigo_marcado', 300);
+
+// la acción con la capa encendida
 await page.evaluate(() => {
   const bc = window.__bc, m = bc.match;
   const foe = m.game.operators.find((o) => o.team === 1 && o.state === 'alive');
   if (foe) { const p = foe.body.pos; bc.place(p.x + Math.sin(foe.yaw) * 3, p.y, p.z + Math.cos(foe.yaw) * 3, foe.yaw, -0.2); }
 });
 await ticks(60 * 12);
-await shot('a2_depuracion_accion', 1500);
+await shot('a4_depuracion_accion', 1500);
 const dbg2 = await page.evaluate(() => ({ stats: { ...window.__bc.debug.stats }, labels: [...document.querySelectorAll('#dbg .dl')].filter((e) => e.style.display !== 'none').map((e) => e.textContent).slice(0, 6) }));
 console.log('depuración en la acción:', JSON.stringify(dbg2));
 await page.keyboard.press('KeyP');

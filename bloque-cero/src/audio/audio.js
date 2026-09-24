@@ -554,6 +554,9 @@ export class AudioEngine {
     if (kind === 'mark') {
       this._tone(g, t, { f0: 1760, f1: 1750, a: 0.002, peak: 0.4, d: 0.06, type: 'square' });
       this._tone(g, t + 0.08, { f0: 2350, f1: 2340, a: 0.002, peak: 0.35, d: 0.09, type: 'square' });
+    } else if (kind === 'ping') {
+      this._tone(g, t, { f0: 1320, f1: 1310, a: 0.004, peak: 0.3, d: 0.08, type: 'triangle' });
+      this._tone(g, t + 0.07, { f0: 1760, f1: 1750, a: 0.004, peak: 0.28, d: 0.12, type: 'triangle' });
     } else if (kind === 'objective') {
       this._tone(g, t, { f0: 880, f1: 880, a: 0.01, peak: 0.35, d: 0.15, type: 'triangle' });
       this._tone(g, t + 0.14, { f0: 1320, f1: 1320, a: 0.01, peak: 0.35, d: 0.3, type: 'triangle' });

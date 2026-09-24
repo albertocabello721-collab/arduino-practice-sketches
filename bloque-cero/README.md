@@ -108,6 +108,10 @@ Reglas de Siege, contra bots:
   defensa empieza a inutilizarlo, todos acuden.
 - **Equipo**: reaniman al compañero derribado cuando no hay enemigos a la vista (uno por
   derribado) y rematan a los derribados enemigos cuando no queda nadie en pie a la vista.
+- **Marcar (T o botón central)**: si miras a un enemigo (hasta 40 m), queda marcado 6 s para
+  tu equipo, entra en la memoria de los bots aliados y suma 10 puntos. Si no, pones una marca de
+  posición amarilla donde miras (hasta 60 m, 15 s, una por jugador). En el dron y en las
+  cámaras, T marca igual que el clic.
 - **Depuración (P)**: puntos de la rejilla de navegación a menos de 14 m (verde de pie,
   amarillo solo agachado, magenta barricada por romper, azul pie de escalera), la ruta que
   sigue cada bot, su cono de visión de 100° (rojo si tiene a alguien a tiro) y una etiqueta
@@ -128,6 +132,7 @@ Reglas de Siege, contra bots:
 | F | Reforzar, poner barricada, plantar / inutilizar el desactivador, reanimar (mantener) / presionar la herida si estás derribado |
 | V | Golpe cuerpo a cuerpo (rompe barricadas y pladur) |
 | 5 | Dron (ataque) / cámaras (defensa) |
+| T / botón central | Marcar al enemigo que miras (6 s para tu equipo) o poner una marca de posición (15 s) |
 | Tab | Marcador |
 | Clic / Espacio | (Muerto) cambiar de compañero observado |
 | G | (Campo de pruebas) carga de brecha en la pared que miras |
