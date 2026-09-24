@@ -317,7 +317,7 @@ test('partidas 5v5 solo con bots: terminan por combate o plantado, nadie se atas
   settle();
   const reasons = {};
   let rounds = 0, plants = 0, kills = 0, maxStill = 0, aiMs = 0, ticks = 0;
-  for (const seed of [2, 5]) {
+  for (const seed of [2, 5, 1]) {
     const m = new Match({ world, map, seed, rules: { selectTime: 0, roundEndTime: 0.2 }, human: false });
     const bots = new BotSquad(m, 'normal', { nav });
     m.on('roundStart', () => bots.reset());

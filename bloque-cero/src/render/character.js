@@ -199,14 +199,14 @@ function addWeapon(b, bone, model) {
     else { A(Box(0.03, 0.035, model === 'mpistol' ? 0.2 : 0.18), [0, 0.025, -0.07]); if (model === 'mpistol') A(Box(0.025, 0.12, 0.03), [0, -0.1, 0.0], dark); }
     return;
   }
-  const long = { ar: 0.62, ar2: 0.68, smg: 0.48, smg2: 0.42, lmg: 0.78, dmr: 0.85, shotgun: 0.74, shotgun2: 0.7 }[model] || 0.6;
+  const long = { ar: 0.62, ar2: 0.68, smg: 0.48, smg2: 0.42, lmg: 0.78, dmr: 0.85, shotgun: 0.74 }[model] || 0.6;
   A(Box(0.05, 0.075, 0.3), [0, 0.03, -0.1]);                                   // cajón
   A(Box(0.055, 0.06, long * 0.36), [0, 0.03, -0.25 - long * 0.18], poly);     // guardamanos
   A(Cyl(0.011, 0.011, long * 0.4, 8), [0, 0.04, -0.3 - long * 0.36], dark, [Math.PI / 2, 0, 0]);  // cañón
   A(Box(0.035, 0.1, 0.045), [0, -0.045, 0.02], poly, [-0.25, 0, 0]);          // empuñadura
   A(Box(0.045, 0.07, 0.22), [0, 0.01, 0.18], poly);                           // culata
   if (model === 'lmg') { A(Box(0.1, 0.1, 0.12), [-0.02, -0.04, -0.12], dark); A(Cyl(0.006, 0.006, 0.25, 5), [0.03, -0.08, -0.55], dark, [0.8, 0, 0]); }
-  else if (model === 'shotgun' || model === 'shotgun2') A(Cyl(0.017, 0.017, 0.3, 8), [0, 0.0, -0.3], poly, [Math.PI / 2, 0, 0]);
+  else if (model === 'shotgun') A(Cyl(0.017, 0.017, 0.3, 8), [0, 0.0, -0.3], poly, [Math.PI / 2, 0, 0]);
   else A(Box(0.03, 0.13, 0.055), [0, -0.07, -0.09], dark, [0.15, 0, 0]);       // cargador
   if (model === 'dmr' || model === 'ar2') A(Cyl(0.02, 0.02, 0.16, 10), [0, 0.1, -0.06], dark, [Math.PI / 2, 0, 0]);  // visor
   else A(Box(0.04, 0.05, 0.06), [0, 0.1, -0.05], dark);                       // mira holográfica

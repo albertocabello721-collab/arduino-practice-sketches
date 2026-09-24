@@ -4,10 +4,12 @@
 // (vivo → derribado con sangrado → muerto). Recibe "intenciones" cada tick
 // (del teclado o de la IA) y emite eventos para render, audio e IA.
 import { Body, STANCES, stepBody, tryResize, findVault, woodInVault, boxFree } from './physics.js';
-import { WeaponState, WEAPONS } from './weapons.js';
+import { WeaponState, WEAPONS, recoilPattern, BURST } from './weapons.js';
 import { makePoseState, computePose, BONE_COUNT } from './skeleton.js';
 import { clamp, damp, DEG } from '../core/math.js';
 import { SOUND } from '../world/materials.js';
+
+const RECOVER = 0.7;     // parte del retroceso no compensado que se recupera al dejar de disparar
 
 export const LEAN_DIST = 0.38;      // desplazamiento lateral de la cabeza al asomarse (m)
 const VAULT_WOOD_MAX = 14;          // astillas de barricada que se arrastran al saltar (una entera tiene ~40 en el pasillo)
@@ -54,6 +56,8 @@ export class Operator {
     this.weapons = loadout.map((k) => new WeaponState(WEAPONS[k]));
     this.weaponIndex = 0;
     this.recoilPending = { pitch: 0, yaw: 0 };
+    this.recoilOffset = { pitch: 0, yaw: 0 };   // retroceso aún no compensado (se recupera al dejar de disparar)
+    this.sinceShot = 9;
     this.stepDist = 0;
     this.moveSpeed = 0;
     // combate
@@ -338,6 +342,17 @@ export class Operator {
     this.pitch = clamp(this.pitch + rp, -1.52, 1.52);
     this.yaw += ry;
     this.recoilPending.pitch -= rp; this.recoilPending.yaw -= ry;
+    this.recoilOffset.pitch += rp; this.recoilOffset.yaw += ry;
+    // recuperación: al dejar de disparar, la vista vuelve buena parte del camino
+    this.sinceShot += dt;
+    if (this.sinceShot > 0.12 && (this.recoilOffset.pitch || this.recoilOffset.yaw)) {
+      const kr = 1 - Math.exp(-dt * 7);
+      const bp = this.recoilOffset.pitch * kr, by = this.recoilOffset.yaw * kr;
+      this.pitch = clamp(this.pitch - bp * RECOVER, -1.52, 1.52);
+      this.yaw -= by * RECOVER;
+      this.recoilOffset.pitch -= bp; this.recoilOffset.yaw -= by;
+      if (Math.abs(this.recoilOffset.pitch) < 1e-4 && Math.abs(this.recoilOffset.yaw) < 1e-4) { this.recoilOffset.pitch = 0; this.recoilOffset.yaw = 0; }
+    }
 
     if (w.cooldown > 0) w.cooldown -= dt;
     if (w.equipT > 0) w.equipT -= dt;
@@ -360,22 +375,40 @@ export class Operator {
       if (cw.startReload()) { this.ads = Math.min(this.ads, 0.3); game.emit('reload', this, cw); }
     }
     I.reload = false;
+    if (I.fireMode) { I.fireMode = false; if ((cw.def.modes || []).length > 1) game.emit('fireMode', this, cw, cw.cycleMode()); }
     const canFire = !busy && cw.ready && !this.sprinting;
-    if (!I.fire) { cw.triggerHeld = false; cw.shotsInBurst = 0; }
-    if (I.fire && canFire) {
+    const burstOn = cw.burstLeft > 0;
+    if (!I.fire) { cw.triggerHeld = false; if (!burstOn) cw.shotsInBurst = 0; }
+    if ((I.fire || burstOn) && canFire) {
       if (cw.ammo <= 0) {
+        cw.burstLeft = 0;
         if (!cw.triggerHeld) { game.emit('dryfire', this, cw); cw.triggerHeld = true; if (cw.reserve > 0 && cw.startReload()) game.emit('reload', this, cw); }
         return;
       }
-      if (!cw.def.auto && cw.triggerHeld) return;
+      // tiro a tiro y ráfaga: hay que soltar el gatillo entre disparos (o entre ráfagas)
+      if (!burstOn && cw.triggerHeld && cw.mode !== 'auto') return;
       const interval = 60 / cw.def.rpm;
       if (cw.cooldown <= 0) {
         cw.cooldown += interval;
         if (cw.cooldown < 0) cw.cooldown = interval * 0.5;
-        cw.triggerHeld = true;
+        if (!burstOn && cw.mode === 'burst') cw.burstLeft = BURST;
+        if (I.fire) cw.triggerHeld = true;
         this._shoot(game, cw);
+        if (cw.burstLeft > 0) cw.burstLeft--;
       }
-    } else if (cw.cooldown < 0) cw.cooldown = 0;
+    } else {
+      if (cw.cooldown < 0) cw.cooldown = 0;
+      if (!canFire) cw.burstLeft = 0;
+    }
+  }
+
+  /** El jugador tira del ratón contra el retroceso: lo compensado ya no se recupera. */
+  compensateRecoil(dPitch, dYaw) {
+    const o = this.recoilOffset;
+    if (o.pitch > 0 && dPitch < 0) o.pitch = Math.max(0, o.pitch + dPitch);
+    else if (o.pitch < 0 && dPitch > 0) o.pitch = Math.min(0, o.pitch + dPitch);
+    if (o.yaw > 0 && dYaw < 0) o.yaw = Math.max(0, o.yaw + dYaw);
+    else if (o.yaw < 0 && dYaw > 0) o.yaw = Math.min(0, o.yaw + dYaw);
   }
 
   currentSpread() {
@@ -410,12 +443,16 @@ export class Operator {
       dir.x /= l; dir.y /= l; dir.z /= l;
       results.push(game.fireBullet(this, eye, { x: dir.x, y: dir.y, z: dir.z }, w));
     }
-    const first = w.shotsInBurst === 1 ? d.recoilFirst : 1;
+    // retroceso: patrón fijo del arma + un poco de azar (agachado −10 %, tumbado −20 %)
+    const pat = recoilPattern(d, w.shotsInBurst - 1), R = d.recoil || { h: 0.3, jitter: 0.1 };
     const adsK = 1 - this.ads * 0.25;
-    const stanceK = this.stance === 'crouch' ? 0.85 : this.stance === 'prone' ? 0.7 : 1;
+    const stanceK = this.stance === 'crouch' ? 0.9 : this.stance === 'prone' ? 0.8 : 1;
     const ctrl = this.recoilControl || 0; // los bots compensan parte del retroceso
-    this.recoilPending.pitch += d.recoilUp * DEG * first * adsK * stanceK * (1 - ctrl);
-    this.recoilPending.yaw += (game.rng.next() - 0.4) * d.recoilSide * DEG * adsK * stanceK * (1 - ctrl * 0.6);
+    const kickUp = pat.up * (1 + (game.rng.next() - 0.5) * 2 * R.jitter);
+    const kickSide = pat.side + (game.rng.next() - 0.5) * 2 * R.jitter * R.h;
+    this.recoilPending.pitch += kickUp * DEG * adsK * stanceK * (1 - ctrl);
+    this.recoilPending.yaw -= kickSide * DEG * adsK * stanceK * (1 - ctrl * 0.6);   // lado > 0: hacia la derecha
+    this.sinceShot = 0;
     w.bloom = Math.min(4, w.bloom + d.bloom);
     game.emit('shot', this, w, eye, fwd, results);
   }

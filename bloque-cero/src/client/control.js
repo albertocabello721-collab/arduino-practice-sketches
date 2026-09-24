@@ -42,6 +42,7 @@ export class PlayerControl {
     I.ads = input.mouse.right;
     if (input.pressed('reload')) I.reload = true;
     if (input.pressed('melee')) I.melee = true;
+    if (input.pressed('fireMode')) I.fireMode = true;
     if (input.pressed('vault')) I.vault = true;
     if (input.pressed('primary')) I.switchTo = 0;
     if (input.pressed('secondary')) I.switchTo = 1;
@@ -51,8 +52,10 @@ export class PlayerControl {
     I.holdWound = op.state === 'downed' && input.isDown('interact');
     // mirar con el ratón (inmediato, fuera del tick fijo)
     const base = 0.0022 * settings.sensitivity * (1 - op.ads * (1 - settings.adsSensitivity / Math.max(1, op.weapon.def.adsZoom)));
-    op.yaw -= m.dx * base;
+    const dYaw = -m.dx * base, pitch0 = op.pitch;
+    op.yaw += dYaw;
     op.pitch = clamp(op.pitch - m.dy * base * (settings.invertY ? -1 : 1), -1.5, 1.5);
+    if (op.compensateRecoil) op.compensateRecoil(op.pitch - pitch0, dYaw);   // tirar contra el retroceso lo compensa
     return m;
   }
 }

@@ -47,7 +47,6 @@ const LONG = {
   lmg: { L: 1.18, mag: 'drum', optic: 'acog', stock: 'rifle', fore: 'thick', grip: false, bipod: true },
   dmr: { L: 1.3, mag: 'box', optic: 'scope', stock: 'rifle', fore: 'rail', grip: false },
   shotgun: { L: 1.12, mag: 'tube', optic: 'bead', stock: 'wood', fore: 'pump', grip: false },
-  shotgun2: { L: 1.06, mag: 'tube', optic: 'reddot', stock: 'rifle', fore: 'pump', grip: false },
 };
 
 // Construye un arma apuntando hacia -Z con la mira en (0, sightY, *).
@@ -70,7 +69,7 @@ function buildGun(kind) {
       for (let i = 0; i < 4; i++) box(0.066, 0.012, 0.03, M.gunDark, 0, 0.052, foreZ + foreLen / 2 - 0.03 - i * foreLen / 4.5, g);
     }
     const barLen = 0.2 * L + (kind === 'dmr' ? 0.12 : 0);
-    cyl(kind === 'shotgun' || kind === 'shotgun2' ? 0.016 : 0.011, barLen, M.steel, 0, P.fore === 'pump' ? 0.045 : 0.035, foreZ - foreLen / 2 - barLen / 2 + 0.02, g);
+    cyl(kind === 'shotgun' ? 0.016 : 0.011, barLen, M.steel, 0, P.fore === 'pump' ? 0.045 : 0.035, foreZ - foreLen / 2 - barLen / 2 + 0.02, g);
     const muzZ = foreZ - foreLen / 2 - barLen + 0.02;
     box(0.03, 0.03, 0.06, M.gunDark, 0, P.fore === 'pump' ? 0.045 : 0.035, muzZ - 0.02, g);   // bocacha
     // empuñadura y cargador
@@ -173,7 +172,7 @@ export class ViewModel {
     this.root = new THREE.Group();
     this.scene.add(this.root);
     this.guns = {};
-    for (const k of ['ar', 'ar2', 'smg', 'smg2', 'lmg', 'dmr', 'shotgun', 'shotgun2', 'pistol', 'revolver', 'mpistol']) {
+    for (const k of ['ar', 'ar2', 'smg', 'smg2', 'lmg', 'dmr', 'shotgun', 'pistol', 'revolver', 'mpistol']) {
       const g = buildGun(k);
       g.group.visible = false;
       this.root.add(g.group);
@@ -215,7 +214,7 @@ export class ViewModel {
 
   onShot() {
     const s = this.state;
-    const heavy = this.current === 'shotgun' || this.current === 'shotgun2' || this.current === 'revolver' || this.current === 'dmr';
+    const heavy = this.current === 'shotgun' || this.current === 'revolver' || this.current === 'dmr';
     s.kick = Math.min(1.4, s.kick + (heavy ? 1.2 : this.current === 'pistol' ? 0.8 : 0.45));
     s.kickRot += (Math.random() - 0.5) * 0.03;
     s.flashT = 0.045;

@@ -87,7 +87,7 @@ export const OPERATORS = [
   },
   {
     id: 'cepo', name: 'CEPO', side: 'def', armor: 2, color: '#c7493f',
-    primaries: ['smg2', 'shotgun2'], secondaries: ['pistol'],
+    primaries: ['smg2', 'shotgun'], secondaries: ['pistol'],
     ability: { id: 'trap', name: 'Trampa láser', count: 5, desc: 'Se fija en el marco de una puerta o ventana y explota al cruzar el láser.' },
     gadgets: ['nitro', 'impact'],
     look: { shirt: '#4a4f58', pants: '#4f545c', vest: '#3a3f47', helmet: '#30353c', gloves: '#222224', boots: '#1e1e20', skin: '#6e4a36', camo: 2, head: 'hood', face: 'mask' },
@@ -101,7 +101,7 @@ export const OPERATORS = [
   },
   {
     id: 'ojo', name: 'OJO', side: 'def', armor: 2, color: '#3db0e0',
-    primaries: ['smg', 'shotgun2'], secondaries: ['revolver'],
+    primaries: ['smg', 'shotgun'], secondaries: ['revolver'],
     ability: { id: 'stickycam', name: 'Cámara adhesiva', count: 3, desc: 'Lanza cámaras que se pegan a cualquier superficie para vigilar los accesos.' },
     gadgets: ['nitro', 'impact'],
     look: { shirt: '#2f3540', pants: '#343a45', vest: '#454a52', helmet: '#1f2328', gloves: '#1b1b1d', boots: '#19191b', skin: '#b07c5c', camo: 0, head: 'cap', face: 'glasses' },
@@ -122,7 +122,7 @@ export const OPERATORS = [
   },
   {
     id: 'pulso', name: 'PULSO', side: 'def', armor: 1, color: '#e0457a',
-    primaries: ['smg2', 'shotgun2'], secondaries: ['revolver', 'pistol'],
+    primaries: ['smg2', 'shotgun'], secondaries: ['revolver', 'pistol'],
     ability: { id: 'heartbeat', name: 'Sensor de latidos', count: -1, desc: 'Detecta los latidos de los atacantes a través de paredes y suelos (9 m).' },
     gadgets: ['nitro', 'shield'],
     look: { shirt: '#383d47', pants: '#3d424c', vest: '#2b3039', helmet: '#20242a', gloves: '#1e1e20', boots: '#1b1b1d', skin: '#e3b596', camo: 0, head: 'helmet', face: 'goggles' },

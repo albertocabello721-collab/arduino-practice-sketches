@@ -79,11 +79,13 @@ export class Game extends Emitter {
     if (hitOp) {
       const pen = powerAt(plan, hitT, 1.0);
       const fall = falloffAt(d, hitT);
-      const dmg = d.damage * fall * pen * (hitZone === 'limb' ? LIMB_MUL : 1);
+      // cabeza: baja inmediata, salvo perdigones (×1,5); extremidades ×0,75
+      const pellet = d.pellets > 1;
+      const dmg = d.damage * fall * pen * (hitZone === 'limb' ? LIMB_MUL : hitZone === 'head' && pellet ? 1.5 : 1);
       res.damage = dmg;
       res.throughWall = pen < 0.999;
       if (op) op.stats.hits++;
-      this.damage(hitOp, dmg, { by: op, weapon: d, zone: hitZone, dir, point, throughWall: res.throughWall });
+      this.damage(hitOp, dmg, { by: op, weapon: d, zone: hitZone, dir, point, throughWall: res.throughWall, canHeadshot: !pellet });
     }
     this.emit('bullet', op, res);
     if (destroyed.length) this.emit('voxels', destroyed, 'bullet', point, dir);

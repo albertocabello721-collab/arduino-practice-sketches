@@ -15,7 +15,7 @@ import { breachRect, explodeSphere } from '../world/destruction.js';
 import { MATS, SOLID } from '../world/materials.js';
 
 const SPAWN = { x: 15.5, y: 0, z: -4.5, yaw: Math.PI };
-const LOADOUTS = [['ar', 'pistol', 'shotgun', 'smg'], ['ar2', 'revolver', 'lmg', 'dmr'], ['smg2', 'mpistol', 'shotgun2', 'ar']];
+const LOADOUTS = [['ar', 'pistol', 'shotgun', 'smg'], ['ar2', 'revolver', 'lmg', 'dmr'], ['smg2', 'mpistol', 'shotgun', 'ar']];
 
 export class RangeSession extends Session {
   constructor(ctx) {

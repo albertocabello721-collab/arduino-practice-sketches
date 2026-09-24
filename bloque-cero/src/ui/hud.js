@@ -1,4 +1,5 @@
 // HUD táctico (DOM). Solo escribe en el DOM cuando cambia un valor.
+import { FIRE_MODE_NAME } from '../sim/weapons.js';
 const STANCE_NAME = { stand: 'De pie', crouch: 'Agachado', prone: 'Cuerpo a tierra' };
 const RANGE_HINTS = '<b>Campo de pruebas:</b> maniquís dentro de la villa (uno dispara). <kbd>F</kbd> refuerza la pared que miras, pone barricadas y reanima (<kbd>J</kbd> derriba a tu compañero). <kbd>V</kbd> golpe, <kbd>5</kbd> dron, <kbd>G</kbd> boquete, <kbd>K</kbd> reinicia, <kbd>1</kbd>–<kbd>4</kbd> armas, <kbd>L</kbd> arsenal.';
 const MATCH_HINTS = '<b>Partida:</b> el ataque planta el desactivador en A o B (mantén <kbd>F</kbd> dentro del sitio, 7 s); la defensa lo inutiliza (<kbd>F</kbd> junto a él). <kbd>F</kbd> también reanima. <kbd>T</kbd> marca al enemigo que miras o pone una marca de posición. Mantén <kbd>H</kbd> para dar órdenes a tus aliados. <kbd>Tab</kbd> marcador.';
@@ -86,7 +87,7 @@ export class HUD {
     const low = w.ammo <= Math.ceil(d.mag * 0.25);
     this.set('ammo', this.el.ammo, `${w.ammo}<small>${w.reserve}</small>`, 'html');
     this.el.ammo.classList.toggle('low', low);
-    this.set('wname', this.el.wname, `${d.name} · ${d.kind}`);
+    this.set('wname', this.el.wname, `${d.name} · ${(d.modes || []).length > 1 ? FIRE_MODE_NAME[w.mode] : d.kind}`);
     let st = '';
     if (w.reloadT > 0) st = 'Recargando';
     else if (w.equipT > 0) st = 'Desenfundando';

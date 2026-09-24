@@ -12,15 +12,43 @@ Es un único archivo HTML autónomo: no necesita servidor ni conexión.
 | Fase | Contenido | Estado |
 | --- | --- | --- |
 | F1 | Motor de vóxeles, mapa Villa, materiales PBR, iluminación, movimiento FPS, asomarse, disparos que agujerean | ✅ |
-| F2 | Operadores tácticos, zonas de impacto, derribo con sangrado, reanimación, arsenal de 11 armas | ✅ |
+| F2 | Operadores tácticos, zonas de impacto, derribo con sangrado, reanimación, arsenal | ✅ |
 | F3 | Rondas 5v5, 3 ubicaciones de sitios (los defensores eligen), desactivador, HUD con reloj y 10 retratos | ✅ |
 | F4 | Preparación: refuerzos, barricadas, trampillas, drones, cámaras, cuerpo a cuerpo | ✅ |
 | F5 | Bots: navegación, percepción, combate, tácticas por bando, órdenes (H), marcas (T), chat de equipo, depuración (P) | ✅ |
-| F6 | Operadores 8 + 8 y contrajuego de gadgets | pendiente |
+| F6 | Operadores 8 + 8 y contrajuego de gadgets | en curso: arsenal del documento ✅ |
 | F7 | Animaciones en primera y tercera persona | pendiente |
 | F8 | Recarga por partes | pendiente |
 | F9 | Audio 3D con oclusión | pendiente |
 | F10 | Pulido, pruebas de partidas completas y publicación | pendiente |
+
+## Arsenal (Fase 6)
+
+Las 10 armas de la tabla del documento:
+
+| Arma | Tipo | Daño | Cadencia | Cargador | Recarga táctica / vacía |
+| --- | --- | --- | --- | --- | --- |
+| FA-7 Halcón | Fusil de asalto | 44 | 780 | 30+1 | 2,4 / 3,1 s |
+| FA-9 Lince | Fusil de asalto | 39 | 860 | 30+1 | 2,3 / 3,0 s |
+| SF-45 Avispa | Subfusil | 33 | 870 | 30+1 | 2,1 / 2,8 s |
+| SF-9 Mamba | Subfusil | 27 | 950 | 40+1 | 2,2 / 2,9 s |
+| E-12 Toro | Escopeta de bombeo | 8 × 22 | 70 | 7 | 0,55 s por cartucho |
+| T-308 Búho | Tirador semiautomático | 67 | 380 | 10+1 | 2,6 / 3,3 s |
+| AL-60 Oso | Ametralladora ligera | 47 | 700 | 80 | 5,0 s |
+| P-9 Colibrí | Pistola | 42 | tiro a tiro | 15+1 | 1,6 / 2,1 s |
+| R-44 Tejón | Revólver | 70 | tiro a tiro | 6 | 2,8 s |
+| PA-3 Tábano | Pistola ametralladora | 22 | 1100 | 20+1 | 1,9 / 2,4 s |
+
+- Cabeza: baja inmediata (los perdigones, ×1,5); torso ×1; extremidades ×0,75.
+- Caída de daño: fusiles 100 % hasta 25 m y 75 % desde 35 m; subfusiles de 20 a 30 m;
+  escopetas de 5 a 15 m hasta el 30 %.
+- Penetración: una pared blanda o una barricada deja pasar el 70 % del daño; un mueble de
+  madera, el 80 %; hormigón, metal y muros reforzados la paran.
+- Retroceso con patrón fijo por arma: los 3 primeros disparos casi verticales y luego una
+  deriva a izquierda y derecha que se puede aprender, con un poco de azar. Al dejar de
+  disparar la vista recupera el 70 % de lo que no hayas compensado tirando del ratón.
+  Agachado −10 %, tumbado −20 %.
+- Modos de disparo con **B**: automático, ráfaga de 3 y tiro a tiro según el arma.
 
 ## Partida rápida 5v5 (Fase 3)
 
@@ -154,6 +182,7 @@ Reglas de Siege, contra bots:
 | Espacio | Saltar obstáculo (alféizares, mesas, muros bajos) |
 | Clic / clic derecho | Disparar / apuntar |
 | R | Recargar |
+| B | Modo de disparo (automático, ráfaga, tiro a tiro) |
 | 1–4, rueda | Cambiar de arma |
 | F | Reforzar, poner barricada, plantar / inutilizar el desactivador, reanimar (mantener) / presionar la herida si estás derribado |
 | V | Golpe cuerpo a cuerpo (rompe barricadas y pladur) |

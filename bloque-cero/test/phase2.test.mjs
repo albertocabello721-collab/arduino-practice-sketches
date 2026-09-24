@@ -131,10 +131,18 @@ test('sin fuego amigo: la bala no daña a compañeros', () => {
   assert.equal(f.hp, f.maxHp);
 });
 
-test('la caída de daño con la distancia se aplica', () => {
+test('la caída de daño con la distancia se aplica (tabla del documento)', () => {
+  // fusiles: 100 % hasta 25 m, 75 % desde 35 m
   assert.equal(falloffAt(WEAPONS.ar, 10), 1);
-  assert.ok(falloffAt(WEAPONS.ar, 60) < 0.75);
-  assert.ok(falloffAt(WEAPONS.shotgun, 20) < 0.5);
+  assert.equal(falloffAt(WEAPONS.ar, 25), 1);
+  assert.equal(falloffAt(WEAPONS.ar, 35), 0.75);
+  assert.equal(falloffAt(WEAPONS.ar, 60), 0.75);
+  // subfusiles: de 20 a 30 m
+  assert.equal(falloffAt(WEAPONS.smg, 20), 1);
+  assert.ok(falloffAt(WEAPONS.smg, 30) < 0.75);
+  // escopetas: de 5 a 15 m, hasta el 30 %
+  assert.equal(falloffAt(WEAPONS.shotgun, 5), 1);
+  assert.equal(falloffAt(WEAPONS.shotgun, 20), 0.3);
 });
 
 test('el maniquí tirador dispara al jugador cuando lo ve', async () => {
