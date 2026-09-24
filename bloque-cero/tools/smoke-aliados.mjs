@@ -1,6 +1,7 @@
 // Prueba de humo en el navegador de las ayudas de equipo: capa de depuración (P),
 // marcar con T (marca de posición y enemigo marcado), chat de equipo con voz y rueda de
-// órdenes H (Seguirme, Ir a mi marca).
+// órdenes H (Seguirme, Ir a mi marca) y reglas de edificio (no salir en la preparación,
+// anti run-out).
 // Uso: node tools/smoke-aliados.mjs <carpeta de capturas>
 import { createRequire } from 'node:module';
 import path from 'node:path';
@@ -44,6 +45,15 @@ const dbg = await page.evaluate(() => {
 });
 console.log('depuración:', JSON.stringify(dbg));
 await shot('a1_depuracion', 600);
+
+// ---------------- 1b) preparación: la defensa no puede salir (pared invisible en la puerta principal)
+const home = await page.evaluate(() => { const p = window.__bc.player; return { x: p.body.pos.x, y: p.body.pos.y, z: p.body.pos.z, yaw: p.yaw }; });
+await page.evaluate(() => window.__bc.place(15.5, 0.01, 1.2, 0, 0));
+await ticks(60 * 3, 'bc.player.intent.moveZ = 1;');
+const wall = await page.evaluate(() => { const bc = window.__bc, p = bc.player.body.pos; return { z: +p.z.toFixed(2), fuera: bc.map.isOutside(p.x, p.y, p.z), aviso: document.getElementById('toast').textContent }; });
+console.log('pared invisible:', JSON.stringify(wall));
+await page.evaluate((h) => { window.__bc.player.intent.moveZ = 0; window.__bc.place(h.x, h.y, h.z, h.yaw, 0); }, home);
+await ticks(2);
 
 // ---------------- 2) T: marca de posición (preparación) y enemigo marcado (acción)
 await page.evaluate(() => { const bc = window.__bc; const p = bc.player.body.pos; bc.place(p.x, p.y, p.z, bc.player.yaw, -0.25); });
@@ -96,6 +106,25 @@ const go = await page.evaluate(() => {
 });
 console.log('ir a mi marca:', JSON.stringify(go));
 await ticks(60 * 20);
+// ---------------- 3b) anti run-out: fuera más de 5 s en la acción (el ataque, quieto un momento)
+await page.waitForFunction(() => window.__bc.match.phase !== 'prep', null, { timeout: 60000 }).catch(() => {});
+const ro = await page.evaluate(() => {
+  const bc = window.__bc, m = bc.match, me = bc.player;
+  if (m.phase !== 'action' || me.state !== 'alive') return { omitido: m.phase + '/' + me.state };
+  const atk = m.opsOfSide('atk').filter((o) => o.state === 'alive');
+  for (const o of atk) o.frozen = true;
+  const back = { x: me.body.pos.x, y: me.body.pos.y, z: me.body.pos.z, yaw: me.yaw };
+  bc.place(-10, 0.01, 13, 0, 0);
+  const at = [];
+  for (let i = 0; i < 60 * 5.6; i++) { bc.session.tick(1 / 60); if (i === 60 * 3) at.push(bc.session.promptText || ''); }
+  bc.session.frame(0.016);
+  at.push(bc.session.promptText || '');
+  const r = { detectado: m.recon.isSpottedFor(me, m.teamOfSide('atk')), avisos: at, chat: [...document.querySelectorAll('#chat .cl.sys')].map((e) => e.textContent) };
+  bc.place(back.x, back.y, back.z, back.yaw, 0);
+  for (const o of atk) o.frozen = false;
+  return r;
+});
+console.log('anti run-out:', JSON.stringify(ro));
 const marked = await page.evaluate(() => {
   const bc = window.__bc, m = bc.match;
   const foe = m.game.operators.find((o) => o.team === 1 && o.state === 'alive');

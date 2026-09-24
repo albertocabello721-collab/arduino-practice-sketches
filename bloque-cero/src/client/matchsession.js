@@ -168,6 +168,12 @@ export class MatchSession extends Session {
     });
     // radio de los aliados: al chat de equipo (y en voz, si está activada)
     onGame('radio', (op, text) => { if (op.team === this.myTeam) this.chat.push(op.name, text, { speak: true, voiceKey: op.name }); });
+    // reglas de edificio: pared invisible en la preparación y defensores detectados fuera
+    on('boundary', (op) => { if (op === this.player) { audio.ping('deny'); hud.toast('No puedes salir en la preparación', 1.4); } });
+    on('runout', (op) => {
+      if (op === this.player) { audio.ping('deny'); this.chat.push(null, 'Te han detectado fuera del edificio', { cls: 'sys' }); }
+      else if (this.mySide() === 'atk') { audio.ping('mark'); this.chat.push(null, `Defensor detectado fuera: ${op.name}`, { cls: 'sys' }); }
+    });
     // si te hieren mientras miras un dron o una cámara, vuelves a tu cuerpo
     onGame('damaged', (t) => { if (t === this.player && this.feed.active && m.phase !== 'prep') this.feed.exit(); });
   }
@@ -354,6 +360,10 @@ export class MatchSession extends Session {
           if (Math.hypot(p.body.pos.x - P.x, p.body.pos.z - P.z) < m.rules.disableRange && Math.abs(p.body.pos.y - P.y) < 1.2) prompt = 'Mantén F para inutilizar el desactivador';
         }
         if (!prompt && side === 'def') prompt = this.fortifyHud(m.fort, p);
+      }
+      // anti run-out: cuenta atrás mientras estás fuera del edificio
+      if (!prompt && side === 'def' && (m.phase === 'action' || m.phase === 'planted') && p.outT > 0) {
+        prompt = p.runout ? 'Detectado fuera del edificio' : `Fuera del edificio · te detectarán en ${Math.max(1, Math.ceil(m.rules.runoutTime - p.outT))} s`;
       }
     }
     this.promptText = prompt;

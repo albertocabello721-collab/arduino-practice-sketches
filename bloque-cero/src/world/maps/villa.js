@@ -300,11 +300,19 @@ export function buildVilla(world) {
     locationAt(x, y, z) {
       const r = b.roomAt(x, y, z);
       if (r) return r.name;
-      for (const zn of b.zones) if (x >= zn.x0 && x < zn.x1 && z >= zn.z0 && z < zn.z1 && y >= zn.y0 && y < zn.y1) return zn.name;
-      return 'Exterior';
+      const zn = zoneAt(b, x, y, z);
+      return zn ? zn.name : 'Exterior';
     },
     roomAt: (x, y, z) => b.roomAt(x, y, z),
+    // ¿Fuera del edificio? (en una zona exterior: jardines, calle, tejados, balcón, porche,
+    // acceso al sótano). Los pies en (x, y, z).
+    isOutside(x, y, z) { return !b.roomAt(x, y + 0.2, z) && !!zoneAt(b, x, y + 0.2, z); },
   };
+}
+
+function zoneAt(b, x, y, z) {
+  for (const zn of b.zones) if (x >= zn.x0 && x < zn.x1 && z >= zn.z0 && z < zn.z1 && y >= zn.y0 && y < zn.y1) return zn;
+  return null;
 }
 
 function normalize(v) { const l = Math.hypot(v[0], v[1], v[2]); return { x: v[0] / l, y: v[1] / l, z: v[2] / l }; }

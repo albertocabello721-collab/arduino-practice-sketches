@@ -15,6 +15,9 @@
 // la ronda decisiva sortea los bandos. Si el reloj llega a 0 mientras alguien planta, la
 // ronda sigue hasta que termine o lo interrumpan. Disparar al desactivador plantado lo
 // destruye (cuenta como inutilizarlo). El desactivador caído se recoge con F.
+// Edificio: en la preparación la defensa no puede salir (pared invisible en puertas y
+// ventanas); en la acción, un defensor que pasa más de 5 s fuera queda revelado para el
+// ataque mientras siga fuera («anti run-out»).
 import { Emitter } from '../core/events.js';
 import { RNG } from '../core/rng.js';
 import { Game } from './game.js';
@@ -37,6 +40,7 @@ export const RULES = {
   swapEvery: 3,
   pickupRange: 1.1,
   disableRange: 1.8,
+  runoutTime: 5,      // s fuera del edificio (defensa, en la acción) antes de quedar revelado
 };
 
 export const SCORE = { kill: 100, assist: 50, down: 50, revive: 50, plant: 100, disable: 100, mark: 10, reinforce: 10, gadget: 20 };
@@ -294,6 +298,7 @@ export class Match extends Emitter {
       return;
     }
     this.game.tick(dt);
+    if (this.phase === 'prep' || this.phase === 'action' || this.phase === 'planted') this._buildingTick(dt);
     if (this.phase === 'roundEnd') {
       this.timer -= dt;
       if (this.timer <= 0) this._afterRound();
@@ -326,6 +331,34 @@ export class Match extends Emitter {
       if (this.phase !== 'planted') return;
       if (this.aliveCount('def') === 0) { this._endRound('atk', 'defendersDown'); return; }
       if (this.timer <= 0) this._endRound('atk', 'defused');
+    }
+  }
+
+  // Reglas de edificio para la defensa (preparación: no salir; acción: anti run-out).
+  _buildingTick(dt) {
+    const map = this.map;
+    if (!map.isOutside) return;
+    const now = this.game.time, atkTeam = this.teamOfSide('atk');
+    for (const op of this.opsOfSide('def')) {
+      if (op.state === 'dead') { op.outT = 0; continue; }
+      const p = op.body.pos;
+      const out = map.isOutside(p.x, p.y, p.z);
+      if (this.phase === 'prep') {
+        op.outT = 0;
+        if (!out) { op.lastInside = { x: p.x, y: p.y, z: p.z }; continue; }
+        if (!op.lastInside) continue;
+        // pared invisible: de vuelta al último sitio de dentro
+        p.x = op.lastInside.x; p.y = op.lastInside.y; p.z = op.lastInside.z;
+        op.body.vel.x = 0; op.body.vel.z = 0;
+        if (now - (op.boundaryAt ?? -9) > 1.5) { op.boundaryAt = now; this.emit('boundary', op); }
+        continue;
+      }
+      if (!out) { op.outT = 0; op.runout = false; continue; }
+      op.outT = (op.outT || 0) + dt;
+      if (op.outT <= this.rules.runoutTime) continue;
+      if (!op.runout) { op.runout = true; this.emit('runout', op); }
+      // revelado para el ataque mientras siga fuera (sin puntos de marca para nadie)
+      this.recon.spotted.set(op, { until: now + 0.3, team: atkTeam, by: null, runout: true });
     }
   }
 

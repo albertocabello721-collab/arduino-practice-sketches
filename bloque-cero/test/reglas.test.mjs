@@ -1,12 +1,14 @@
 // Reglas de partida del documento (sección 6): desactivador que se recoge con F,
 // plantado que sigue con el reloj a 0, ronda decisiva con bandos al azar, puntuación,
-// desactivador que se destruye a balazos y ventanas que empiezan con barricada.
+// desactivador que se destruye a balazos, ventanas que empiezan con barricada y reglas
+// de edificio (la defensa no sale en la preparación; anti run-out en la acción).
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createVillaWorld, buildVilla } from '../src/world/maps/villa.js';
 import { TICK } from '../src/sim/game.js';
 import { Match, SCORE, DEFUSER_HP } from '../src/sim/match.js';
 import { MAT } from '../src/world/materials.js';
+import { BotSquad, navFor } from '../src/sim/bots.js';
 
 const world = createVillaWorld();
 const map = buildVilla(world);
@@ -160,4 +162,70 @@ test('las ventanas empiezan cada ronda con barricada', () => {
   const m = newMatch();
   toAction(m);
   assert.equal(inner(o), MAT.BARRICADE);
+});
+
+// ---------------------------------------------------------------- edificio
+test('preparación: la defensa no puede salir del edificio (pared invisible)', () => {
+  const m = newMatch({ rules: { prepTime: 30 } });
+  assert.equal(m.phase, 'prep');
+  const d = m.opsOfSide('def')[0];
+  const events = [];
+  m.on('boundary', (op) => events.push(op));
+  // dentro del recibidor, andando hacia el porche por la puerta principal
+  place(d, 15.5, 0.01, 1.2);
+  d.yaw = 0;                     // mirando a -z (hacia fuera)
+  let wasOut = 0;
+  for (let t = 0; t < 4; t += TICK) {
+    d.intent.moveZ = 1; d.intent.sprint = true;
+    m.tick(TICK);
+    if (map.isOutside(d.body.pos.x, d.body.pos.y, d.body.pos.z)) wasOut++;
+  }
+  assert.equal(wasOut, 0, 'nunca queda fuera al final de un tick');
+  assert.ok(d.body.pos.z > -0.6, `no ha cruzado la puerta (z=${d.body.pos.z.toFixed(2)})`);
+  assert.ok(events.length >= 1 && events[0] === d, 'aviso de límite');
+  // el ataque no tiene esa pared (está en su punto de aparición, bloqueado por la preparación)
+  assert.ok(m.opsOfSide('atk').every((o) => o.frozen));
+});
+
+test('acción: un defensor más de 5 s fuera queda revelado para el ataque mientras siga fuera', () => {
+  const m = newMatch({ rules: { actionTime: 120 } });
+  toAction(m);
+  const d = m.opsOfSide('def')[0], atkTeam = m.teamOfSide('atk');
+  const events = [];
+  m.on('runout', (op) => events.push(op));
+  place(d, 16, 0.01, -8);        // en el jardín delantero
+  assert.ok(map.isOutside(d.body.pos.x, d.body.pos.y, d.body.pos.z));
+  let t = 0;
+  while (t < 4.9) { d.intent.moveZ = 0; m.tick(TICK); t += TICK; }
+  assert.ok(!m.recon.isSpottedFor(d, atkTeam), 'a los 4,9 s aún no');
+  while (t < 5.2) { m.tick(TICK); t += TICK; }
+  assert.ok(m.recon.isSpottedFor(d, atkTeam), 'a los 5 s, revelado');
+  assert.equal(events.length, 1);
+  assert.equal(d.slot.stats.marks, 0, 'sin puntos de marca');
+  for (const a of m.opsOfSide('atk')) assert.equal(a.slot.stats.marks, 0);
+  // sigue revelado mientras siga fuera
+  for (let i = 0; i < 120; i++) m.tick(TICK);
+  assert.ok(m.recon.isSpottedFor(d, atkTeam));
+  // vuelve dentro: deja de estarlo enseguida y el contador se reinicia
+  place(d, 16, 0.01, 10);
+  for (let i = 0; i < 30; i++) m.tick(TICK);
+  assert.ok(!m.recon.isSpottedFor(d, atkTeam), 'dentro, ya no');
+  assert.equal(d.outT, 0);
+});
+
+test('preparación: los bots de la defensa hacen su trabajo sin intentar salir', () => {
+  const nav = navFor(world, map);
+  let tries = 0, fortified = 0;
+  for (const seed of [1, 2, 3]) {
+    const m = new Match({ world, map, seed, rules: { selectTime: 0, prepTime: 45, roundEndTime: 0.2 }, human: false, startSide: 'atk' });
+    const sq = new BotSquad(m, 'normal', { nav });
+    m.on('roundStart', () => sq.reset());
+    m.on('boundary', () => { tries++; });
+    m.start();
+    while (m.phase === 'select' || m.phase === 'prep') { sq.update(TICK); m.tick(TICK); }
+    fortified += m.fort.panels.length + m.fort.barricades.length;
+    sq.dispose();
+  }
+  assert.equal(tries, 0, 'ningún defensor bot choca con la pared invisible');
+  assert.ok(fortified >= 3 * 8, `refuerzos y barricadas puestos (${fortified})`);
 });

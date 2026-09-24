@@ -44,6 +44,10 @@ Reglas de Siege, contra bots:
   los bandos.
 - **Puntos**: baja 100, asistencia 50, derribo 50, reanimar 50, plantar 100, inutilizar 100,
   marcar 10, refuerzo 10, gadget enemigo destruido 20.
+- **Edificio**: en la preparación la defensa no puede salir (pared invisible en puertas y
+  ventanas; los bots ni lo intentan). En la acción, un defensor que pasa más de 5 s fuera queda
+  revelado para el ataque (marcador rojo y memoria de sus bots) mientras siga fuera; a él le
+  sale la cuenta atrás.
 - **Ventanas**: todas empiezan la ronda con barricada. Se rompe a golpes y, rota, se salta a
   través (las astillas que quedan se arrastran); entera, no.
 - HUD: reloj arriba al centro con los 10 retratos (tachados al morir, parpadean derribados),

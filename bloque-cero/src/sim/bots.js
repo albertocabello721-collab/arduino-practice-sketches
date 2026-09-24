@@ -72,6 +72,9 @@ export class BotSquad {
     this._enemiesTick = -1;
     this._camT = 0;
     this.radio = new Radio(this.game);
+    // nodos de la rejilla fuera del edificio (en la preparación la defensa no puede salir)
+    this._outside = new WeakMap();   // por nodo (los ids se reutilizan al restaurar la rejilla)
+    this.insideOnly = (n) => (this.isOutsideNode(n) ? 500 : 0);
     this.sightings = [new Map(), new Map()];   // enemigo → última vez que alguien del equipo lo vio
     this._lastOne = [false, false];
     this._subs = [];
@@ -108,6 +111,16 @@ export class BotSquad {
     on(m, 'plantStart', (op) => this._noise(op, op.body.pos, 'plant', 30));
     on(m, 'disableStart', (op) => { for (const B of this.brains.values()) if (B.side === 'atk') B.per.hear(op.body.pos, 'disable', op, 999); });
   }
+  isOutsideNode(n) {
+    let v = this._outside.get(n);
+    if (v === undefined) {
+      const map = this.match.map;
+      v = !!(map.isOutside && map.isOutside(n.px ?? n.x, n.y, n.pz ?? n.z));
+      this._outside.set(n, v);
+    }
+    return v;
+  }
+
   // ---------------------------------------------------------------- órdenes del jugador
   /**
    * Orden para los bots del equipo de `by`: 'follow' (seguirle), 'hold' (mantener aquí),
@@ -865,7 +878,7 @@ class Brain {
   _goto(pos, dt, { r = 0.45, sprint = false, speed = 1, look = 'path', crouch = false, exact = false, keep = false } = {}) {
     const op = this.op, I = op.intent, p = op.body.pos;
     // la defensa solo rompe sus propias barricadas si no hay otro camino
-    const st = this.mover.go(pos, { r: Math.max(r, 0.3), breakCost: this.side === 'def' ? 25 : 0, keepPath: keep });
+    const st = this.mover.go(pos, { r: Math.max(r, 0.3), breakCost: this.side === 'def' ? 25 : 0, keepPath: keep, avoid: this.side === 'def' && this.match.phase === 'prep' ? this.sq.insideOnly : null });
     const lookYaw = this._lookFor(dt, look);
     let status = this.mover.update(dt, { sprint, crouch, lookYaw, speed });
     if (this.mover.mustFace && this.mover.wantYaw !== null) this._turn(this.mover.wantYaw, this.mover.pitchWant || 0, 9, dt);
