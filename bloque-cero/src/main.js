@@ -21,6 +21,7 @@ import { PropRenderer } from './render/props.js';
 import { RangeSession } from './client/range.js';
 import { MatchSession } from './client/matchsession.js';
 import { navFor } from './sim/bots.js';
+import { DebugView } from './render/debugview.js';
 
 const $ = (id) => document.getElementById(id);
 const nextFrame = () => new Promise((r) => requestAnimationFrame(() => r()));
@@ -126,6 +127,8 @@ async function boot() {
     app: null,
   };
 
+  const debugView = new DebugView(ctx);
+
   function setSession(make) {
     // desechar la sesión anterior ANTES de crear la nueva (comparten el DOM del HUD)
     if (session) session.dispose();
@@ -162,6 +165,7 @@ async function boot() {
     },
     toMenu() {
       setSession(null);
+      debugView.toggle(false);
       state.mode = 'menu';
       hud.show(false); hud.pause(false);
       input.exitLock();
@@ -284,6 +288,7 @@ async function boot() {
         if (n >= 6) acc = 0;
       }
       if (input.pressed('perf')) { settings.showPerf = !settings.showPerf; $('set-perf').checked = settings.showPerf; saveSettings(settings); }
+      if (input.pressed('debug')) debugView.toggle();
     } else input.consumeMouse();
     input.endFrame();
     // ---------------- cámara
@@ -341,6 +346,7 @@ async function boot() {
     wr.renderShadowIfNeeded();
     effects.update(dt, camera.position);
     chars.update(dt, v, camera.position);
+    if (debugView.on) { camera.updateMatrixWorld(); debugView.update(dt, s, camera); }
     if (!s) props.clear();
     ctx.damageFlash = Math.max(0, ctx.damageFlash - dt * 1.4);
     post.grade.uniforms.uDamage.value = v ? Math.max(ctx.damageFlash, v.state === 'downed' ? 0.55 + Math.sin(performance.now() / 300) * 0.1 : 0, v.state === 'alive' && v.hp < v.maxHp * 0.3 ? 0.25 : 0) : 0;
@@ -364,7 +370,7 @@ async function boot() {
     }
     perfStats.frameMs.push(performance.now() - t0);
     if (perfStats.frameMs.length > 600) perfStats.frameMs.shift();
-    if (settings.showPerf) {
+    if (settings.showPerf || debugView.on) {
       const inf = renderer.info.render;
       const st = wr.stats;
       hud.perf(`${fps.toFixed(0)} FPS · CPU ${cpuMs.toFixed(1)} ms · ${inf.calls} llamadas · ${(inf.triangles / 1000).toFixed(0)}k triángulos · mallado ${st.lastMeshMs.toFixed(1)} ms · luz ${st.lastLightMs.toFixed(1)} ms · escala ${(renderer.getPixelRatio()).toFixed(2)} · exp ${exposure.toFixed(2)}`);
@@ -374,7 +380,7 @@ async function boot() {
 
   // ---------------------------------------------------------------- depuración / tests automáticos
   window.__bc = {
-    THREE, world, map, wr, effects, renderer, camera, settings, state, hud, audio, post, ctx,
+    THREE, world, map, wr, effects, renderer, camera, settings, state, hud, audio, post, ctx, debug: debugView,
     get session() { return session; },
     get game() { return session ? session.game : null; },
     get player() { return session ? session.player : null; },

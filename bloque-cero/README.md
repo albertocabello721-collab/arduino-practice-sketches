@@ -108,6 +108,11 @@ Reglas de Siege, contra bots:
   defensa empieza a inutilizarlo, todos acuden.
 - **Equipo**: reaniman al compañero derribado cuando no hay enemigos a la vista (uno por
   derribado) y rematan a los derribados enemigos cuando no queda nadie en pie a la vista.
+- **Depuración (P)**: puntos de la rejilla de navegación a menos de 14 m (verde de pie,
+  amarillo solo agachado, magenta barricada por romper, azul pie de escalera), la ruta que
+  sigue cada bot, su cono de visión de 100° (rojo si tiene a alguien a tiro) y una etiqueta
+  con su tarea, etapa, movimiento y objetivo. Enciende también la línea de FPS. Solo lee la
+  simulación: la partida es la misma con la capa encendida o apagada.
 
 ## Controles
 
@@ -128,6 +133,7 @@ Reglas de Siege, contra bots:
 | G | (Campo de pruebas) carga de brecha en la pared que miras |
 | J / K / L | (Campo de pruebas) derribar al compañero / reiniciar el campo / cambiar de arsenal |
 | F3 | Medidor de rendimiento |
+| P | Depuración: rejilla de navegación, rutas y conos de visión de los bots, su estado y los FPS |
 | Esc | Pausa |
 
 ## Desarrollo
@@ -138,6 +144,7 @@ npm run build        # genera dist/bloque-cero.html y dist/artifact.html
 npm test             # tests de simulación en Node (sin navegador)
 node tools/smoke.mjs <carpeta>   # prueba de humo en Chromium headless con capturas
 node tools/smoke3.mjs <carpeta>  # partida completa en el navegador (selección → final)
+node tools/smoke-aliados.mjs <carpeta>  # depuración (P) y ayudas de equipo en el navegador
 node tools/smoke4.mjs <carpeta>  # refuerzos, barricadas, golpes, drones y cámaras en el navegador
 node tools/smoke5.mjs <carpeta>  # partida contra bots en el navegador (rejilla, preparación, ronda)
 node tools/mapslice.mjs <carpeta> # cortes cenitales del mapa por planta
