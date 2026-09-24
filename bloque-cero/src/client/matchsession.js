@@ -181,6 +181,7 @@ export class MatchSession extends Session {
   // ------------------------------------------------------------------ selección (desde la interfaz)
   pickOperator(id) { if (this.match.choose(this.meSlot, { opId: id })) this.ui.updateSelect(this.match, true); }
   pickWeapon(kind, i) { this.match.choose(this.meSlot, kind === 'primary' ? { primary: i } : { secondary: i }); this.ui.updateSelect(this.match, true); }
+  pickGadget(i) { this.match.choose(this.meSlot, { gadget: i }); this.ui.updateSelect(this.match, true); }
   pickChoice(i) {
     if (this.mySide() === 'def') this.match.choose(this.meSlot, { location: i });
     else this.match.choose(this.meSlot, { spawn: i });

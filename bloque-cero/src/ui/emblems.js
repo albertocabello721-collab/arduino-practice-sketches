@@ -21,14 +21,6 @@ const GLYPHS = {
     c.bezierCurveTo(38, 66, 46, 62, 50, 52); c.fill();
     c.restore();
   },
-  // mazo
-  mazo(c) {
-    c.save(); c.translate(50, 50); c.rotate(-Math.PI / 4);
-    c.fillRect(-7, -12, 14, 58);           // mango
-    c.fillRect(-26, -38, 52, 26);          // cabeza
-    c.fillRect(-30, -34, 4, 18); c.fillRect(26, -34, 4, 18);
-    c.restore();
-  },
   // rayo en anillo (PEM)
   chispa(c) {
     ring(c, 50, 50, 40, 7);
@@ -48,12 +40,6 @@ const GLYPHS = {
     c.lineWidth = 4; c.setLineDash([6, 5]);
     c.beginPath(); c.moveTo(57, 14); c.lineTo(92, 4); c.stroke(); c.setLineDash([]);
   },
-  // ondas de detección
-  onda(c) {
-    c.beginPath(); c.arc(50, 72, 8, 0, Math.PI * 2); c.fill();
-    c.lineWidth = 8; c.lineCap = 'round';
-    for (const r of [22, 38, 54]) { c.beginPath(); c.arc(50, 72, r, -Math.PI * 0.82, -Math.PI * 0.18); c.stroke(); }
-  },
   // cartucho de brecha
   rompe(c) {
     c.save(); c.translate(50, 50); c.rotate(Math.PI / 5);
@@ -64,13 +50,40 @@ const GLYPHS = {
     c.beginPath(); c.moveTo(-4, -38); c.lineTo(3, -28); c.lineTo(-2, -24); c.lineTo(5, -14); c.lineTo(0, -14); c.lineTo(-7, -26); c.lineTo(-2, -29); c.closePath(); c.fill();
     c.restore(); c.restore();
   },
-  // racimo
-  racimo(c) {
-    c.beginPath(); c.arc(50, 50, 14, 0, Math.PI * 2); c.fill();
-    for (let i = 0; i < 5; i++) {
-      const a = -Math.PI / 2 + i * (Math.PI * 2 / 5);
-      c.beginPath(); c.arc(50 + Math.cos(a) * 32, 50 + Math.sin(a) * 32, 10, 0, Math.PI * 2); c.fill();
-    }
+  // escudo balístico con visor
+  muralla(c) {
+    rrect(c, 24, 8, 52, 84, 12); c.fill();
+    c.save(); c.globalCompositeOperation = 'destination-out';
+    rrect(c, 34, 22, 32, 10, 3); c.fill();
+    c.fillRect(30, 46, 40, 4);
+    c.restore();
+    c.lineWidth = 5; c.beginPath(); c.moveTo(14, 70); c.lineTo(24, 64); c.stroke();
+  },
+  // lanzagranadas de humo: proyectil y nubes
+  nube(c) {
+    c.beginPath(); c.arc(62, 58, 20, 0, Math.PI * 2); c.arc(44, 66, 16, 0, Math.PI * 2); c.arc(78, 70, 13, 0, Math.PI * 2); c.fill();
+    c.fillRect(40, 66, 44, 16);
+    c.save(); c.translate(26, 28); c.rotate(Math.PI / 4);
+    rrect(c, -7, -16, 14, 30, 6); c.fill();
+    c.restore();
+    c.lineWidth = 4; c.setLineDash([5, 5]);
+    c.beginPath(); c.moveTo(34, 36); c.lineTo(48, 48); c.stroke(); c.setLineDash([]);
+  },
+  // visor térmico: retícula y silueta de calor
+  lumen(c) {
+    ring(c, 50, 50, 40, 6);
+    c.fillRect(48, 6, 4, 22); c.fillRect(48, 72, 4, 22); c.fillRect(6, 48, 22, 4); c.fillRect(72, 48, 22, 4);
+    c.beginPath(); c.arc(50, 40, 8, 0, Math.PI * 2); c.fill();
+    rrect(c, 40, 50, 20, 22, 6); c.fill();
+  },
+  // placa de armadura con cruz
+  coraza(c) {
+    c.beginPath();
+    c.moveTo(22, 14); c.lineTo(38, 14); c.bezierCurveTo(42, 24, 58, 24, 62, 14); c.lineTo(78, 14);
+    c.lineTo(80, 80); c.bezierCurveTo(66, 92, 34, 92, 20, 80); c.closePath(); c.fill();
+    c.save(); c.globalCompositeOperation = 'destination-out';
+    c.fillRect(44, 36, 12, 36); c.fillRect(32, 48, 36, 12);
+    c.restore();
   },
   // barrido de radar
   radar(c) {
@@ -128,18 +141,12 @@ const GLYPHS = {
     ring(c, 50, 50, 42, 6);
     c.fillRect(40, 20, 20, 60); c.fillRect(20, 40, 60, 20);
   },
-  // nube tóxica
-  humo(c) {
+  // nube tóxica (bote de gas)
+  tizon(c) {
     c.beginPath();
     c.arc(34, 56, 18, 0, Math.PI * 2); c.arc(52, 42, 22, 0, Math.PI * 2); c.arc(70, 56, 17, 0, Math.PI * 2); c.fill();
     c.fillRect(22, 56, 58, 18);
     c.beginPath(); c.arc(32, 86, 5, 0, Math.PI * 2); c.arc(50, 90, 5, 0, Math.PI * 2); c.arc(68, 86, 5, 0, Math.PI * 2); c.fill();
-  },
-  // latido
-  pulso(c) {
-    ring(c, 50, 50, 42, 6);
-    c.lineWidth = 8; c.lineJoin = 'round'; c.lineCap = 'round';
-    c.beginPath(); c.moveTo(16, 54); c.lineTo(32, 54); c.lineTo(40, 34); c.lineTo(52, 74); c.lineTo(60, 46); c.lineTo(66, 54); c.lineTo(84, 54); c.stroke();
   },
 };
 

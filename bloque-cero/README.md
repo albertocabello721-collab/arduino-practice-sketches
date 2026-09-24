@@ -16,7 +16,7 @@ Es un único archivo HTML autónomo: no necesita servidor ni conexión.
 | F3 | Rondas 5v5, 3 ubicaciones de sitios (los defensores eligen), desactivador, HUD con reloj y 10 retratos | ✅ |
 | F4 | Preparación: refuerzos, barricadas, trampillas, drones, cámaras, cuerpo a cuerpo | ✅ |
 | F5 | Bots: navegación, percepción, combate, tácticas por bando, órdenes (H), marcas (T), chat de equipo, depuración (P) | ✅ |
-| F6 | Operadores 8 + 8 y contrajuego de gadgets | en curso: arsenal del documento ✅ |
+| F6 | Operadores 8 + 8 y contrajuego de gadgets | en curso: arsenal ✅ · plantilla de 16 ✅ · gadgets y habilidades en camino |
 | F7 | Animaciones en primera y tercera persona | pendiente |
 | F8 | Recarga por partes | pendiente |
 | F9 | Audio 3D con oclusión | pendiente |
@@ -49,6 +49,35 @@ Las 10 armas de la tabla del documento:
   disparar la vista recupera el 70 % de lo que no hayas compensado tirando del ratón.
   Agachado −10 %, tumbado −20 %.
 - Modos de disparo con **B**: automático, ráfaga de 3 y tiro a tiro según el arma.
+
+## Operadores (Fase 6)
+
+Velocidad/blindaje, armas, gadget secundario a elegir y habilidad (tecla X):
+
+| Ataque | V/B | Principal | Secundaria | Gadget | Habilidad |
+| --- | --- | --- | --- | --- | --- |
+| TERMO | 2/2 | FA-7 o E-12 | P-9 | Brecha o claymore | 2 cargas térmicas (abren muros reforzados) |
+| ROMPE | 3/1 | FA-9 o SF-45 | P-9 | Humo o cegadora | 2 proyectiles de brecha a 40 m |
+| MURALLA | 1/3 | — (escudo) | P-9 o R-44 | Fragmentación o humo | Escudo balístico con 4 destellos |
+| RADAR | 2/2 | FA-7 o SF-9 | PA-3 | Claymore o cegadora | 3 pulsos de escaneo |
+| PULGA | 2/2 | FA-9 o E-12 | P-9 | Brecha o fragmentación | Dron de choque (6 cargas) |
+| CHISPA | 3/1 | SF-45 o FA-7 | PA-3 | Brecha o claymore | 3 granadas PEM |
+| NUBE | 2/2 | FA-9 o AL-60 | P-9 | Cegadora o brecha | 3 humos remotos |
+| LUMEN | 3/1 | T-308 o SF-9 | P-9 | Humo o claymore | Visor térmico 3x |
+
+| Defensa | V/B | Principal | Secundaria | Gadget | Habilidad |
+| --- | --- | --- | --- | --- | --- |
+| VOLTIO | 3/1 | SF-9 o E-12 | P-9 | Alambre o C4 | 4 baterías de choque |
+| SILENCIO | 2/2 | SF-45 o E-12 | PA-3 | Escudo o alambre | 4 inhibidores |
+| CEPO | 2/2 | SF-9 o FA-9 | P-9 | Escudo o alarma | 5 minas láser |
+| OJO | 2/2 | SF-45 o E-12 | R-44 | C4 o alambre | 3 cámaras adhesivas |
+| CORAZA | 1/3 | FA-9 o SF-45 | P-9 | Alambre o impacto | 5 placas de armadura |
+| GUARDIÁN | 3/1 | FA-7 o E-12 | P-9 | Escudo o cámara blindada | 2 interceptores |
+| REMEDIO | 1/3 | SF-45 o E-12 | P-9 | Alambre o cámara blindada | Pistola de estimulantes (3) |
+| TIZÓN | 2/2 | AL-60 o SF-9 | P-9 | Escudo o alambre | 3 botes de gas |
+
+La selección muestra el papel, los números de la habilidad y sus contras. Los gadgets y las
+habilidades se activan en las siguientes rondas de la Fase 6.
 
 ## Partida rápida 5v5 (Fase 3)
 

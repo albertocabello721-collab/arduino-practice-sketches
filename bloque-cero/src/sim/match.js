@@ -22,7 +22,7 @@ import { Emitter } from '../core/events.js';
 import { RNG } from '../core/rng.js';
 import { Game } from './game.js';
 import { Operator } from './operator.js';
-import { OP_BY_ID, opsForSide } from './operators.js';
+import { OP_BY_ID, opsForSide, GADGETS } from './operators.js';
 import { boxFree } from './physics.js';
 import { SOLID } from '../world/materials.js';
 import { Fortify } from './fortify.js';
@@ -77,7 +77,7 @@ export class Match extends Emitter {
     for (let t = 0; t < 2; t++) {
       for (let i = 0; i < 5; i++) {
         const isHuman = human && t === 0 && i === 0;
-        this.slots.push({ key: `t${t}s${i}`, team: t, index: i, human: isHuman, humanName: isHuman ? humanName : null, opId: null, primary: 0, secondary: 0, spawn: 0, stats: newStats(), op: null, ready: !isHuman });
+        this.slots.push({ key: `t${t}s${i}`, team: t, index: i, human: isHuman, humanName: isHuman ? humanName : null, opId: null, primary: 0, secondary: 0, gadget: 0, spawn: 0, stats: newStats(), op: null, ready: !isHuman });
       }
     }
     this.round = 0;
@@ -186,12 +186,13 @@ export class Match extends Emitter {
     const free = opsForSide(side).filter((o) => !taken.has(o.id));
     const def = free.length ? free[this.rng.int(0, free.length - 1)] : opsForSide(side)[0];
     slot.opId = def.id;
-    slot.primary = this.rng.int(0, def.primaries.length - 1);
+    slot.primary = def.primaries.length ? this.rng.int(0, def.primaries.length - 1) : 0;
     slot.secondary = this.rng.int(0, def.secondaries.length - 1);
+    slot.gadget = this.rng.int(0, def.gadgets.length - 1);
   }
 
   /** Elección del jugador en la pantalla de selección. Devuelve false si no es válida. */
-  choose(slot, { opId, primary, secondary, spawn, location } = {}) {
+  choose(slot, { opId, primary, secondary, gadget, spawn, location } = {}) {
     if (this.phase !== 'select') return false;
     const side = this.sideOf(slot.team);
     if (opId !== undefined) {
@@ -200,12 +201,13 @@ export class Match extends Emitter {
       // si un compañero bot lo tenía, cambia a otro (el jugador manda)
       const holder = this.slotsOf(slot.team).find((s) => s !== slot && s.opId === opId);
       slot.opId = opId;
-      slot.primary = 0; slot.secondary = 0;
+      slot.primary = 0; slot.secondary = 0; slot.gadget = 0;
       if (holder) { if (holder.human) return false; holder.opId = null; this._botPick(holder); }
     }
     const def = slot.opId ? OP_BY_ID[slot.opId] : null;
     if (def && primary !== undefined) slot.primary = Math.max(0, Math.min(def.primaries.length - 1, primary));
     if (def && secondary !== undefined) slot.secondary = Math.max(0, Math.min(def.secondaries.length - 1, secondary));
+    if (def && gadget !== undefined) slot.gadget = Math.max(0, Math.min(def.gadgets.length - 1, gadget));
     if (spawn !== undefined && side === 'atk') slot.spawn = Math.max(0, Math.min(this.map.attackerSpawns.length - 1, spawn));
     if (location !== undefined && side === 'def') {
       this.locationVotes[slot.key] = location;
@@ -276,9 +278,14 @@ export class Match extends Emitter {
     const def = OP_BY_ID[slot.opId];
     const op = new Operator(`${slot.key}r${this.round}`, {
       name: def.name, team: slot.team, x, y, z, yaw, armor: def.armor, bot: !slot.human,
-      loadout: [def.primaries[slot.primary] || def.primaries[0], def.secondaries[slot.secondary] || def.secondaries[0]],
+      // (MURALLA no lleva arma principal: solo pistola; el escudo es su habilidad)
+      loadout: [def.primaries[slot.primary] || def.primaries[0], def.secondaries[slot.secondary] || def.secondaries[0]].filter(Boolean),
       meta: { opId: def.id },
     });
+    // gadget secundario elegido y habilidad (cargas)
+    const gid = def.gadgets[slot.gadget] || def.gadgets[0];
+    op.gadget = { id: gid, left: GADGETS[gid] ? GADGETS[gid].count : 0 };
+    op.ability = { id: def.ability.id, left: def.ability.count };
     op.slot = slot;
     op.side = side;
     op.opDef = def;

@@ -37,6 +37,7 @@ export class MatchUI {
       if (a === 'op') this.s.pickOperator(v);
       else if (a === 'pri') this.s.pickWeapon('primary', +v);
       else if (a === 'sec') this.s.pickWeapon('secondary', +v);
+      else if (a === 'gad') this.s.pickGadget(+v);
       else if (a === 'ch') this.s.pickChoice(+v);
       else if (a === 'ready') this.s.ready();
     };
@@ -237,20 +238,23 @@ export class MatchUI {
     else {
       const wbtn = (id, act, idx, cur) => {
         const w = WEAPONS[id];
-        return `<button class="wpn${idx === cur ? ' sel' : ''}" data-act="${act}" data-v="${idx}"><b>${w.name}</b><span>${w.kind} · ${w.damage}${w.pellets > 1 ? '×' + w.pellets : ''} daño · ${w.rpm} dpm · ${w.mag} balas</span></button>`;
+        const rate = w.modes && w.modes.length === 1 && w.modes[0] === 'semi' && w.cls !== 'dmr' && w.cls !== 'shotgun' ? 'tiro a tiro' : `${w.rpm} dpm`;
+        return `<button class="wpn${idx === cur ? ' sel' : ''}" data-act="${act}" data-v="${idx}"><b>${w.name}</b><span>${w.kind} · ${w.damage}${w.pellets > 1 ? '×' + w.pellets : ''} daño · ${rate} · ${w.mag}${w.pellets === 1 && !w.noChamber ? '+1' : ''} balas</span></button>`;
       };
+      const gbtn = (id, idx) => `<button class="wpn${idx === me.gadget ? ' sel' : ''}" data-act="gad" data-v="${idx}"><b>${esc(GADGETS[id].name)}</b><span>×${GADGETS[id].count}</span></button>`;
       this.el.selDetail.innerHTML = `
         <div class="opd">
           <img src="${emblemURL(def.id, def.color, 128)}" alt="">
           <div>
             <div class="nm">${def.name}</div>
-            <div class="st">Blindaje ${pips(def.armor)} · Velocidad ${pips(ARMOR_SPEED[def.armor])} · ${def.armor === 1 ? 100 : def.armor === 2 ? 110 : 125} de vida</div>
-            <div class="ab"><b>${esc(def.ability.name)}</b>${esc(def.ability.desc)}<small>Gadget secundario: ${def.gadgets.map((g) => GADGETS[g].name).join(' o ')}. Habilidades y gadgets se activan en la Fase 6.</small></div>
+            <div class="st">${esc(def.role)} · Blindaje ${pips(def.armor)} · Velocidad ${pips(ARMOR_SPEED[def.armor])} · ${def.armor === 1 ? 100 : def.armor === 2 ? 110 : 125} de vida</div>
+            <div class="ab"><b>${esc(def.ability.name)}${def.ability.count > 0 ? ' ×' + def.ability.count : ''}</b>${esc(def.ability.desc)}<small>Contras: ${esc(def.ability.counters)}</small></div>
           </div>
         </div>
         <div class="ld">
-          <h4>Principal</h4><div class="row">${def.primaries.map((id, i) => wbtn(id, 'pri', i, me.primary)).join('')}</div>
+          <h4>Principal</h4><div class="row">${def.primaries.length ? def.primaries.map((id, i) => wbtn(id, 'pri', i, me.primary)).join('') : '<p class="note">Sin arma principal: lleva el escudo balístico.</p>'}</div>
           <h4>Secundaria</h4><div class="row">${def.secondaries.map((id, i) => wbtn(id, 'sec', i, me.secondary)).join('')}</div>
+          <h4>Gadget secundario</h4><div class="row">${def.gadgets.map((id, i) => gbtn(id, i)).join('')}</div>
         </div>`;
     }
     // ubicación (defensa) o punto de entrada (ataque)
