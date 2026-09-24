@@ -53,7 +53,7 @@ export class Session {
     props.sync(dt, {
       drones: recon ? recon.drones : [], cams: recon ? recon.cams : [],
       panels: fort ? fort.panels : [], work: fort ? fort.work : null,
-      defuser, myTeam, alpha, gadgets: gadgets ? gadgets.items : [],
+      defuser, myTeam, alpha, gadgets: gadgets ? gadgets.items : [], placed: gadgets ? gadgets.placed : [],
       hide: feed && feed.active ? (feed.drone || feed.cam) : null,
     });
     if (recon && audio.ctx) {

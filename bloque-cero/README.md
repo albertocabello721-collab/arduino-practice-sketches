@@ -16,7 +16,7 @@ Es un único archivo HTML autónomo: no necesita servidor ni conexión.
 | F3 | Rondas 5v5, 3 ubicaciones de sitios (los defensores eligen), desactivador, HUD con reloj y 10 retratos | ✅ |
 | F4 | Preparación: refuerzos, barricadas, trampillas, drones, cámaras, cuerpo a cuerpo | ✅ |
 | F5 | Bots: navegación, percepción, combate, tácticas por bando, órdenes (H), marcas (T), chat de equipo, depuración (P) | ✅ |
-| F6 | Operadores 8 + 8 y contrajuego de gadgets | en curso: arsenal ✅ · plantilla de 16 ✅ · granadas ✅ · resto de gadgets y habilidades en camino |
+| F6 | Operadores 8 + 8 y contrajuego de gadgets | en curso: arsenal ✅ · plantilla de 16 ✅ · granadas y explosivos ✅ · gadgets defensivos y habilidades en camino |
 | F7 | Animaciones en primera y tercera persona | pendiente |
 | F8 | Recarga por partes | pendiente |
 | F9 | Audio 3D con oclusión | pendiente |
@@ -90,8 +90,16 @@ Se usan con **G**; el que llevas y sus cargas salen abajo a la derecha, junto a 
 - **Granada cegadora** (×3): a los 1,5 s ciega hasta 3,5 s a quien la ve de frente (menos de
   lado o de espaldas), con pitido en los oídos. Un bot cegado no ve nada mientras dura.
 - **Granada de impacto** (×2, defensa): explota al tocar; abre 1 m de pared blanda.
-- Carga de brecha, claymore, C4, alambre, escudo desplegable, cámara blindada y alarma de
-  proximidad: en la siguiente ronda.
+- **Carga de brecha** (×2): mirando una pared blanda, una barricada o una trampilla a menos de
+  1,6 m, **G** la coloca en 1,5 s (quieto; moverse o disparar lo cancela) y **G** otra vez la
+  detona: hueco de 1 × 2 m (o la barricada o la trampilla entera); letal a 1 m y daño hasta
+  2,5 m. En un muro reforzado no sirve.
+- **C4 remoto** (×1, defensa): se lanza y se pega donde toca; **G** lo detona: letal a 2,5 m,
+  daño hasta 4 m, atraviesa paredes blandas y suelos.
+- **Claymore** (×1): se deja en el suelo mirando al frente (1 s) con su láser rojo; salta cuando
+  un enemigo entra en su cono de 2 m.
+- Los explosivos colocados se destruyen de un disparo del bando contrario (20 puntos).
+- Alambre, escudo desplegable, cámara blindada y alarma de proximidad: en la siguiente ronda.
 
 ## Partida rápida 5v5 (Fase 3)
 

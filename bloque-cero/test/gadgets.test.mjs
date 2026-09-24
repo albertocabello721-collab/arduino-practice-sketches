@@ -141,3 +141,149 @@ test('sin cargas no se lanza nada; hay que esperar entre lanzamientos', () => {
   assert.equal(a.gadget.left, 0);
   assert.equal(gadgets.items.filter((i) => i.kind === 'smoke').length + gadgets.smokes.length, 2);
 });
+
+// ---------------------------------------------------------------- explosivos colocados (F6.3b)
+import { BREACH, CLAYMORE } from '../src/sim/gadgets.js';
+
+function airCount(x0, x1, y0, y1, z0, z1, step = 0.125) {
+  let n = 0;
+  for (let x = x0; x <= x1 + 1e-9; x += step) for (let y = y0; y <= y1 + 1e-9; y += step) for (let z = z0; z <= z1 + 1e-9; z += step) if (world.getWorld(x, y, z) === MAT.AIR) n++;
+  return n;
+}
+
+test('carga de brecha: se coloca en 1,5 s, G la detona: hueco de 1 × 2 m y baja a 1 m al otro lado', () => {
+  const { game, gadgets } = fresh();
+  // atacante en el salón frente a la pared de pladur x = 12 (z = 2); defensor al otro lado
+  const a = give(game.addOperator(new Operator('a', { team: 0, x: 11.0, y: 0, z: 2, yaw: -Math.PI / 2, loadout: ['ar'] })), 'breach');
+  const d = game.addOperator(new Operator('d', { team: 1, x: 12.45, y: 0, z: 2.1, yaw: Math.PI / 2, armor: 3 }));
+  step(game, gadgets, 0.3);
+  a.pitch = 0;
+  const before = airCount(12.0, 12.12, 0.2, 1.9, 1.6, 2.4);
+  a.intent.gadget = true;
+  step(game, gadgets, TICK);
+  assert.ok(gadgets.work.has(a), 'colocando');
+  assert.equal(a.channel && a.channel.kind, 'gadget');
+  step(game, gadgets, BREACH.place - 0.1);
+  assert.equal(gadgets.placed.length, 0, 'aún no');
+  step(game, gadgets, 0.2);
+  assert.equal(gadgets.placed.length, 1, 'colocada');
+  assert.equal(a.gadget.left, 1);
+  assert.equal(a.channel, null);
+  // G otra vez: detona
+  const booms = [];
+  game.on('explosion', (k) => booms.push(k));
+  a.gadgetCd = 0;
+  a.intent.gadget = true;
+  step(game, gadgets, TICK);
+  assert.deepEqual(booms, ['breach']);
+  assert.equal(a.gadget.left, 1, 'detonar no gasta otra carga');
+  const after = airCount(12.0, 12.12, 0.2, 1.9, 1.6, 2.4);
+  assert.ok(after > before + 60, `hueco abierto (${before} → ${after} vóxeles de aire)`);
+  assert.equal(d.state, 'dead', 'a 1 m al otro lado: baja');
+});
+
+test('carga de brecha: no en muros reforzados; moverse cancela la colocación', () => {
+  const { game, gadgets } = fresh();
+  const a = give(game.addOperator(new Operator('a', { team: 0, x: 11.0, y: 0, z: 2, yaw: -Math.PI / 2, loadout: ['ar'] })), 'breach');
+  step(game, gadgets, 0.3);
+  // reforzar a mano el trozo de pared que mira
+  for (let y = 0; y < 2.5; y += 0.125) for (let z = 1.5; z < 2.5; z += 0.125) for (const x of [12.06, 11.94]) world.setRaw(world.vx(x), world.vy(y + 0.01), world.vz(z), MAT.REINFORCED);
+  const denied = [];
+  game.on('gadgetDenied', (op, why) => denied.push(why));
+  a.pitch = 0;
+  a.intent.gadget = true;
+  step(game, gadgets, TICK);
+  assert.equal(gadgets.work.size, 0);
+  assert.ok(/reforzado/i.test(denied[0] || ''), `motivo: ${denied[0]}`);
+  // en pladur sí, pero si se mueve se cancela
+  world.resetToPristine();
+  a.gadgetCd = 0;
+  a.intent.gadget = true;
+  step(game, gadgets, TICK);
+  assert.ok(gadgets.work.has(a));
+  a.intent.moveZ = -1; step(game, gadgets, TICK);
+  a.intent.moveZ = 0;
+  assert.equal(gadgets.work.size, 0, 'cancelada al intentar moverse');
+  step(game, gadgets, 2);
+  assert.equal(gadgets.placed.length, 0);
+  assert.equal(a.gadget.left, 2, 'no se gasta');
+});
+
+test('carga de brecha en una barricada: la quita entera', () => {
+  const { game, gadgets } = fresh();
+  const o = map.windows.find((w) => w.axis === 'x' && w.y0 < 2);
+  const inSide = -(o.out || 1);
+  const my = (o.y0 + o.y1) / 2;
+  // dentro, frente a la ventana, mirando hacia fuera
+  const zIn = o.line + inSide * 0.9;
+  const a = give(game.addOperator(new Operator('a', { team: 0, x: o.center, y: Math.floor(o.y0 / 3.5) * 3.5, z: zIn, yaw: inSide < 0 ? Math.PI : 0, loadout: ['ar'] })), 'breach');
+  step(game, gadgets, 0.3);
+  const e = a.eyePos();
+  a.pitch = Math.atan2(my - e.y, 0.9);
+  const c = inSide < 0 ? o.line - 0.0625 : o.line + 0.0625;
+  const barr = () => { let n = 0; for (let x = o.center - o.width / 2 + 0.06; x < o.center + o.width / 2; x += 0.125) for (let y = o.y0 + 0.06; y < o.y1; y += 0.125) if (world.getWorld(x, y, c) === MAT.BARRICADE) n++; return n; };
+  assert.ok(barr() > 20, 'hay barricada');
+  a.intent.gadget = true;
+  step(game, gadgets, BREACH.place + 0.2);
+  assert.equal(gadgets.placed.length, 1);
+  a.gadgetCd = 0; a.intent.gadget = true;
+  step(game, gadgets, TICK);
+  assert.equal(barr(), 0, 'barricada fuera');
+});
+
+test('C4: se pega donde cae, G lo detona y atraviesa el suelo; un disparo lo destruye antes', () => {
+  const { game, gadgets } = fresh();
+  // defensor en el dormitorio (planta alta) sobre el comedor; atacante debajo
+  const d = give(game.addOperator(new Operator('d', { team: 1, x: 6, y: 3.5, z: 21, yaw: 0, loadout: ['ar'] })), 'c4', 1);
+  const a = game.addOperator(new Operator('a', { team: 0, x: 6, y: 0, z: 19.4, yaw: 0, armor: 2 }));
+  step(game, gadgets, 0.3);
+  d.pitch = -1.2;
+  d.intent.gadget = true;
+  step(game, gadgets, 1.2);
+  const c4 = gadgets.items.find((i) => i.kind === 'c4');
+  assert.ok(c4 && c4.stuck, 'pegado al suelo');
+  assert.ok(c4.pos.y > 3.4 && c4.pos.y < 4.0, `abajo, en la planta alta (y=${c4.pos.y.toFixed(2)})`);
+  const hp0 = a.hp;
+  d.gadgetCd = 0; d.intent.gadget = true;
+  step(game, gadgets, TICK);
+  assert.ok(a.state !== 'alive' || a.hp < hp0 - 40, `daño a través del suelo (${Math.round(hp0 - a.hp)})`);
+  // otro C4, esta vez el atacante lo ve y lo destruye de un disparo
+  const g2 = fresh();
+  const d2 = give(g2.game.addOperator(new Operator('d', { team: 1, x: 6, y: 0, z: 6, yaw: 0, loadout: ['ar'] })), 'c4', 1);
+  const a2 = g2.game.addOperator(new Operator('a', { team: 0, x: 9, y: 0, z: 3.5, yaw: Math.PI / 2, loadout: ['ar'] }));   // de lado, con el C4 a la vista
+  step(g2.game, g2.gadgets, 0.3);
+  d2.pitch = -0.6; d2.intent.gadget = true;
+  step(g2.game, g2.gadgets, 1.2);
+  const k = g2.gadgets.items.find((i) => i.kind === 'c4');
+  assert.ok(k && k.stuck);
+  const e = a2.eyePos(), dx = k.pos.x - e.x, dy = k.pos.y - e.y, dz = k.pos.z - e.z;
+  const L = Math.hypot(dx, dy, dz);
+  g2.game.fireBullet(a2, e, { x: dx / L, y: dy / L, z: dz / L }, a2.weapon);
+  assert.ok(!k.alive, 'destruido');
+  const booms = [];
+  g2.game.on('explosion', (kk) => booms.push(kk));
+  d2.gadgetCd = 0; d2.intent.gadget = true;
+  step(g2.game, g2.gadgets, TICK);
+  assert.equal(booms.length, 0, 'ya no explota');
+});
+
+test('claymore: salta cuando un enemigo entra en su cono de 2 m; por detrás no', () => {
+  const { game, gadgets } = fresh();
+  const a = give(game.addOperator(new Operator('a', { team: 0, x: 17, y: 0, z: 13, yaw: 0, loadout: ['ar'] })), 'claymore', 1);
+  step(game, gadgets, 0.3);
+  a.intent.gadget = true;
+  step(game, gadgets, CLAYMORE.place + 0.2);
+  assert.equal(gadgets.placed.length, 1, 'colocada');
+  const c = gadgets.placed[0];
+  // el atacante se va; un defensor pasa por detrás (no salta) y luego por delante (salta)
+  a.body.pos.z = 16;
+  const d = game.addOperator(new Operator('d', { team: 1, x: c.pos.x, y: 0, z: c.pos.z + 1.2, yaw: 0, armor: 2 }));
+  step(game, gadgets, 0.5);
+  assert.ok(c.alive, 'por detrás no salta');
+  d.body.pos.z = c.pos.z - 1.4;
+  const booms = [];
+  game.on('explosion', (k) => booms.push(k));
+  step(game, gadgets, 0.2);
+  assert.deepEqual(booms, ['claymore']);
+  assert.equal(d.state, 'dead', 'letal en el cono');
+});

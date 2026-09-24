@@ -368,6 +368,7 @@ export class MatchSession extends Session {
     let prompt = '';
     if (p && p === view && p.state === 'alive') {
       if (p.channel && (p.channel.kind === 'plant' || p.channel.kind === 'disable')) hud.setRevive(p.channel.kind === 'plant' ? 'Plantando el desactivador' : 'Inutilizando el desactivador', p.channel.t / p.channel.total);
+      else if (p.channel && p.channel.kind === 'gadget') hud.setRevive(p.channel.what === 'breach' ? 'Colocando la carga de brecha' : 'Colocando la claymore', p.channel.t / p.channel.total);
       else if (!p.reviving && !this.game.findRevivable(p)) {
         if (def && def.carrier === p && m.phase === 'action') {
           const s = m.siteAt(p.body.pos.x, p.body.pos.y, p.body.pos.z);
@@ -380,6 +381,7 @@ export class MatchSession extends Session {
           if (Math.hypot(p.body.pos.x - P.x, p.body.pos.z - P.z) < m.rules.disableRange && Math.abs(p.body.pos.y - P.y) < 1.2) prompt = 'Mantén F para inutilizar el desactivador';
         }
         if (!prompt && side === 'def') prompt = this.fortifyHud(m.fort, p);
+        if (!prompt) prompt = this._gadgetPrompt(p);
       }
       // anti run-out: cuenta atrás mientras estás fuera del edificio
       if (!prompt && side === 'def' && (m.phase === 'action' || m.phase === 'planted') && p.outT > 0) {
@@ -409,6 +411,17 @@ export class MatchSession extends Session {
       const s = Math.ceil(m.timeLeft);
       if (s !== this.lastTick) { this.lastTick = s; audio.cue('tick'); }
     }
+  }
+
+  // Qué hará G ahora con un explosivo colocable o detonable.
+  _gadgetPrompt(p) {
+    const G = this.match.gadgets, g = p.gadget;
+    if (!G || !g) return '';
+    if (G._detonable(p)) return 'G para detonar';
+    if (g.left <= 0 || (g.id !== 'breach' && g.id !== 'claymore')) return '';
+    const spot = G.placeSpot(p);
+    if (!spot || !spot.ok) return g.id === 'breach' && spot && spot.why && spot.why.startsWith('Muro') ? spot.why : '';
+    return g.id === 'breach' ? 'G para colocar la carga de brecha' : 'G para dejar la claymore';
   }
 
   // Nubes de humo: partículas grandes y grises mientras duran.

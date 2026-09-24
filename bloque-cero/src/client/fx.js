@@ -1,7 +1,7 @@
 // Puente simulación → presentación: convierte los eventos de una partida (disparos,
 // impactos, daño, derribos, bajas, pasos, recargas) en sonido, efectos y HUD.
 // Lo comparten el campo de pruebas y la partida 5v5.
-import { MATS } from '../world/materials.js';
+import { MATS, SND } from '../world/materials.js';
 import { lineOfSight } from '../world/raycast.js';
 import { angleDiff } from '../core/math.js';
 import { BONE } from '../sim/skeleton.js';
@@ -77,9 +77,16 @@ export function bindGameFx(ctx, game, view) {
   // ---------------- gadgets lanzables
   on('gadgetThrown', (op, it) => audio.throwWhoosh(it.pos, op === viewer()));
   on('gadgetEmpty', (op) => { if (op === me()) { audio.ping('deny'); hud.toast('Sin gadgets', 1.2); } });
+  on('gadgetDenied', (op, why) => { if (op === me()) { audio.ping('deny'); if (why) hud.toast(why, 1.4); } });
+  on('gadgetPlaced', (op, c) => audio.grenadeClink(c.pos, op === viewer() ? 0 : occlusion(c.pos)));
+  on('gadgetStuck', (it) => audio.impact(SND.metal, it.pos, occlusion(it.pos)));
+  on('gadgetDestroyed', (it) => {
+    audio.electronicPop(it.pos, occlusion(it.pos));
+    for (let i = 0; i < 10; i++) effects.spawnSpark(it.pos.x, it.pos.y + 0.05, it.pos.z, (Math.random() - 0.5) * 4, Math.random() * 3, (Math.random() - 0.5) * 4, 1);
+  });
   on('gadgetBounce', (it) => audio.grenadeClink(it.pos, occlusion(it.pos)));
   on('explosion', (kind, p, spec) => {
-    const big = kind === 'frag' ? 1 : 0.7;
+    const big = { frag: 1, impact: 0.7, breach: 1.2, c4: 1.3, claymore: 0.9 }[kind] || 1;
     effects.flash(p.x, p.y + 0.2, p.z, 60 * big, 34 * big, 14 * big, 10, 0.3);
     for (let i = 0; i < 40 * big; i++) effects.spawnSpark(p.x, p.y + 0.1, p.z, (Math.random() - 0.5) * 12, Math.random() * 7, (Math.random() - 0.5) * 12, 1);
     for (let i = 0; i < 14; i++) effects.spawnDust(p.x + (Math.random() - 0.5) * 0.8, p.y + 0.2 + Math.random() * 0.6, p.z + (Math.random() - 0.5) * 0.8, (Math.random() - 0.5) * 2.5, Math.random() * 1.6, (Math.random() - 0.5) * 2.5, 0.5 + Math.random() * 0.6, [0.42, 0.4, 0.37], 2.5 + Math.random() * 1.5, 0.55);

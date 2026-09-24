@@ -189,6 +189,30 @@ function grenadeModel(kind) {
   return b.build();
 }
 
+// Explosivos colocados: carga de brecha (en la pared), C4 y claymore.
+function breachModel() {
+  const b = new Builder();
+  b.add(Box(0.44, 0.62, 0.035), { at: [0, 0, 0.0175], color: '#5a5f55', rough: 0.7 });
+  b.add(Box(0.36, 0.54, 0.02), { at: [0, 0, 0.045], color: '#3b3e37', rough: 0.8 });
+  b.add(Box(0.1, 0.07, 0.03), { at: [0, 0.2, 0.06], color: '#20211e', rough: 0.5 });
+  b.add(Box(0.03, 0.02, 0.01), { at: [0.02, 0.2, 0.078], color: '#ff3a1a', glow: 1 });
+  return b.build();
+}
+function c4Model() {
+  const b = new Builder();
+  b.add(Box(0.16, 0.05, 0.1), { at: [0, 0.025, 0], color: '#cbc3a4', rough: 0.8 });
+  b.add(Box(0.06, 0.02, 0.05), { at: [0.03, 0.06, 0], color: '#1e1f1c', rough: 0.5 });
+  b.add(Box(0.015, 0.01, 0.015), { at: [0.05, 0.075, 0.012], color: '#ff2a1a', glow: 1 });
+  return b.build();
+}
+function claymoreModel() {
+  const b = new Builder();
+  b.add(Box(0.22, 0.12, 0.05), { at: [0, 0.1, 0], color: '#4b5236', rough: 0.7 });
+  for (const x of [-0.08, 0.08]) b.add(Box(0.012, 0.07, 0.012), { at: [x, 0.035, 0.01], color: '#2a2a26', rough: 0.5 });
+  b.add(Box(0.02, 0.02, 0.01), { at: [0, 0.14, -0.03], color: '#ff2a1a', glow: 1 });
+  return b.build();
+}
+
 export class PropRenderer {
   constructor(scene, wr) {
     this.scene = scene;
@@ -198,8 +222,11 @@ export class PropRenderer {
     this.geo = {
       droneBody: [droneBody('#3d9be9'), droneBody('#f0892b')], droneWheels: droneWheels(),
       camBase: camBase(), camHead: camHead(), hatch: hatchPlate(this.steelLayer), defuser: defuserModel(),
-      grenade: { frag: grenadeModel('frag'), smoke: grenadeModel('smoke'), flash: grenadeModel('flash'), impact: grenadeModel('impact') },
+      grenade: { frag: grenadeModel('frag'), smoke: grenadeModel('smoke'), flash: grenadeModel('flash'), impact: grenadeModel('impact'), c4: c4Model() },
+      breach: breachModel(), claymore: claymoreModel(),
     };
+    // láser de las claymores (línea roja fina)
+    this.laserMat = new THREE.LineBasicMaterial({ color: 0xff2a1a, transparent: true, opacity: 0.8, toneMapped: false });
     this.panelGeo = new Map();   // "w×h" → {plate, pistons}
     this.items = new Map();      // clave → {group, kind, meshes, ...}
     this.seen = new Set();
@@ -238,7 +265,7 @@ export class PropRenderer {
   }
   _dispose(it) {
     this.scene.remove(it.group);
-    it.group.traverse((o) => { if (o.material) o.material.dispose(); });
+    it.group.traverse((o) => { if (o.material && o.material !== this.laserMat) o.material.dispose(); if (o.isLine && o.geometry) o.geometry.dispose(); });
   }
 
   /**
@@ -337,10 +364,44 @@ export class PropRenderer {
     for (const g of s.gadgets || []) {
       if (!g.alive || !this.geo.grenade[g.kind]) continue;
       const it = this._get('g:' + g.id, () => { const group = new THREE.Group(); const m = this._mesh(this.geo.grenade[g.kind]); group.add(m); return { group, kind: 'grenade', m, spin: 0 }; });
+      if (g.kind === 'c4' && g.stuck) {
+        // pegado: la cara de abajo contra la superficie
+        const n = g.normal;
+        it.group.position.set(g.pos.x - n.x * 0.02, g.pos.y - n.y * 0.02, g.pos.z - n.z * 0.02);
+        it.m.rotation.set(n.z ? Math.sign(n.z) * Math.PI / 2 : n.y < 0 ? Math.PI : 0, 0, n.x ? -Math.sign(n.x) * Math.PI / 2 : 0);
+        it.m.material.uniforms.uGlow.value = Math.sin(this.time * 6) > 0 ? 1 : 0.2;
+        continue;
+      }
       it.group.position.set(g.pos.x, g.pos.y + (g.rest ? 0.03 : 0), g.pos.z);
       if (!g.rest) it.spin += dt * 14;
       it.m.rotation.set(g.rest ? Math.PI / 2 : it.spin, g.rest ? 0.7 : it.spin * 0.6, 0);
       if (g.kind === 'flash') it.m.material.uniforms.uGlow.value = g.t > 1.1 ? 1 : 0.3;
+    }
+    // ---------------- cargas de brecha y claymores colocadas
+    for (const c of s.placed || []) {
+      if (!c.alive) continue;
+      const it = this._get('x:' + c.id, () => {
+        const group = new THREE.Group();
+        const m = this._mesh(c.kind === 'breach' ? this.geo.breach : this.geo.claymore);
+        group.add(m);
+        let laser = null;
+        if (c.kind === 'claymore') {
+          const lg = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0, 0.14, -0.03), new THREE.Vector3(0, 0.3, -2.0)]);
+          laser = new THREE.Line(lg, this.laserMat);
+          group.add(laser);
+        }
+        return { group, kind: c.kind, m, laser };
+      });
+      if (c.kind === 'breach') {
+        const n = c.normal;
+        it.group.position.set(c.pos.x, c.pos.y, c.pos.z);
+        // la cara de delante (z local) hacia fuera de la pared
+        it.group.rotation.set(n.y ? -Math.sign(n.y) * Math.PI / 2 : 0, n.x ? Math.sign(n.x) * Math.PI / 2 : n.z < 0 ? Math.PI : 0, 0);
+      } else {
+        it.group.position.set(c.pos.x, c.pos.y, c.pos.z);
+        it.group.rotation.set(0, c.yaw, 0);
+      }
+      it.m.material.uniforms.uGlow.value = Math.sin(this.time * 5) > 0 ? 1 : 0.25;
     }
     // borrar lo que ya no existe
     for (const [k, it] of this.items) if (!this.seen.has(k)) { this._dispose(it); this.items.delete(k); }
