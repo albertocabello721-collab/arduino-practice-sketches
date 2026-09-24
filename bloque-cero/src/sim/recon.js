@@ -230,7 +230,7 @@ export class Recon {
     g.emit('spotted', best, viewer, team, by);
     return best;
   }
-  isSpottedFor(op, team) { const s = this.spotted.get(op); return !!s && s.team === team; }
+  isSpottedFor(op, team) { const s = this.spotted.get(op); return !!s && s.team === team && s.until > this.game.time; }
 
   /**
    * Marcar en persona (T o botón central): el enemigo al que apunta `op` o, si no hay

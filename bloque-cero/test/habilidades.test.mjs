@@ -265,8 +265,94 @@ test('X sin cargas avisa; las habilidades aún sin programar no hacen nada', () 
   pressX(c, a);
   assert.deepEqual(empty, [a]);
   assert.equal(c.gadgets.items.length, 0);
-  withAbility(a, 'scan', 3);
+  withAbility(a, 'stim', 3);
   pressX(c, a);
   assert.equal(empty.length, 1, 'habilidad pendiente: ni aviso');
   assert.equal(a.ability.left, 3);
+});
+
+// ---------------------------------------------------------------- información (F6.4b)
+import { SCAN, THERMAL_SCOPE, thermalOn, scopeZoom } from '../src/sim/abilities.js';
+import { Perception } from '../src/sim/ai/perception.js';
+import { DIFFICULTY } from '../src/sim/bots.js';
+
+test('pulso de escaneo: aviso de 2 s; luego 4 s en los que el defensor que se mueve queda marcado', () => {
+  const c = fresh();
+  const recon = new Recon(c.game, { cameras: map.cameras });
+  recon.reset({ defTeam: 1 });
+  c.gadgets.recon = recon;
+  const a = withAbility(c.game.addOperator(new Operator('a', { team: 0, x: 10, y: 0, z: -12, yaw: Math.PI, loadout: ['ar'] })), 'scan', 3);
+  const walker = c.game.addOperator(new Operator('w', { team: 1, x: 27, y: -3.5, z: 11, yaw: Math.PI / 2, loadout: ['ar'] }));
+  const still = c.game.addOperator(new Operator('s', { team: 1, x: 20, y: -3.5, z: 13.5, yaw: Math.PI / 2, loadout: ['ar'] }));
+  step(c, 0.3);
+  const ev = [];
+  for (const k of ['scanWarn', 'scanStart', 'scanDetect', 'scanEnd']) c.game.on(k, (x) => ev.push(k === 'scanDetect' ? `detect:${x.id}` : k));
+  walker.intent.moveZ = 1;                     // anda hacia -x por el pasillo del sótano
+  pressX(c, a);
+  assert.equal(a.ability.left, 2);
+  assert.deepEqual(ev, ['scanWarn']);
+  step(c, SCAN.warn - 0.2);
+  assert.ok(!recon.isSpottedFor(walker, 0), 'durante el aviso, nada');
+  // otra X mientras dura: no
+  a.abilityCd = 0;
+  pressX(c, a);
+  assert.equal(a.ability.left, 2, 'un pulso cada vez');
+  step(c, 0.4);
+  assert.ok(ev.includes('scanStart'));
+  assert.ok(recon.isSpottedFor(walker, 0), 'el que anda, marcado');
+  assert.ok(!recon.isSpottedFor(still, 0), 'el quieto, no');
+  // el quieto se mueve a mitad del pulso: también
+  still.intent.moveZ = -1;
+  step(c, 1.0);
+  assert.ok(recon.isSpottedFor(still, 0));
+  assert.deepEqual(ev.filter((e) => e.startsWith('detect')), ['detect:w', 'detect:s']);
+  // al pararse, la marca se va enseguida
+  walker.intent.moveZ = 0; still.intent.moveZ = 0;
+  step(c, SCAN.linger + 0.3);
+  assert.ok(!recon.isSpottedFor(walker, 0), 'quieto otra vez: sin marca');
+  step(c, SCAN.active);
+  assert.ok(ev.includes('scanEnd'));
+  assert.equal(c.abilities.scans.length, 0);
+  walker.intent.moveZ = 1;
+  step(c, 0.5);
+  assert.ok(!recon.isSpottedFor(walker, 0), 'acabado el pulso, moverse no marca');
+});
+
+test('visor térmico: con la principal, apuntando y quieto; 3x; el bot LUMEN ve a través del humo', () => {
+  const c = fresh();
+  // LUMEN y un defensor en el pasillo del sótano, a 10 m, con una nube en medio
+  const l = withAbility(c.game.addOperator(new Operator('l', { team: 0, x: 28, y: -3.5, z: 11, yaw: Math.PI / 2, loadout: ['dmr', 'pistol'] })), 'thermalscope', -1);
+  const d = c.game.addOperator(new Operator('d', { team: 1, x: 18, y: -3.5, z: 11, yaw: -Math.PI / 2, loadout: ['ar'] }));
+  step(c, 0.3);
+  const per = new Perception(l, c.game, DIFFICULTY.normal);
+  const sees = () => { per.scanT = 0; per.memory.clear(); per.scan(0.2, [d]); return per.visible.includes(d); };
+  assert.ok(sees(), 'sin humo lo ve');
+  const now = c.game.time;
+  c.gadgets.smokes.push({ x: 23, y: -3.1, z: 11, r: 4, t0: now - 3, until: now + 20, team: 0 });
+  assert.ok(!thermalOn(l));
+  assert.ok(!sees(), 'con humo, sin visor, no');
+  // apuntando con la principal y quieto
+  l.intent.ads = true;
+  step(c, 0.8);
+  assert.ok(thermalOn(l), 'visor en marcha');
+  assert.equal(scopeZoom(l), THERMAL_SCOPE.zoom, '3x');
+  assert.ok(sees(), 'con el visor lo ve dentro del humo');
+  // moviéndose, no
+  l.intent.moveX = 1;
+  step(c, 0.3);
+  assert.ok(!thermalOn(l), 'moviéndose se apaga');
+  l.intent.moveX = 0;
+  step(c, 0.5);
+  assert.ok(thermalOn(l));
+  // con la pistola, no (ni 3x)
+  l.intent.switchTo = 1;
+  step(c, 1.0);
+  assert.equal(l.weaponIndex, 1);
+  assert.ok(!thermalOn(l), 'solo con el arma principal');
+  assert.ok(scopeZoom(l) < 2);
+  // X no hace nada (es pasiva) y lo explica
+  const why = [];
+  c.game.on('abilityDenied', (op, w) => why.push(w));
+  pressX(c, l);
+  assert.ok(/apunta/i.test(why[0] || ''), why[0]);
 });

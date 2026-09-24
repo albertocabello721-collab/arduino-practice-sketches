@@ -194,9 +194,9 @@ export class Effects {
     g.setAttribute('aSize', new THREE.BufferAttribute(this.pSize, 1).setUsage(THREE.DynamicDrawUsage));
     const mat = new THREE.ShaderMaterial({
       transparent: true, depthWrite: false,
-      uniforms: { uScale: { value: 600 } },
+      uniforms: { uScale: { value: 600 }, uAlphaMul: { value: 1 } },
       vertexShader: /* glsl */ `
-        attribute vec4 aColor; attribute float aSize; uniform float uScale;
+        attribute vec4 aColor; attribute float aSize; uniform float uScale; uniform float uAlphaMul;
         varying vec4 vColor;
         void main() {
           vColor = aColor;
@@ -204,7 +204,7 @@ export class Effects {
           float depth = max(0.05, -mv.z);
           float px = aSize * uScale / depth;
           // límite de tamaño y desvanecido cerca de la cámara: evita el sobredibujado a pantalla completa
-          vColor.a *= smoothstep(0.25, 1.2, depth) * clamp(220.0 / max(px, 1.0), 0.0, 1.0);
+          vColor.a *= smoothstep(0.25, 1.2, depth) * clamp(220.0 / max(px, 1.0), 0.0, 1.0) * uAlphaMul;
           gl_PointSize = min(px, 220.0);
           gl_Position = projectionMatrix * mv;
         }`,
@@ -236,6 +236,9 @@ export class Effects {
     this.scene.add(this.sparkPoints);
     this.dust = []; this.sparks = [];
   }
+
+  /** Visor térmico: el polvo y el humo casi no se ven. */
+  setThermal(on) { this.dustPoints.material.uniforms.uAlphaMul.value = on ? 0.12 : 1; }
 
   setViewport(heightPx, fovDeg) {
     const k = heightPx / (2 * Math.tan(fovDeg * Math.PI / 360));

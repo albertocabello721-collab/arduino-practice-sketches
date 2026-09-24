@@ -92,6 +92,15 @@ export function bindGameFx(ctx, game, view) {
   // ---------------- habilidades (X)
   on('abilityFired', (op, it) => audio.launcher(it.pos, op === viewer()));
   on('abilityEmpty', (op) => { if (op === me()) { audio.ping('deny'); hud.toast('Sin cargas de la habilidad', 1.2); } });
+  on('abilityDenied', (op, why) => { if (op === me()) { audio.ping('deny'); if (why) hud.toast(why, 1.8); } });
+  // pulso de escaneo (RADAR): aviso para todos; al detectar, pitido para el ataque y aviso al detectado
+  on('scanWarn', () => audio.scanWarn(2));
+  on('scanStart', () => audio.scanSweep());
+  on('scanDetect', (op, s) => {
+    const my = me();
+    if (my && op === my) { audio.ping('deny'); hud.toast('¡Te han detectado!', 1.4); }
+    else if (my && s.team === my.team) audio.ping('mark');
+  });
   on('thermalIgnite', (c) => audio.thermalBurn(c.pos, 5, occlusion(c.pos)));
   on('emp', (p, hits) => {
     effects.flash(p.x, p.y + 0.2, p.z, 20, 60, 120, 9, 0.25);

@@ -16,7 +16,7 @@ Es un único archivo HTML autónomo: no necesita servidor ni conexión.
 | F3 | Rondas 5v5, 3 ubicaciones de sitios (los defensores eligen), desactivador, HUD con reloj y 10 retratos | ✅ |
 | F4 | Preparación: refuerzos, barricadas, trampillas, drones, cámaras, cuerpo a cuerpo | ✅ |
 | F5 | Bots: navegación, percepción, combate, tácticas por bando, órdenes (H), marcas (T), chat de equipo, depuración (P) | ✅ |
-| F6 | Operadores 8 + 8 y contrajuego de gadgets | en curso: arsenal ✅ · plantilla de 16 ✅ · granadas y explosivos ✅ · gadgets defensivos ✅ · habilidades de brecha, humo y PEM ✅ · resto de habilidades en camino |
+| F6 | Operadores 8 + 8 y contrajuego de gadgets | en curso: arsenal ✅ · plantilla de 16 ✅ · granadas y explosivos ✅ · gadgets defensivos ✅ · habilidades de brecha, humo, PEM, escaneo y visor térmico ✅ · resto de habilidades en camino |
 | F7 | Animaciones en primera y tercera persona | pendiente |
 | F8 | Recarga por partes | pendiente |
 | F9 | Audio 3D con oclusión | pendiente |
@@ -95,8 +95,15 @@ La habilidad y sus cargas salen abajo a la derecha, junto al gadget. Ya funciona
 - **CHISPA · granada PEM** (×3): se lanza como una granada; a los 2 s deja 15 s sin funcionar
   la electrónica de la defensa a menos de 5 m, **aunque haya paredes**: las cámaras (también
   las blindadas) no dan imagen ni marcan y las alarmas no suenan.
-- Entre dos usos de la habilidad hay 1 s de espera. Las de RADAR, PULGA, MURALLA y LUMEN y las
-  de la defensa llegan en las siguientes rondas de la Fase 6; hasta entonces X no hace nada.
+- **RADAR · pulso de escaneo** (×3): suena un aviso de 2 s para todos (arriba sale «¡Escaneo
+  en 2 s! No te muevas» a la defensa y «Pulso de escaneo» al ataque); después, durante 4 s,
+  todo defensor que se mueva queda marcado para el ataque (jugadores y bots) mientras se mueva.
+  Contra: quedarse quieto. Un pulso cada vez.
+- **LUMEN · visor térmico 3x** (sin límite, pasivo): con el arma principal, apuntando y quieto,
+  la vista se enfría y los enemigos a menos de 30 m y a la vista se ven en colores de calor,
+  **también dentro del humo**. El bot LUMEN, igual: con el visor ve a través del humo.
+- Entre dos usos de la habilidad hay 1 s de espera. Las de PULGA y MURALLA y las de la defensa
+  llegan en las siguientes rondas de la Fase 6; hasta entonces X no hace nada.
 
 ## Gadgets secundarios (Fase 6)
 
@@ -291,7 +298,7 @@ node tools/smoke3.mjs <carpeta>  # partida completa en el navegador (selección 
 node tools/smoke-aliados.mjs <carpeta>  # depuración (P) y ayudas de equipo en el navegador
 node tools/smoke-gadgets.mjs <carpeta>  # granadas, brecha y claymore con G en el navegador
 node tools/smoke-defensa.mjs <carpeta>  # alambre, escudo, cámara blindada y alarma con G
-node tools/smoke-habilidades.mjs <carpeta>  # carga térmica, proyectil de brecha, humo remoto y PEM con X
+node tools/smoke-habilidades.mjs <carpeta>  # habilidades de ataque con X (brechas, humo, PEM, escaneo, visor)
 node tools/smoke4.mjs <carpeta>  # refuerzos, barricadas, golpes, drones y cámaras en el navegador
 node tools/smoke5.mjs <carpeta>  # partida contra bots en el navegador (rejilla, preparación, ronda)
 node tools/mapslice.mjs <carpeta> # cortes cenitales del mapa por planta

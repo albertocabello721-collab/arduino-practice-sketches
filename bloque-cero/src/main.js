@@ -22,6 +22,7 @@ import { RangeSession } from './client/range.js';
 import { MatchSession } from './client/matchsession.js';
 import { navFor } from './sim/bots.js';
 import { DebugView } from './render/debugview.js';
+import { thermalOn, scopeZoom, THERMAL_SCOPE } from './sim/abilities.js';
 
 const $ = (id) => document.getElementById(id);
 const nextFrame = () => new Promise((r) => requestAnimationFrame(() => r()));
@@ -304,7 +305,7 @@ async function boot() {
       const yaw = controlled ? v.yaw : view.prevYaw + angleDiff(view.prevYaw, view.curYaw) * a;
       const pitch = controlled ? v.pitch : view.prevPitch + (view.curPitch - view.prevPitch) * a;
       camera.rotation.set(pitch + sy, yaw + sx, v.roll);
-      const zoom = 1 + (v.weapon.def.adsZoom - 1) * v.ads;
+      const zoom = 1 + (scopeZoom(v) - 1) * v.ads;
       const fov = 2 * Math.atan(Math.tan(settings.fov * DEG / 2) / zoom) / DEG;
       if (Math.abs(camera.fov - fov) > 0.01) { camera.fov = fov; camera.updateProjectionMatrix(); }
     } else {
@@ -346,6 +347,10 @@ async function boot() {
     wr.update(dt, camera.position, 6);
     wr.renderShadowIfNeeded();
     effects.update(dt, camera.position);
+    // visor térmico de LUMEN (apuntando con la principal y quieto): enemigos calientes, humo transparente
+    const thermal = !!v && thermalOn(v);
+    chars.setHeat(thermal, v ? v.team : 0, THERMAL_SCOPE.range, camera.position);
+    effects.setThermal(thermal);
     chars.update(dt, v, camera.position);
     if (debugView.on) { camera.updateMatrixWorld(); debugView.update(dt, s, camera); }
     if (!s) props.clear();
@@ -353,7 +358,7 @@ async function boot() {
     post.grade.uniforms.uDamage.value = v ? Math.max(ctx.damageFlash, v.state === 'downed' ? 0.55 + Math.sin(performance.now() / 300) * 0.1 : 0, v.state === 'alive' && v.hp < v.maxHp * 0.3 ? 0.25 : 0) : 0;
     // humo alrededor de la cámara y cegadora del operador visto
     const G = s && s.game ? s.game.gadgets : null;
-    post.grade.uniforms.uSmoke.value = G ? G.smokeAt(camera.position) : 0;
+    post.grade.uniforms.uSmoke.value = G && !thermal ? G.smokeAt(camera.position) : 0;
     post.grade.uniforms.uBlind.value = v && v.blindT > 0 ? Math.min(1, v.blindT / 1.2) : 0;
     if (s) s.frame(dt, acc / TICK);
     if (v) vm.update(dt, v, lightS, v === s.player ? mouse.dx || 0 : 0, v === s.player ? mouse.dy || 0 : 0);

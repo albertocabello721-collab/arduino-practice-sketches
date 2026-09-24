@@ -669,6 +669,22 @@ export class AudioEngine {
     src.start(t); src.stop(t + secs + 0.05);
     for (let i = 0; i < secs * 9; i++) this._burst(out, t + 0.2 + Math.random() * (secs - 0.3), { type: 'bandpass', freq: 1200 + Math.random() * 3000, q: 2.5, a: 0.001, peak: 0.35, d: 0.03 });
   }
+  // Pulso de escaneo: aviso para todos (no posicional), sirena que sube durante `secs` s.
+  scanWarn(secs = 2) {
+    if (!this.ctx) return;
+    const t = this.ctx.currentTime;
+    const g = this.ctx.createGain(); g.gain.value = 0.22; g.connect(this.master);
+    for (let i = 0; i < 4; i++) this._tone(g, t + i * secs / 4, { f0: 520 + i * 90, f1: 1150 + i * 120, a: 0.02, peak: 0.45, d: secs / 4 - 0.06, type: 'triangle' });
+  }
+  // Barrido del pulso al activarse.
+  scanSweep() {
+    if (!this.ctx) return;
+    const t = this.ctx.currentTime;
+    const g = this.ctx.createGain(); g.gain.value = 0.2; g.connect(this.master);
+    this._tone(g, t, { f0: 1800, f1: 300, a: 0.01, peak: 0.5, d: 0.7, type: 'sine' });
+    this._burst(g, t, { type: 'bandpass', freq: 2400, q: 2, a: 0.01, peak: 0.3, d: 0.5 });
+  }
+
   // Granada PEM: chasquido eléctrico con zumbido que se apaga.
   empBurst(pos, occl = 0) {
     if (!this.ctx) return;

@@ -241,12 +241,21 @@ uniform sampler2D uCamo;
 uniform vec3 cameraPosition;
 uniform float uHit;
 uniform float uDim;
+uniform float uHeat;
 ${LIGHTING_GLSL}
 in vec3 vWorld; in vec3 vNormal; in vec3 vColor; in vec4 vMat; in vec2 vUV;
 out vec4 fragColor;
 void main() {
   vec3 n = normalize(vNormal);
   vec3 V = normalize(cameraPosition - vWorld);
+  if (uHeat > 0.5) {
+    // visor térmico: el cuerpo en colores de calor (bordes rojos, centro amarillo casi blanco)
+    float core = pow(max(dot(n, V), 0.0), 0.7);
+    vec3 heat = mix(vec3(0.75, 0.08, 0.04), vec3(1.0, 0.72, 0.18), core);
+    heat = mix(heat, vec3(1.0, 0.97, 0.8), smoothstep(0.82, 1.0, core));
+    fragColor = vec4(heat * 1.7, 1.0);
+    return;
+  }
   vec3 albedo = vColor;
   if (vMat.z > 0.5) {
     vec2 uv = fract(vUV * 0.5);
@@ -296,6 +305,24 @@ export class CharacterRenderer {
     this.blobs.renderOrder = 1;
     scene.add(this.blobs);
     this._m = new THREE.Matrix4(); this._v = new THREE.Vector3(); this._q = new THREE.Quaternion(); this._s = new THREE.Vector3();
+    // visor térmico: velo frío a pantalla completa (multiplica lo ya pintado, humo incluido);
+    // los enemigos calientes se pintan después, encima del humo pero no de las paredes
+    this.cold = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), new THREE.ShaderMaterial({
+      transparent: true, depthTest: false, depthWrite: false,
+      blending: THREE.CustomBlending, blendEquation: THREE.AddEquation, blendSrc: THREE.DstColorFactor, blendDst: THREE.ZeroFactor,
+      vertexShader: 'void main(){ gl_Position = vec4(position.xy, 0.0, 1.0); }',
+      fragmentShader: 'void main(){ gl_FragColor = vec4(0.22, 0.34, 0.62, 1.0); }',
+    }));
+    this.cold.frustumCulled = false;
+    this.cold.renderOrder = 15;
+    this.cold.visible = false;
+    scene.add(this.cold);
+    this.heat = null;         // {team, range, cam} mientras el visor térmico está en marcha
+  }
+  /** Visor térmico del operador visto: resalta a los enemigos de `team` a menos de `range` m. */
+  setHeat(on, team = 0, range = 0, cam = null) {
+    this.heat = on ? { team, range, cam } : null;
+    this.cold.visible = on;
   }
 
   _material() {
@@ -304,7 +331,7 @@ export class CharacterRenderer {
       glslVersion: THREE.GLSL3, vertexShader: CHAR_VERT, fragmentShader: CHAR_FRAG,
       uniforms: {
         uBones: { value: new Float32Array(BONE_COUNT * 16) },
-        uCamo: { value: this.camo }, uHit: { value: 0 }, uDim: { value: 1 },
+        uCamo: { value: this.camo }, uHit: { value: 0 }, uDim: { value: 1 }, uHeat: { value: 0 },
         uLight: U.uLight, uLightMin: U.uLightMin, uLightInvSize: U.uLightInvSize,
         uShadowMap: U.uShadowMap, uShadowMatrix: U.uShadowMatrix, uShadowTexel: U.uShadowTexel,
         uSunDir: U.uSunDir, uSunColor: U.uSunColor, uSkyColor: U.uSkyColor, uGroundColor: U.uGroundColor,
@@ -358,6 +385,16 @@ export class CharacterRenderer {
       v.mesh.material.uniformsNeedUpdate = true;
       v.hit = Math.max(0, v.hit - dt * 5);
       v.mesh.material.uniforms.uHit.value = v.hit;
+      // visor térmico: los enemigos cercanos, calientes y por encima del humo
+      const H = this.heat;
+      const hot = !!H && op.team !== H.team && op.state !== 'dead' && !!H.cam &&
+        Math.hypot(op.body.pos.x - H.cam.x, op.body.pos.y + 0.9 - H.cam.y, op.body.pos.z - H.cam.z) <= H.range;
+      if (hot !== !!v.hot) {
+        v.hot = hot;
+        v.mesh.material.uniforms.uHeat.value = hot ? 1 : 0;
+        v.mesh.material.transparent = hot;
+        v.mesh.renderOrder = hot ? 20 : 0;
+      }
       // mancha de contacto
       if (!hidden && nb < 16) {
         const p = op.body.pos;

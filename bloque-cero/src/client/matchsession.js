@@ -28,6 +28,7 @@ export class MatchSession extends Session {
     this.feed = new FeedController(ctx, () => this.match.recon, () => this.match.player);
     this.chat = new TeamChat(ctx);
     this.disposers.push(() => this.chat.dispose());
+    this.disposers.push(() => { const el = document.getElementById('alert'); if (el) el.classList.add('hidden'); });
     this.wheel = new OrderWheel();
     this.disposers.push(() => this.wheel.close());
     this.holdFire = false;       // tras elegir en la rueda con clic, no disparar hasta soltar el botón
@@ -397,6 +398,7 @@ export class MatchSession extends Session {
       }
     }
     this.promptText = prompt;
+    this._scanHud(p);
     // (el panel de la preparación se aparta mientras hay un aviso o una barra de progreso)
     this.ui.el.prep.classList.toggle('behind', !!prompt || !!(p && p === view && (p.channel || p.reviving)));
     this.ui.setCarry(!!(p && def && def.carrier === p && p.state !== 'dead'));
@@ -424,6 +426,20 @@ export class MatchSession extends Session {
   }
 
   // Qué hará G ahora con un explosivo colocable o detonable.
+  // Pulso de escaneo en curso: aviso arriba (rojo si es contra tu equipo, azul si es tuyo).
+  _scanHud(p) {
+    const m = this.match, A = m.abilities, el = document.getElementById('alert');
+    const team = p ? p.team : 0, now = this.game.time;
+    const live = m.phase === 'prep' || m.phase === 'action' || m.phase === 'planted';
+    const against = live && A && A.scanAgainst(team);
+    const mine = live && A && A.scans.find((s) => s.team === team);
+    let text = '', ally = false;
+    if (against) text = now < against.from ? `¡Escaneo en ${Math.ceil(against.from - now)} s! No te muevas` : `Escaneo activo · no te muevas · ${Math.ceil(against.until - now)}`;
+    else if (mine) { ally = true; text = now < mine.from ? `Pulso de escaneo en ${Math.ceil(mine.from - now)} s` : `Escaneo activo · ${Math.ceil(mine.until - now)} s`; }
+    if (this._alertText !== text) { this._alertText = text; el.textContent = text; el.classList.toggle('hidden', !text); }
+    el.classList.toggle('ally', ally);
+  }
+
   // Aviso de la habilidad (X): colocar o encender la carga térmica.
   _abilityPrompt(p) {
     const m = this.match, a = p.ability;

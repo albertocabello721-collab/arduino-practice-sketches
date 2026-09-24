@@ -5,6 +5,7 @@
 // de drones y cámaras.
 import { lineOfSight } from '../../world/raycast.js';
 import { BONE } from '../skeleton.js';
+import { thermalOn, THERMAL_SCOPE } from '../abilities.js';
 
 export const MEMORY = 10;       // segundos que dura el recuerdo de dónde estaba un enemigo
 
@@ -32,6 +33,7 @@ export class Perception {
     if (op.blindT > 0) return true;              // cegado: no ve nada
     const G = this.game.gadgets;
     const smoke = G && G.smokes.length ? G : null;
+    const thermal = thermalOn(op);                // LUMEN con el visor: ve a través del humo
     for (const t of enemies) {
       const c = t.center();
       const dx = c.x - e.x, dy = c.y - e.y, dz = c.z - e.z;
@@ -49,7 +51,7 @@ export class Perception {
       if (!seen) seen = lineOfSight(w, e.x, e.y, e.z, chest.x, chest.y, chest.z);
       if (!seen && t.state === 'downed') seen = lineOfSight(w, e.x, e.y, e.z, c.x, c.y, c.z);
       if (!seen) continue;
-      if (smoke && smoke.smokeBlocks(e, head) && smoke.smokeBlocks(e, chest)) continue;   // tras el humo
+      if (smoke && !(thermal && dist <= THERMAL_SCOPE.range) && smoke.smokeBlocks(e, head) && smoke.smokeBlocks(e, chest)) continue;   // tras el humo
       // de lejos, alguien agachado o tumbado quieto cuesta más de ver
       if (dist > 18 && (t.stance === 'prone' || t.state === 'downed') && t.moveSpeed < 0.2 && !recentlySeen && this.game.rng.next() < 0.5) continue;
       this.visible.push(t);

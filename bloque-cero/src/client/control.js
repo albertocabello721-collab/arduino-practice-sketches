@@ -1,5 +1,6 @@
 // Teclado y ratón → intenciones del operador del jugador (común a todas las sesiones).
 import { clamp } from '../core/math.js';
+import { scopeZoom } from '../sim/abilities.js';
 
 export class PlayerControl {
   constructor(ctx) {
@@ -53,7 +54,7 @@ export class PlayerControl {
     I.interact = input.isDown('interact');
     I.holdWound = op.state === 'downed' && input.isDown('interact');
     // mirar con el ratón (inmediato, fuera del tick fijo)
-    const base = 0.0022 * settings.sensitivity * (1 - op.ads * (1 - settings.adsSensitivity / Math.max(1, op.weapon.def.adsZoom)));
+    const base = 0.0022 * settings.sensitivity * (1 - op.ads * (1 - settings.adsSensitivity / Math.max(1, scopeZoom(op))));
     const dYaw = -m.dx * base, pitch0 = op.pitch;
     op.yaw += dYaw;
     op.pitch = clamp(op.pitch - m.dy * base * (settings.invertY ? -1 : 1), -1.5, 1.5);

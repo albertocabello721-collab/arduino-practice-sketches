@@ -1,5 +1,6 @@
 // Prueba de humo en el navegador de las habilidades de ataque (X): carga térmica contra un
-// refuerzo, proyectil de brecha, humo remoto y granada PEM (la cámara se queda sin señal),
+// refuerzo, proyectil de brecha, humo remoto, granada PEM (la cámara se queda sin señal),
+// pulso de escaneo (el defensor que anda queda marcado) y visor térmico a través del humo,
 // con capturas y sin errores.
 // Uso: node tools/smoke-habilidades.mjs <carpeta de capturas>
 import { createRequire } from 'node:module';
@@ -97,9 +98,52 @@ console.log('PEM:', JSON.stringify(emp));
 await page.evaluate(() => { const bc = window.__bc; bc.session.feed.enterCam(bc.match.recon.cams.find((c) => c.id === 'cam_hall')); });
 await ticks(2, KEEP);
 await page.waitForTimeout(900);
-console.log('SEÑAL PERDIDA visible:', await page.evaluate(() => !document.getElementById('fd-lost').classList.contains('hidden')));
+console.log('SEÑAL PERDIDA visible:', await page.evaluate(() => new Promise((res) => requestAnimationFrame(() => requestAnimationFrame(() => res(!document.getElementById('fd-lost').classList.contains('hidden')))))));
 await page.screenshot({ path: `${out}/h7_camara_sin_senal.png` });
 await page.evaluate(() => window.__bc.session.feed.exit());
 await ticks(2, KEEP);
+
+// 5) RADAR: pulso de escaneo; un defensor anda por el pasillo del sótano y queda marcado
+const DEF = `const bc = window.__bc; const d = bc.match.game.operators.find((o) => o.side === 'def' && o.state === 'alive');`;
+await page.evaluate(new Function(`${DEF}
+  bc.session.bots.brains.delete(d);           // sin cerebro: lo movemos a mano
+  d.frozen = false; d.body.pos.x = 24; d.body.pos.y = -3.49; d.body.pos.z = 9.5; d.yaw = Math.PI / 2;
+  bc.__d = d;
+  const p = bc.player; p.ability = { id: 'scan', left: 3 }; p.abilityCd = 0; p.opDef = { ...p.opDef, ability: { ...p.opDef.ability, id: 'scan', name: 'Pulso de escaneo' } };
+  bc.place(27, -3.49, 12, Math.PI / 2 - 0.15, -0.05);`));
+const WALK = KEEP + " if (bc.__d) { bc.__d.intent.moveZ = 1; bc.__d.intent.moveX = 0; }";
+await ticks(2, WALK);
+await page.keyboard.press('KeyX');
+await page.waitForFunction(() => window.__bc.match.abilities.scans.length > 0, null, { timeout: 20000 }).catch(() => {});
+await ticks(20, WALK);
+console.log('aviso del pulso:', await page.evaluate(() => document.getElementById('alert').textContent));
+await page.screenshot({ path: `${out}/h8_escaneo_aviso.png` });
+await ticks(60 * 2.2, WALK);
+const scan = await page.evaluate(() => { const bc = window.__bc; return { marcado: bc.match.recon.isSpottedFor(bc.__d, bc.player.team), aviso: document.getElementById('alert').textContent }; });
+console.log('pulso:', JSON.stringify(scan));
+await page.waitForTimeout(300);
+await page.screenshot({ path: `${out}/h9_escaneo_marcado.png` });
+await ticks(60 * 4.2, KEEP + " if (bc.__d) bc.__d.intent.moveZ = 0;");
+
+// 6) LUMEN: visor térmico; el defensor, quieto dentro de una nube de humo
+await page.evaluate(() => {
+  const bc = window.__bc, d = bc.__d, G = bc.match.gadgets, now = bc.match.game.time;
+  d.body.pos.x = 17.5; d.body.pos.z = 11; d.yaw = -Math.PI / 2; d.intent.moveZ = 0;
+  G.smokes.push({ x: 18, y: -3.1, z: 11, r: 4, t0: now - 3, until: now + 30, team: 0 });
+  const p = bc.player; p.ability = { id: 'thermalscope', left: -1 }; p.opDef = { ...p.opDef, ability: { ...p.opDef.ability, id: 'thermalscope', name: 'Visor térmico 3x' } };
+  bc.place(27, -3.49, 11, Math.PI / 2, -0.02);
+});
+// (la nube se llena de partículas con los fotogramas: 4 s de juego en tiempo real)
+await page.evaluate(() => new Promise((res) => { const bc = window.__bc, t0 = bc.match.game.time; const chk = () => { bc.match.timer = Math.max(bc.match.timer, 60); if (bc.match.game.time - t0 >= 4) res(); else requestAnimationFrame(chk); }; chk(); }));
+await page.screenshot({ path: `${out}/h10_humo_sin_visor.png` });
+await page.evaluate(() => { window.__bc.ctx.input.mouse.right = true; });
+// (el apuntado avanza con los fotogramas del navegador: se espera a que termine)
+await page.waitForFunction(() => window.__bc.player.ads > 0.95, null, { timeout: 60000 }).catch(() => {});
+await page.waitForTimeout(600);
+const th2 = await page.evaluate(() => { const bc = window.__bc, s = bc.session; return { ads: +bc.player.ads.toFixed(2), fov: +bc.camera.fov.toFixed(1), frio: bc.ctx.chars.cold.visible, derecho: bc.ctx.input.mouse.right, intencion: bc.player.intent.ads, capturado: bc.ctx.input.locked, controla: s.controlling, feed: s.feed.active, arma: bc.player.weapon.ready }; });
+console.log('visor térmico:', JSON.stringify(th2));
+await page.screenshot({ path: `${out}/h11_visor_termico.png` });
+await page.evaluate(() => { window.__bc.ctx.input.mouse.right = false; });
+await ticks(30, KEEP);
 console.log('errores:', errors.length); for (const e of errors.slice(0, 10)) console.log('  ', e.slice(0, 300));
 await browser.close();
