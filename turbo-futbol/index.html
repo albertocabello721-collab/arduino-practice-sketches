@@ -142,11 +142,109 @@ const CONFIG = {
     halfLength: 5120,       // paredes de fondo y = ±5120
     height: 2044,           // techo
     cornerSum: 8064,        // chaflanes: |x| + |y| = 8064
-    filletRadius: 256,      // radio de las curvas piso/pared/techo y esquinas verticales
+    filletRadius: 450,      // radio de las curvas piso/pared/techo (≥ 2300/5.5 para seguirlas a tope de velocidad)
     goalHalfWidth: 892.755, // portería: ancho 1786
     goalHeight: 642.775,
     goalDepth: 880,
     goalZoneExt: 1000,      // extensión de la zona especial de la SDF frente a la portería
+  },
+  input: {
+    deadzone: 0.15,         // zona muerta del stick (configurable en Ajustes)
+  },
+  camera: {
+    fov: 110,               // FOV horizontal en grados
+    distance: 270,          // uu detrás del auto
+    height: 100,            // uu sobre el auto
+    angle: -4,              // grados (negativo = mira hacia abajo)
+    stiffness: 0.45,        // 0 = suave, 1 = rígida
+    transition: 1.2,        // velocidad de transición de la cámara de pelota
+    ballCam: true,
+    shake: true,
+  },
+  audio: {
+    master: 0.8, sfx: 0.9, engine: 0.55, crowd: 0.6,
+  },
+  car: {
+    mass: 180,
+    hitboxHalf: [59.0, 42.1, 18.1],       // OBB 118 x 84.2 x 36.2
+    hitboxOffset: [13.88, 0, 20.75],      // centro de la caja respecto al centro de masa (local)
+    restZ: 17,                            // altura del centro de masa en reposo
+    maxSpeed: 2300,
+    maxAngSpeed: 5.5,
+    supersonicSpeed: 2200,
+    supersonicMaintainSpeed: 2100,
+    supersonicMaintainTime: 1.0,
+    throttleCurve: [[0, 1600], [1400, 160], [1410, 0]],
+    brakeAccel: 3500,
+    coastAccel: 525,
+    stoppingSpeed: 25,
+    throttleDeadzone: 0.01,
+    airThrottleAccel: 66.667,
+    steerCurvature: [[0, 0.0069], [500, 0.00398], [1000, 0.00235], [1500, 0.001375], [1750, 0.0011], [2300, 0.00088]],
+    powerslideCurvature: [[0, 0.0069], [500, 0.00415], [1500, 0.00279], [2500, 0.00149]],
+    yawResponse: 28,                      // 1/s: qué tan rápido la rotación sigue a la dirección
+    latAccelMax: 6500,                    // agarre lateral máximo (uu/s²)
+    latSlipCurve: [[0, 1.0], [1, 0.2]],   // agarre según deslizamiento lateral
+    powerslideLatFactor: 0.1,             // agarre lateral durante el derrape
+    powerslideRise: 5,
+    powerslideFall: 2,
+    stickyBase: 0.5,                      // fuerza de pegado = g·(base + extra·(1 − n.z))
+    stickyWallExtra: 1.0,
+    wallMinSpeed: 350,                    // bajo esta velocidad en pared/techo se despega
+    wallSteepNz: 0.7,                     // n.z bajo el cual se considera pared
+    alignStiffness: 45,                   // alineación al caer sobre 1-3 ruedas (rad/s² por rad)
+    alignDamping: 7,
+    wheels: [
+      { x: 51.25, y: 25.9, r: 12.5, front: true },
+      { x: 51.25, y: -25.9, r: 12.5, front: true },
+      { x: -33.75, y: 29.5, r: 15, front: false },
+      { x: -33.75, y: -29.5, r: 15, front: false },
+    ],
+    suspension: {
+      mountZ: 10,             // altura local del anclaje del resorte
+      stiffness: 1500,        // rigidez total (uu/s² por uu de compresión): soporta ~25 g en las curvas
+      netAccel: 975,          // aceleración neta hacia la superficie en equilibrio (1.5 g)
+      dampingRatio: 0.8,
+    },
+    worldRestitution: 0.3,
+    worldFriction: 0.3,
+    autoFlipImpulse: 200,
+    autoFlipTime: 0.4,
+  },
+  boost: {
+    groundAccel: 991.666,
+    airAccel: 1058.333,
+    usePerSecond: 33.3,
+    kickoffAmount: 33,
+    max: 100,
+    minTime: 0.1,
+  },
+  jump: {
+    impulse: 292,           // uu/s hacia el techo del auto
+    holdAccel: 1460,        // uu/s² extra mientras se mantiene
+    maxHold: 0.2,
+    minHold: 0.025,
+    secondWindow: 1.25,     // s tras terminar el primer salto (1.45 s si se mantuvo completo)
+    resetPad: 0.1,          // s mínimos tras saltar antes de recuperar saltos al tocar
+  },
+  dodge: {
+    deadzone: 0.5,          // |dir| mínima para dodge (si no, doble salto)
+    impulse: 500,
+    forwardSpeedScale: 1.0, // escala del impulso según velocidad (RL-like)
+    sideSpeedScale: 1.9,
+    backSpeedScale: 2.5,
+    backScaleX: 16 / 15,
+    torqueTime: 0.65,       // duración de la rotación del dodge
+    flipAccel: 60,          // rad/s² de la rotación (limitada a maxAngSpeed)
+    cancelDamping: 14,      // frenado de la rotación con flip cancel
+    lockTime: 1.2,          // s sin amortiguar el eje del dodge (completa el giro)
+    zDampStart: 0.15,
+    zDampEnd: 0.21,
+    zDamp120: 0.35,         // amortiguación vertical por tick (120 Hz) durante el dodge
+  },
+  air: {
+    torque: { roll: 38.34, pitch: 12.46, yaw: 9.11 },   // rad/s²
+    damping: { roll: 4.79, pitch: 2.88, yaw: 1.92 },    // 1/s
   },
 };
 
@@ -460,17 +558,680 @@ function arenaRaycast(ox, oy, oz, dx, dy, dz, maxT, hit, eps = 0.05) {
   return false;
 }
 
-// @@FISICA_AUTO@@
+// =====================================================================
+// AUTO — física propia: suspensión por raycasts, agarre, derrape, pegado a superficies,
+// saltos (doble salto, dodge, flip cancel), control aéreo y turbo.
+// =====================================================================
+class Controls {
+  constructor() { this.reset(); }
+  reset() {
+    this.throttle = 0; this.steer = 0; this.pitch = 0; this.yaw = 0; this.roll = 0;
+    this.jump = false; this.boost = false; this.handbrake = false;
+    return this;
+  }
+  copy(c) {
+    this.throttle = c.throttle; this.steer = c.steer; this.pitch = c.pitch; this.yaw = c.yaw; this.roll = c.roll;
+    this.jump = c.jump; this.boost = c.boost; this.handbrake = c.handbrake;
+    return this;
+  }
+  sanitize() {
+    const f = (v) => (Number.isFinite(v) ? clamp(v, -1, 1) : 0);
+    this.throttle = f(this.throttle); this.steer = f(this.steer); this.pitch = f(this.pitch);
+    this.yaw = f(this.yaw); this.roll = f(this.roll);
+    this.jump = !!this.jump; this.boost = !!this.boost; this.handbrake = !!this.handbrake;
+    return this;
+  }
+}
+
+const _hit = { t: 0, x: 0, y: 0, z: 0, nx: 0, ny: 0, nz: 1 };
+const _ca = new V3(), _cb = new V3(), _cc = new V3(), _cd = new V3(), _ce = new V3(), _cf = new V3();
+const _acc = new V3(), _ang = new V3(), _cn = new V3(), _ia = new V3(), _ib = new V3();
+
+/** Muestras sobre la superficie de la caja (en múltiplos de los semiejes). */
+const HITBOX_SAMPLES = (() => {
+  const out = [];
+  for (const x of [-1, -0.5, 0, 0.5, 1]) for (const y of [-1, 0, 1]) for (const z of [-1, 0, 1]) {
+    if (Math.abs(x) === 1 || Math.abs(y) === 1 || Math.abs(z) === 1) out.push([x, y, z]);
+  }
+  return out;
+})();
+
+class Car {
+  constructor(id, team, name) {
+    const C = CONFIG.car;
+    this.id = id; this.team = team; this.name = name;
+    this.isBot = false;
+    this.pos = new V3(); this.vel = new V3(); this.angVel = new V3(); this.rot = new Basis();
+    this.prevPos = new V3(); this.prevRot = new Basis();
+    this.groundNormal = new V3(0, 0, 1);
+    this.worldContactN = new V3(0, 0, 1);
+    this.controls = new Controls();
+    const hx = C.hitboxHalf[0] * 2, hy = C.hitboxHalf[1] * 2, hz = C.hitboxHalf[2] * 2;
+    this.invI = new V3(12 / (C.mass * (hy * hy + hz * hz)), 12 / (C.mass * (hx * hx + hz * hz)), 12 / (C.mass * (hx * hx + hy * hy)));
+    this.wheels = C.wheels.map((w) => {
+      const S = C.suspension;
+      const Lrest = S.mountZ + C.restZ - w.r;
+      const L0 = Lrest + S.netAccel / S.stiffness;
+      return { x: w.x, y: w.y, r: w.r, front: w.front, L0, k: 0, c: 0, contact: false, susLen: L0, comp: 0,
+        px: 0, py: 0, pz: 0, nx: 0, ny: 0, nz: 1, spin: 0, spinVel: 0 };
+    });
+    this.setupSuspension();
+    this.events = [];
+    this.steerVis = 0;
+    this.resetState();
+  }
+  setupSuspension() {
+    const S = CONFIG.car.suspension;
+    const xf = this.wheels.find((w) => w.front).x, xb = this.wheels.find((w) => !w.front).x;
+    const wb = xf - xb;
+    const K = S.stiffness;
+    const Ct = 2 * S.dampingRatio * Math.sqrt(K);
+    for (const w of this.wheels) {
+      const share = (w.front ? -xb : xf) / wb / 2;
+      w.k = K * share; w.c = Ct * share;
+    }
+  }
+  resetState() {
+    this.vel.set(0, 0, 0); this.angVel.set(0, 0, 0);
+    this.boost = CONFIG.boost.kickoffAmount; this.boosting = false; this.boostTime = 0;
+    this.unlimitedBoost = this.unlimitedBoost || false;
+    this.onGround = false; this.numContacts = 0; this.groundNormal.set(0, 0, 1);
+    this.handbrakeAmt = 0;
+    this.jumpHeld = false; this.isJumping = false; this.jumpTime = 0;
+    this.hasJumped = false; this.hasDoubleJumped = false; this.hasFlipped = false;
+    this.isFlipping = false; this.flipTime = 0; this.flipPitch = 0; this.flipRoll = 0;
+    this.airTime = 0; this.airTimeSinceJump = 0; this.timeSinceJumpStart = 10;
+    this.autoFlipTimer = 0; this.autoFlipDir = 1;
+    this.supersonic = false; this.supersonicTime = 0;
+    this.worldContactTimer = 0; this.worldContactN.set(0, 0, 1);
+    this.demolished = false; this.respawnTimer = 0;
+    this.lastBallTouchTick = -1000;
+    this.bumpCooldown = 0;
+    this.landingSpeed = 0;
+    const S = CONFIG.car.suspension;
+    for (const w of this.wheels) { w.contact = false; w.susLen = w.L0 - S.netAccel / S.stiffness; w.comp = 0; }
+  }
+  /** Coloca el auto en reposo sobre el piso mirando hacia yaw (radianes, 0 = +x). */
+  placeAt(x, y, yaw) {
+    this.resetState();
+    this.pos.set(x, y, CONFIG.car.restZ);
+    this.rot.setYaw(yaw);
+    this.prevPos.copy(this.pos); this.prevRot.copy(this.rot);
+  }
+  /** Velocidad de un punto con posición relativa r (desde el centro de masa). */
+  pointVelRel(rx, ry, rz, out) {
+    const w = this.angVel;
+    return out.set(this.vel.x + w.y * rz - w.z * ry, this.vel.y + w.z * rx - w.x * rz, this.vel.z + w.x * ry - w.y * rx);
+  }
+  /** Tensor de inercia inverso en el mundo aplicado a v. */
+  invInertia(v, out) {
+    const b = this.rot;
+    const lx = v.dot(b.f) * this.invI.x, ly = v.dot(b.l) * this.invI.y, lz = v.dot(b.u) * this.invI.z;
+    return b.toWorld(lx, ly, lz, out);
+  }
+  /** Masa inversa efectiva en r (relativo) a lo largo de la dirección unitaria n. */
+  invMassAt(rx, ry, rz, n) {
+    _ia.set(ry * n.z - rz * n.y, rz * n.x - rx * n.z, rx * n.y - ry * n.x);
+    this.invInertia(_ia, _ib);
+    const cx = _ib.y * rz - _ib.z * ry, cy = _ib.z * rx - _ib.x * rz, cz = _ib.x * ry - _ib.y * rx;
+    return 1 / CONFIG.car.mass + cx * n.x + cy * n.y + cz * n.z;
+  }
+  /** Aplica el impulso (jx,jy,jz) [masa·uu/s] en el punto relativo r. */
+  applyImpulse(rx, ry, rz, jx, jy, jz) {
+    const im = 1 / CONFIG.car.mass;
+    this.vel.x += jx * im; this.vel.y += jy * im; this.vel.z += jz * im;
+    _ia.set(ry * jz - rz * jy, rz * jx - rx * jz, rx * jy - ry * jx);
+    this.invInertia(_ia, _ib);
+    this.angVel.add(_ib);
+  }
+  /** Centro de la caja de colisión (mundo). */
+  hitboxCenter(out) {
+    const O = CONFIG.car.hitboxOffset;
+    return this.rot.toWorld(O[0], O[1], O[2], out).add(this.pos);
+  }
+  /** Raycasts de suspensión (uno por rueda) contra la cancha. */
+  updateWheels() {
+    const b = this.rot, f = b.f, l = b.l, u = b.u, mz = CONFIG.car.suspension.mountZ;
+    let nc = 0;
+    this.groundNormal.set(0, 0, 0);
+    for (const w of this.wheels) {
+      const mx = this.pos.x + f.x * w.x + l.x * w.y + u.x * mz;
+      const my = this.pos.y + f.y * w.x + l.y * w.y + u.y * mz;
+      const mzz = this.pos.z + f.z * w.x + l.z * w.y + u.z * mz;
+      const maxT = w.L0 + w.r;
+      if (arenaRaycast(mx, my, mzz, -u.x, -u.y, -u.z, maxT + 1, _hit) && _hit.t <= maxT) {
+        w.contact = true;
+        w.susLen = Math.max(0, _hit.t - w.r);
+        w.comp = w.L0 - w.susLen;
+        w.px = _hit.x; w.py = _hit.y; w.pz = _hit.z;
+        w.nx = _hit.nx; w.ny = _hit.ny; w.nz = _hit.nz;
+        this.groundNormal.x += _hit.nx; this.groundNormal.y += _hit.ny; this.groundNormal.z += _hit.nz;
+        nc++;
+      } else {
+        w.contact = false;
+        // la rueda cuelga: se extiende suavemente (solo visual)
+        w.susLen = Math.min(w.L0, w.susLen + 240 * DT);
+        w.comp = 0;
+      }
+    }
+    this.numContacts = nc;
+    if (nc > 0) this.groundNormal.normalize(); else this.groundNormal.copy(u);
+  }
+
+  step(ctl, dt) {
+    const C = CONFIG.car, J = CONFIG.jump, D = CONFIG.dodge, B = CONFIG.boost, g = CONFIG.physics.gravity;
+    this.prevPos.copy(this.pos); this.prevRot.copy(this.rot);
+    if (this.demolished) return;
+    ctl.sanitize();
+    const b = this.rot, f = b.f, l = b.l, u = b.u;
+    const wasOnGround = this.onGround;
+    this.updateWheels();
+    const nc = this.numContacts;
+    const onGround = nc >= 3;
+    this.onGround = onGround;
+    const N = this.groundNormal;
+    if (onGround && !wasOnGround) {
+      this.landingSpeed = -this.vel.dot(N);
+      if (this.landingSpeed > 250) this.events.push({ type: 'aterrizaje', speed: this.landingSpeed });
+    }
+
+    // Derrape (sube a 5/s, baja a 2/s)
+    this.handbrakeAmt = ctl.handbrake ? Math.min(1, this.handbrakeAmt + C.powerslideRise * dt)
+      : Math.max(0, this.handbrakeAmt - C.powerslideFall * dt);
+
+    // ---------------- Saltos ----------------
+    const jumpPressed = ctl.jump && !this.jumpHeld;
+    this.jumpHeld = ctl.jump;
+    this.timeSinceJumpStart += dt;
+    if (onGround && !this.isJumping && this.timeSinceJumpStart > J.resetPad) {
+      // Tocar una superficie con las ruedas recupera los saltos
+      this.hasJumped = false; this.hasDoubleJumped = false; this.hasFlipped = false; this.isFlipping = false;
+      this.airTime = 0; this.airTimeSinceJump = 0;
+    }
+    if (!onGround) this.airTime += dt;
+    _acc.set(0, 0, -g);
+    _ang.set(0, 0, 0);
+    if (jumpPressed) {
+      const onRoof = nc === 0 && this.worldContactTimer > 0 && this.worldContactN.dot(u) < -0.7;
+      if (onGround && !this.isJumping) {
+        this.isJumping = true; this.jumpTime = 0; this.hasJumped = true; this.timeSinceJumpStart = 0;
+        this.vel.addScaled(u, J.impulse);
+        this.events.push({ type: 'salto' });
+      } else if (onRoof) {
+        // Recuperación automática al quedar sobre el techo del auto
+        this.autoFlipTimer = C.autoFlipTime;
+        _ca.crossVectors(u, this.worldContactN);
+        const s = _ca.dot(f);
+        this.autoFlipDir = Math.abs(s) > 0.05 ? Math.sign(s) : 1;
+        this.vel.addScaled(this.worldContactN, C.autoFlipImpulse);
+        this.events.push({ type: 'salto' });
+      } else if (!onGround && !this.isJumping && !this.hasDoubleJumped && !this.hasFlipped &&
+                 (this.hasJumped ? this.airTimeSinceJump < J.secondWindow : this.airTime < J.secondWindow)) {
+        const dx = -ctl.pitch, dy = clamp(ctl.yaw + ctl.roll, -1, 1);
+        if (Math.abs(dx) + Math.abs(dy) >= D.deadzone) {
+          this.startDodge(dx, dy);
+          this.events.push({ type: 'dodge' });
+        } else {
+          this.vel.addScaled(u, J.impulse);
+          this.hasDoubleJumped = true;
+          this.events.push({ type: 'doble' });
+        }
+      }
+    }
+    if (this.isJumping) {
+      this.jumpTime += dt;
+      if (this.jumpTime <= J.maxHold + 1e-9 && (ctl.jump || this.jumpTime <= J.minHold + 1e-9)) _acc.addScaled(u, J.holdAccel);
+      else this.isJumping = false;
+    }
+    if (this.hasJumped && !this.isJumping && !onGround) this.airTimeSinceJump += dt;
+    if (this.isFlipping) this.flipTime += dt;
+
+    // ---------------- Fuerzas con contacto ----------------
+    if (nc > 0) {
+      for (const w of this.wheels) {
+        if (!w.contact) continue;
+        const rx = w.px - this.pos.x, ry = w.py - this.pos.y, rz = w.pz - this.pos.z;
+        this.pointVelRel(rx, ry, rz, _ca);
+        const xdot = -(_ca.x * w.nx + _ca.y * w.ny + _ca.z * w.nz);
+        let F = w.k * w.comp + w.c * xdot;            // aceleración por unidad de masa
+        if (F < 0) F = 0;
+        _acc.x += w.nx * F; _acc.y += w.ny * F; _acc.z += w.nz * F;
+        _cb.set(ry * w.nz - rz * w.ny, rz * w.nx - rx * w.nz, rx * w.ny - ry * w.nx).scale(F * C.mass);
+        this.invInertia(_cb, _cc);
+        _ang.add(_cc);
+      }
+      if (onGround && !this.isJumping) {
+        // Pegado a la superficie (más fuerte en paredes y techo); se pierde si va muy lento en pared
+        let sticky = C.stickyBase + C.stickyWallExtra * (1 - N.z);
+        if (N.z < C.wallSteepNz) sticky *= smoothstep(C.wallMinSpeed * 0.6, C.wallMinSpeed, this.vel.length());
+        _acc.addScaled(N, -g * sticky);
+      }
+      if (nc < 4 && !this.isJumping && this.autoFlipTimer <= 0) {
+        // Alineación suave con la superficie al caer sobre algunas ruedas
+        _cb.crossVectors(u, N);
+        const wn = this.angVel.dot(N);
+        _cc.copy(this.angVel).addScaled(N, -wn);
+        _ang.addScaled(_cb, C.alignStiffness).addScaled(_cc, -C.alignDamping);
+      }
+    }
+
+    // ---------------- Rotación: dodge y control aéreo ----------------
+    const wf = this.angVel.dot(f), wl = this.angVel.dot(l), wu = this.angVel.dot(u);
+    let af = 0, al = 0, au = 0;
+    let rollLocked = false, pitchLocked = false;
+    if (this.isFlipping) {
+      const inLock = this.flipTime < D.lockTime;
+      rollLocked = inLock && this.flipRoll !== 0;
+      pitchLocked = inLock && this.flipPitch !== 0;
+      if (this.flipTime <= D.torqueTime) {
+        let pitchScale = 1;
+        if (this.flipPitch !== 0 && ctl.pitch !== 0 && Math.sign(ctl.pitch) === Math.sign(this.flipPitch)) {
+          // Flip cancel: dirección contraria detiene la rotación
+          pitchScale = 1 - Math.min(1, Math.abs(ctl.pitch));
+          al -= wl * D.cancelDamping * Math.abs(ctl.pitch);
+        }
+        af += this.flipRoll * D.flipAccel;
+        al += this.flipPitch * D.flipAccel * pitchScale;
+      }
+    }
+    if (nc === 0) {
+      const T = CONFIG.air.torque, Dm = CONFIG.air.damping;
+      if (!rollLocked) af += ctl.roll * T.roll - wf * Dm.roll;
+      if (!pitchLocked) al += -ctl.pitch * T.pitch - wl * Dm.pitch * (1 - Math.abs(ctl.pitch));
+      au += -ctl.yaw * T.yaw - wu * Dm.yaw * (1 - Math.abs(ctl.yaw));
+      _acc.addScaled(f, ctl.throttle * C.airThrottleAccel);
+    }
+    if (this.autoFlipTimer > 0) {
+      this.autoFlipTimer -= dt;
+      const target = this.autoFlipDir * Math.PI / C.autoFlipTime * 1.15;
+      af += (target - wf) * 30;
+    }
+    _ang.addScaled(f, af).addScaled(l, al).addScaled(u, au);
+
+    // ---------------- Turbo ----------------
+    if (this.boostTime > 0) this.boostTime -= dt;
+    const wantBoost = ctl.boost || (this.boosting && this.boostTime > 0);
+    if (wantBoost && (this.boost > 0 || this.unlimitedBoost)) {
+      if (!this.boosting) this.boostTime = B.minTime;
+      this.boosting = true;
+      if (!this.unlimitedBoost) this.boost = Math.max(0, this.boost - B.usePerSecond * dt);
+      _acc.addScaled(f, onGround ? B.groundAccel : B.airAccel);
+    } else {
+      this.boosting = false;
+    }
+
+    // ---------------- Integración ----------------
+    this.vel.addScaled(_acc, dt);
+    this.angVel.addScaled(_ang, dt);
+    if (nc > 0) this.driveGround(ctl, dt);
+    if (this.isFlipping && this.flipTime <= D.torqueTime && this.flipTime >= D.zDampStart &&
+        (this.vel.z < 0 || this.flipTime < D.zDampEnd)) {
+      this.vel.z *= Math.pow(1 - D.zDamp120, dt * 120);
+    }
+    this.vel.clampLength(C.maxSpeed);
+    this.angVel.clampLength(C.maxAngSpeed);
+    this.pos.addScaled(this.vel, dt);
+    this.rot.rotate(this.angVel, dt);
+
+    // Supersónico
+    const speed = this.vel.length();
+    if (speed >= C.supersonicSpeed) { this.supersonic = true; this.supersonicTime = 0; }
+    else if (this.supersonic && speed >= C.supersonicMaintainSpeed && this.supersonicTime < C.supersonicMaintainTime) this.supersonicTime += dt;
+    else this.supersonic = false;
+    if (this.worldContactTimer > 0) this.worldContactTimer -= dt;
+    if (this.bumpCooldown > 0) this.bumpCooldown -= dt;
+    this.updateWheelVisuals(ctl, dt);
+  }
+
+  /** Dodge: impulso horizontal + rotación rápida; anula la velocidad vertical al empezar. */
+  startDodge(dx, dy) {
+    const C = CONFIG.car, D = CONFIG.dodge, b = this.rot;
+    const mag = Math.hypot(dx, dy);
+    const nx = dx / mag, ny = dy / mag;
+    this.isFlipping = true; this.hasFlipped = true; this.flipTime = 0;
+    this.flipPitch = Math.abs(nx) < 0.1 ? 0 : nx;
+    this.flipRoll = Math.abs(ny) < 0.1 ? 0 : ny;
+    // Ejes horizontales (adelante y derecha aplanados)
+    _ca.set(b.f.x, b.f.y, 0);
+    if (_ca.lengthSq() < 0.01) _ca.set(b.l.y, -b.l.x, 0);
+    _ca.normalize();
+    _cb.set(_ca.y, -_ca.x, 0);
+    const fwdSpeed = this.vel.dot(b.f);
+    const ratio = Math.min(1, Math.abs(fwdSpeed) / C.maxSpeed);
+    const back = Math.abs(fwdSpeed) < 100 ? nx < 0 : (nx >= 0) !== (fwdSpeed > 0);
+    let ix = nx * D.impulse, iy = ny * D.impulse;
+    ix *= back ? (1 + (D.backSpeedScale - 1) * ratio) * D.backScaleX : (1 + (D.forwardSpeedScale - 1) * ratio);
+    iy *= 1 + (D.sideSpeedScale - 1) * ratio;
+    this.vel.z = 0;
+    this.vel.addScaled(_ca, ix).addScaled(_cb, iy);
+  }
+
+  /** Aceleración, freno, dirección y agarre lateral sobre la superficie de contacto. */
+  driveGround(ctl, dt) {
+    const C = CONFIG.car, N = this.groundNormal, f = this.rot.f;
+    const cs = this.numContacts / 4;
+    _ca.copy(f).addScaled(N, -f.dot(N));
+    if (_ca.lengthSq() < 1e-4) return;
+    _ca.normalize();                      // adelante sobre la superficie
+    _cb.crossVectors(N, _ca);             // izquierda sobre la superficie
+    const vF = this.vel.dot(_ca);
+    const throttle = this.boosting ? 1 : ctl.throttle;
+    let dvF;
+    if (Math.abs(throttle) > C.throttleDeadzone) {
+      if (vF * throttle < 0 && Math.abs(vF) > C.stoppingSpeed) dvF = -Math.sign(vF) * Math.min(C.brakeAccel * dt * cs, Math.abs(vF));
+      else dvF = throttle * curve(C.throttleCurve, Math.abs(vF)) * dt * cs;
+    } else {
+      dvF = -Math.sign(vF) * Math.min(C.coastAccel * dt * cs, Math.abs(vF));
+    }
+    this.vel.addScaled(_ca, dvF);
+    // Dirección: curvatura máxima según velocidad (mayor en derrape)
+    const sp = Math.abs(vF);
+    const curv = lerp(curve(C.steerCurvature, sp), curve(C.powerslideCurvature, sp), this.handbrakeAmt);
+    const target = -ctl.steer * curv * vF;
+    const wN = this.angVel.dot(N);
+    this.angVel.addScaled(N, (target - wN) * Math.min(1, C.yawResponse * dt) * cs);
+    // Agarre lateral (se reduce al deslizar y durante el derrape)
+    const vF2 = this.vel.dot(_ca), vL = this.vel.dot(_cb);
+    const planar = Math.sqrt(vF2 * vF2 + vL * vL);
+    const slip = Math.abs(vL) / Math.max(planar, 1);
+    const fric = curve(C.latSlipCurve, slip) * lerp(1, C.powerslideLatFactor, this.handbrakeAmt);
+    const maxDv = C.latAccelMax * fric * dt * cs;
+    this.vel.addScaled(_cb, -clamp(vL, -maxDv, maxDv));
+  }
+
+  updateWheelVisuals(ctl, dt) {
+    const vF = this.vel.dot(this.rot.f);
+    for (const w of this.wheels) {
+      const target = w.contact ? vF / w.r : (ctl.throttle * 40 + (this.boosting ? 30 : 0));
+      w.spinVel = w.contact ? target : lerp(w.spinVel, target, Math.min(1, 2 * dt));
+      w.spin = (w.spin + w.spinVel * dt) % TAU;
+    }
+    const sp = Math.abs(vF);
+    const maxAng = lerp(0.55, 0.12, clamp(sp / 2300, 0, 1));
+    this.steerVis = lerp(this.steerVis, -ctl.steer * maxAng, Math.min(1, 14 * dt));
+  }
+
+  /** Colisión de la caja del auto contra la cancha (impulso + corrección de posición). */
+  collideWorld() {
+    if (this.demolished) return;
+    const C = CONFIG.car, H = C.hitboxHalf, b = this.rot;
+    for (let iter = 0; iter < 4; iter++) {
+      this.hitboxCenter(_cd);
+      if (iter === 0 && arenaSDF(_cd.x, _cd.y, _cd.z, _cn) > 80) return;
+      let depth = 0, found = false, bx = 0, by = 0, bz = 0;
+      for (const s of HITBOX_SAMPLES) {
+        const lx = s[0] * H[0], ly = s[1] * H[1], lz = s[2] * H[2];
+        const px = _cd.x + b.f.x * lx + b.l.x * ly + b.u.x * lz;
+        const py = _cd.y + b.f.y * lx + b.l.y * ly + b.u.y * lz;
+        const pz = _cd.z + b.f.z * lx + b.l.z * ly + b.u.z * lz;
+        const d = arenaSDF(px, py, pz, _cn);
+        if (d < -depth) { depth = -d; found = true; bx = px; by = py; bz = pz; _ce.copy(_cn); }
+      }
+      if (!found) break;
+      const rx = bx - this.pos.x, ry = by - this.pos.y, rz = bz - this.pos.z;
+      this.pos.addScaled(_ce, depth + 0.01);
+      this.pointVelRel(rx, ry, rz, _ca);
+      const vn = _ca.dot(_ce);
+      if (vn < 0) {
+        const e = vn < -150 ? C.worldRestitution : 0;
+        const jn = -(1 + e) * vn / this.invMassAt(rx, ry, rz, _ce);
+        this.applyImpulse(rx, ry, rz, _ce.x * jn, _ce.y * jn, _ce.z * jn);
+        this.pointVelRel(rx, ry, rz, _ca);
+        const vnn = _ca.dot(_ce);
+        _ca.addScaled(_ce, -vnn);
+        const vt = _ca.length();
+        if (vt > 1e-3) {
+          _ca.scale(1 / vt);
+          const jt = Math.min(vt / this.invMassAt(rx, ry, rz, _ca), C.worldFriction * jn);
+          this.applyImpulse(rx, ry, rz, -_ca.x * jt, -_ca.y * jt, -_ca.z * jt);
+        }
+        if (vn < -300) this.events.push({ type: 'golpe-pared', speed: -vn });
+      }
+      this.worldContactTimer = 0.1;
+      this.worldContactN.copy(_ce);
+    }
+  }
+
+  isFinite() { return this.pos.isFinite() && this.vel.isFinite() && this.angVel.isFinite() && this.rot.f.isFinite() && this.rot.u.isFinite(); }
+  /** Saltos disponibles (para depuración / HUD). */
+  jumpsAvailable() {
+    if (this.onGround) return 2;
+    if (this.hasFlipped || this.hasDoubleJumped) return 0;
+    const J = CONFIG.jump;
+    const inWindow = this.hasJumped ? (this.isJumping || this.airTimeSinceJump < J.secondWindow) : this.airTime < J.secondWindow;
+    return inWindow ? 1 : 0;
+  }
+}
 
 // @@FISICA_PELOTA@@
 
-// @@MUNDO@@
+// =====================================================================
+// MUNDO — un paso fijo de simulación (autos; la pelota y colisiones se agregan en la fase 3)
+// =====================================================================
+class World {
+  constructor(opts = {}) {
+    this.cars = [];
+    this.ball = null;
+    this.tick = 0;
+    this.rng = new Rng(opts.seed || 12345);
+  }
+  addCar(car) { this.cars.push(car); return car; }
+  step() {
+    for (const car of this.cars) car.step(car.controls, DT);
+    for (const car of this.cars) car.collideWorld();
+    this.tick++;
+  }
+}
+
+/** Distancia mínima (SDF) de las muestras de la caja del auto a la cancha (negativa = penetración). */
+function hitboxMinSDF(car) {
+  const H = CONFIG.car.hitboxHalf, b = car.rot, c = car.hitboxCenter(new V3()), n = new V3();
+  let m = Infinity;
+  for (const s of HITBOX_SAMPLES) {
+    const lx = s[0] * H[0], ly = s[1] * H[1], lz = s[2] * H[2];
+    m = Math.min(m, arenaSDF(c.x + b.f.x * lx + b.l.x * ly + b.u.x * lz, c.y + b.f.y * lx + b.l.y * ly + b.u.y * lz,
+      c.z + b.f.z * lx + b.l.z * ly + b.u.z * lz, n));
+  }
+  return m;
+}
 
 // @@PARTIDO@@
 
 // @@BOTS@@
 
-// @@ENTRADA@@
+// =====================================================================
+// AJUSTES (persisten en localStorage si está disponible)
+// =====================================================================
+const ACTIONS = [
+  ['acelerar', 'Acelerar (en el aire: pitch abajo)'],
+  ['reversa', 'Reversa (en el aire: pitch arriba)'],
+  ['izquierda', 'Girar izquierda (en el aire: yaw)'],
+  ['derecha', 'Girar derecha (en el aire: yaw)'],
+  ['saltar', 'Saltar'],
+  ['turbo', 'Turbo'],
+  ['derrape', 'Derrape / air roll libre'],
+  ['rollIzq', 'Air roll izquierda'],
+  ['rollDer', 'Air roll derecha'],
+  ['camPelota', 'Alternar cámara de pelota'],
+  ['reiniciar', 'Reiniciar pelota (práctica)'],
+  ['marcador', 'Marcador'],
+  ['pausa', 'Pausa'],
+];
+const DEFAULT_BINDINGS = {
+  acelerar: ['KeyW', 'ArrowUp'], reversa: ['KeyS', 'ArrowDown'], izquierda: ['KeyA', 'ArrowLeft'], derecha: ['KeyD', 'ArrowRight'],
+  saltar: ['Space', 'Mouse2'], turbo: ['ShiftLeft', 'Mouse0'], derrape: ['ControlLeft', ''], rollIzq: ['KeyQ', ''], rollDer: ['KeyE', ''],
+  camPelota: ['KeyC', ''], reiniciar: ['KeyR', ''], marcador: ['Tab', ''], pausa: ['Escape', 'KeyP'],
+};
+const Settings = {
+  KEY: 'turbo-futbol-ajustes-v1',
+  data: null,
+  defaults() {
+    return {
+      bindings: JSON.parse(JSON.stringify(DEFAULT_BINDINGS)),
+      deadzone: CONFIG.input.deadzone,
+      camera: Object.assign({}, CONFIG.camera),
+      audio: Object.assign({}, CONFIG.audio),
+      quality: { preset: 'auto', bloom: true },
+      playerName: 'Tú',
+    };
+  },
+  load() {
+    const d = this.defaults();
+    try {
+      const raw = window.localStorage && window.localStorage.getItem(this.KEY);
+      if (raw) {
+        const saved = JSON.parse(raw);
+        for (const k of ['deadzone', 'playerName']) if (saved[k] !== undefined) d[k] = saved[k];
+        for (const k of ['camera', 'audio', 'quality']) if (saved[k]) Object.assign(d[k], saved[k]);
+        if (saved.bindings) for (const a of Object.keys(d.bindings)) if (Array.isArray(saved.bindings[a])) d.bindings[a] = saved.bindings[a].slice(0, 2);
+      }
+    } catch (e) { /* almacenamiento no disponible: usar valores por defecto */ }
+    this.data = d;
+    return d;
+  },
+  save() {
+    try { if (window.localStorage) window.localStorage.setItem(this.KEY, JSON.stringify(this.data)); } catch (e) { /* sin almacenamiento */ }
+  },
+};
+
+// =====================================================================
+// ENTRADA — teclado, ratón y gamepad. Se muestrea en cada tick de física (no por frame).
+// =====================================================================
+function keyLabel(code) {
+  if (!code) return '—';
+  const map = { Space: 'Espacio', ShiftLeft: 'Shift izq.', ShiftRight: 'Shift der.', ControlLeft: 'Ctrl izq.', ControlRight: 'Ctrl der.',
+    AltLeft: 'Alt izq.', AltRight: 'Alt der.', MetaLeft: 'Cmd izq.', MetaRight: 'Cmd der.', Tab: 'Tab', Escape: 'Esc', Enter: 'Enter',
+    ArrowUp: '↑', ArrowDown: '↓', ArrowLeft: '←', ArrowRight: '→', Backspace: 'Retroceso', CapsLock: 'Bloq Mayús',
+    Mouse0: 'Clic izq.', Mouse1: 'Clic central', Mouse2: 'Clic der.', Mouse3: 'Ratón 4', Mouse4: 'Ratón 5' };
+  if (map[code]) return map[code];
+  if (code.startsWith('Key')) return code.slice(3);
+  if (code.startsWith('Digit')) return code.slice(5);
+  if (code.startsWith('Numpad')) return 'Num ' + code.slice(6);
+  return code;
+}
+
+const Input = {
+  down: new Set(),
+  latch: new Set(),
+  gameActive: false,
+  handlers: [],
+  rebinding: null,
+  pad: { index: -1, id: '', ps: false, buttons: new Array(17).fill(0), prev: new Array(17).fill(0), axes: [0, 0, 0, 0] },
+  init(target) {
+    window.addEventListener('keydown', (e) => this.onKeyDown(e));
+    window.addEventListener('keyup', (e) => this.onKeyUp(e));
+    target.addEventListener('mousedown', (e) => this.onPointerDown('Mouse' + e.button, e));
+    window.addEventListener('mouseup', (e) => this.onPointerUp('Mouse' + e.button));
+    target.addEventListener('contextmenu', (e) => e.preventDefault());
+    window.addEventListener('blur', () => { this.down.clear(); this.latch.clear(); });
+  },
+  bindings(action) { return (Settings.data && Settings.data.bindings[action]) || []; },
+  actionsOf(code) {
+    const out = [];
+    for (const [a] of ACTIONS) if (this.bindings(a).includes(code)) out.push(a);
+    return out;
+  },
+  onAction(fn) { this.handlers.push(fn); },
+  emit(action, pressed, source) { for (const fn of this.handlers) fn(action, pressed, source); },
+  onKeyDown(e) {
+    if (this.rebinding) { e.preventDefault(); this.finishRebind(e.code); return; }
+    const acts = this.actionsOf(e.code);
+    // Evita atajos del navegador (espacio, tab, ctrl+tecla…) mientras se juega
+    if (acts.length && this.gameActive) e.preventDefault();
+    if (e.code === 'Tab') e.preventDefault();
+    if (e.repeat) return;
+    this.down.add(e.code); this.latch.add(e.code);
+    for (const a of acts) this.emit(a, true, 'teclado');
+  },
+  onKeyUp(e) {
+    this.down.delete(e.code);
+    for (const a of this.actionsOf(e.code)) this.emit(a, false, 'teclado');
+  },
+  onPointerDown(code, e) {
+    if (this.rebinding) { e.preventDefault(); this.finishRebind(code); return; }
+    this.down.add(code); this.latch.add(code);
+    for (const a of this.actionsOf(code)) this.emit(a, true, 'raton');
+  },
+  onPointerUp(code) {
+    this.down.delete(code);
+    for (const a of this.actionsOf(code)) this.emit(a, false, 'raton');
+  },
+  startRebind(action, slot, done) { this.rebinding = { action, slot, done }; },
+  finishRebind(code) {
+    const r = this.rebinding; this.rebinding = null;
+    if (!r) return;
+    if (code !== 'Escape' || r.action === 'pausa') {
+      const b = Settings.data.bindings;
+      // Quitar el código de cualquier otra acción para evitar conflictos
+      for (const a of Object.keys(b)) b[a] = b[a].map((c) => (c === code ? '' : c));
+      b[r.action][r.slot] = code;
+      Settings.save();
+    }
+    if (r.done) r.done();
+  },
+  held(action) {
+    for (const c of this.bindings(action)) if (c && (this.down.has(c) || this.latch.has(c))) return true;
+    return false;
+  },
+  /** Lee el primer gamepad conectado (distribución estándar Xbox / PlayStation). */
+  pollPad() {
+    const P = this.pad;
+    let gp = null;
+    const list = navigator.getGamepads ? navigator.getGamepads() : [];
+    for (const g of list) if (g && g.connected) { gp = g; break; }
+    if (!gp) { if (P.index !== -1) { P.index = -1; P.buttons.fill(0); } return false; }
+    P.index = gp.index; P.id = gp.id;
+    P.ps = /054c|sony|playstation|dualshock|dualsense/i.test(gp.id);
+    for (let i = 0; i < P.buttons.length; i++) {
+      P.prev[i] = P.buttons[i];
+      const b = gp.buttons[i];
+      P.buttons[i] = b ? (typeof b === 'object' ? b.value : b) : 0;
+    }
+    for (let i = 0; i < 4; i++) P.axes[i] = gp.axes[i] || 0;
+    const edges = [[0, 'pad-a'], [1, 'pad-b'], [2, 'pad-x'], [3, 'pad-y'], [8, 'pad-select'], [9, 'pad-start'], [12, 'pad-arriba'], [13, 'pad-abajo'], [14, 'pad-izq'], [15, 'pad-der']];
+    for (const [i, name] of edges) {
+      const now = P.buttons[i] > 0.5, before = P.prev[i] > 0.5;
+      if (now !== before) this.emit(name, now, 'gamepad');
+    }
+    return true;
+  },
+  sample(ctl) {
+    const hasPad = this.pollPad();
+    const k = (a) => (this.held(a) ? 1 : 0);
+    let throttle = k('acelerar') - k('reversa');
+    let steer = k('derecha') - k('izquierda');
+    let pitch = k('reversa') - k('acelerar');
+    let roll = k('rollDer') - k('rollIzq');
+    let jump = this.held('saltar'), boost = this.held('turbo'), hb = this.held('derrape');
+    if (hasPad) {
+      const P = this.pad, dz = Settings.data ? Settings.data.deadzone : CONFIG.input.deadzone;
+      let lx = P.axes[0], ly = P.axes[1];
+      const mag = Math.hypot(lx, ly);
+      if (mag < dz) { lx = 0; ly = 0; } else { const s = Math.min(1, (mag - dz) / (1 - dz)) / mag; lx *= s; ly *= s; }
+      const trig = (v) => (v < 0.05 ? 0 : (v - 0.05) / 0.95);
+      throttle += trig(P.buttons[7]) - trig(P.buttons[6]);
+      steer += lx; pitch += ly;
+      roll += (P.buttons[5] > 0.5 ? 1 : 0) - (P.buttons[4] > 0.5 ? 1 : 0);
+      jump = jump || P.buttons[0] > 0.5;
+      boost = boost || P.buttons[1] > 0.5;
+      hb = hb || P.buttons[2] > 0.5;
+    }
+    ctl.throttle = clamp(throttle, -1, 1);
+    ctl.steer = clamp(steer, -1, 1);
+    ctl.pitch = clamp(pitch, -1, 1);
+    const r = clamp(roll, -1, 1);
+    if (hb) { ctl.roll = r !== 0 ? r : ctl.steer; ctl.yaw = 0; } else { ctl.roll = r; ctl.yaw = ctl.steer; }
+    ctl.jump = jump; ctl.boost = boost; ctl.handbrake = hb;
+    this.latch.clear();
+    return ctl;
+  },
+  /** Stick derecho (girar la cámara con el gamepad). */
+  rightStick() {
+    if (this.pad.index < 0) return [0, 0];
+    const dz = 0.2, x = this.pad.axes[2], y = this.pad.axes[3];
+    return [Math.abs(x) < dz ? 0 : x, Math.abs(y) < dz ? 0 : y];
+  },
+};
 
 // =====================================================================
 // PRUEBAS (?test)
@@ -540,7 +1301,7 @@ Tests.add('Extra A. SDF de la cancha: valores conocidos (piso, paredes, curvas, 
   chk('boca de la portería (sin pared invisible)', 0, 5120, 300, 300, [0, 0, 1]);
   chk('frente a la boca, junto al piso', 0, 5050, 20, 20, [0, 0, 1]);
   const dp = Math.hypot(892.755 - 800, 20);
-  chk('cerca del poste (arista exacta)', 800, 5100, 300, dp);
+  chk('cerca del poste (arista exacta)', 800, 5100, 550, dp);
   chk('bajo el travesaño', 0, 5100, 600, Math.hypot(20, 42.775));
   chk('pared interior de la portería', 850, 5600, 300, 42.755, [-1, 0, 0]);
   chk('fondo de la portería', 0, 5950, 300, 50, [0, -1, 0]);
@@ -582,6 +1343,151 @@ Tests.add('Extra B. SDF de la cancha: continua (Lipschitz 1) y normal = gradient
   const pass = worstLip <= 1.001 && nGrad > 1000;
   // El gradiente puede discrepar en el eje medial (dos superficies equidistantes); se reporta.
   return { pass, detail: 'Lipschitz máx = ' + worstLip.toFixed(5) + ', desviación máx normal/gradiente = ' + worstGrad.toFixed(4) + ' (' + nGrad + ' muestras)' };
+});
+
+// ---- Pruebas del auto ----
+function testCar(x, y, yaw) {
+  const w = new World();
+  const car = w.addCar(new Car(0, 0, 'prueba'));
+  car.placeAt(x, y, yaw);
+  return { w, car };
+}
+function settle(w, seconds) { for (let i = 0; i < seconds * TICK_RATE; i++) w.step(); }
+
+Tests.add('1. Sin turbo, el auto llega a ~1410 uu/s y no más', () => {
+  const { w, car } = testCar(0, -4700, Math.PI / 2);
+  settle(w, 0.5);
+  car.controls.throttle = 1;
+  let maxSpeed = 0, t1400 = -1, finite = true;
+  for (let i = 0; i < 6 * TICK_RATE; i++) {
+    w.step();
+    const sp = car.vel.dot(car.rot.f);
+    maxSpeed = Math.max(maxSpeed, car.vel.length());
+    if (t1400 < 0 && sp >= 1400) t1400 = (i + 1) * DT;
+    finite = finite && car.isFinite();
+  }
+  const final = car.vel.dot(car.rot.f);
+  const pass = finite && final > 1405 && final <= 1410.05 && maxSpeed <= 1410.05 && car.onGround;
+  return { pass, detail: 'velocidad final ' + final.toFixed(2) + ' uu/s, máxima ' + maxSpeed.toFixed(2) + ' uu/s, llegó a 1400 uu/s a los ' + t1400.toFixed(2) + ' s' };
+});
+
+Tests.add('2. Con turbo llega a 2300 uu/s', () => {
+  const { w, car } = testCar(0, -4700, Math.PI / 2);
+  settle(w, 0.5);
+  car.unlimitedBoost = true;
+  car.controls.throttle = 1; car.controls.boost = true;
+  let maxSpeed = 0, t2300 = -1, ss = -1;
+  for (let i = 0; i < 4 * TICK_RATE; i++) {
+    w.step();
+    const sp = car.vel.length();
+    maxSpeed = Math.max(maxSpeed, sp);
+    if (t2300 < 0 && sp >= 2299.5) t2300 = (i + 1) * DT;
+    if (ss < 0 && car.supersonic) ss = (i + 1) * DT;
+  }
+  const pass = maxSpeed >= 2299.5 && maxSpeed <= 2300.01 && car.isFinite();
+  return { pass, detail: 'máxima ' + maxSpeed.toFixed(2) + ' uu/s, 2300 a los ' + t2300.toFixed(2) + ' s, supersónico a los ' + ss.toFixed(2) + ' s' };
+});
+
+Tests.add('3. Salto con botón completo alcanza la altura calculada ±5%', () => {
+  const { w, car } = testCar(0, 0, 0);
+  settle(w, 1.0);
+  const z0 = car.pos.z;
+  const J = CONFIG.jump, g = CONFIG.physics.gravity;
+  const vT = J.impulse + (J.holdAccel - g) * J.maxHold;
+  const expected = J.impulse * J.maxHold + 0.5 * (J.holdAccel - g) * J.maxHold * J.maxHold + vT * vT / (2 * g);
+  car.controls.jump = true;
+  let maxZ = z0, tApex = 0;
+  for (let i = 0; i < 2 * TICK_RATE; i++) {
+    if (i === Math.round(0.3 * TICK_RATE)) car.controls.jump = false;
+    w.step();
+    if (car.pos.z > maxZ) { maxZ = car.pos.z; tApex = (i + 1) * DT; }
+  }
+  const rise = maxZ - z0;
+  const err = (rise - expected) / expected;
+  return { pass: Math.abs(err) <= 0.05, detail: 'subida ' + rise.toFixed(1) + ' uu vs fórmula ' + expected.toFixed(1) + ' uu (' + (err * 100).toFixed(2) + '%), ápice a los ' + tApex.toFixed(3) + ' s' };
+});
+
+Tests.add('5. Auto a 1400 uu/s sube por la pared sin caerse ni atravesarla', () => {
+  const { w, car } = testCar(1800, 0, 0);
+  settle(w, 0.3);
+  car.vel.set(1400, 0, 0);
+  car.controls.throttle = 1;
+  let maxWallZ = 0, minSdf = Infinity, maxX = -Infinity, wallTicks = 0, ceilingTicks = 0, airAfterWall = 0, fell = false, finite = true;
+  for (let i = 0; i < 5 * TICK_RATE; i++) {
+    w.step();
+    finite = finite && car.isFinite();
+    minSdf = Math.min(minSdf, hitboxMinSDF(car));
+    maxX = Math.max(maxX, car.pos.x);
+    const n = car.groundNormal;
+    if (car.onGround && n.z < 0.3 && n.z > -0.3) { wallTicks++; maxWallZ = Math.max(maxWallZ, car.pos.z); }
+    if (car.onGround && n.z < -0.7) ceilingTicks++;
+    if (wallTicks > 0 && !car.onGround) { airAfterWall++; if (airAfterWall > 0.25 * TICK_RATE) fell = true; } else airAfterWall = 0;
+  }
+  const pass = finite && maxWallZ > 1000 && minSdf > -3 && maxX < 4096 && !fell;
+  return { pass, detail: 'altura máx. en pared ' + maxWallZ.toFixed(0) + ' uu, ' + (wallTicks * DT).toFixed(2) + ' s en pared, ' +
+    (ceilingTicks * DT).toFixed(2) + ' s en techo, SDF mín. de la caja ' + minSdf.toFixed(2) + ' uu, x máx. ' + maxX.toFixed(0) + (fell ? ', SE CAYÓ' : '') };
+});
+
+Tests.add('Extra C. Dodge: impulso ~500 uu/s, anula vz; doble salto sin dirección', () => {
+  let { w, car } = testCar(0, 0, 0);
+  settle(w, 0.5);
+  car.controls.jump = true; w.step(); w.step(); w.step(); car.controls.jump = false;
+  for (let i = 0; i < 12; i++) w.step();
+  const vzBefore = car.vel.z, vxBefore = car.vel.x;
+  car.controls.pitch = -1; car.controls.jump = true; w.step();
+  const dvx = car.vel.x - vxBefore, vzAfter = car.vel.z;
+  car.controls.jump = false; car.controls.pitch = 0;
+  let maxPitchRate = 0;
+  for (let i = 0; i < 60; i++) { w.step(); maxPitchRate = Math.max(maxPitchRate, car.angVel.dot(car.rot.l)); }
+  const okDodge = Math.abs(dvx - 500) < 30 && Math.abs(vzAfter) < 20 && vzBefore > 50 && maxPitchRate > 5.0 && car.hasFlipped;
+  ({ w, car } = testCar(0, 0, 0));
+  settle(w, 0.5);
+  car.controls.jump = true; w.step(); w.step(); w.step(); car.controls.jump = false;
+  for (let i = 0; i < 12; i++) w.step();
+  const vz1 = car.vel.z;
+  car.controls.jump = true; w.step();
+  const dvz = car.vel.z - vz1;
+  const okDouble = car.hasDoubleJumped && Math.abs(dvz - (CONFIG.jump.impulse - CONFIG.physics.gravity * DT)) < 5;
+  return { pass: okDodge && okDouble, detail: 'dodge: Δvx=' + dvx.toFixed(1) + ' vz antes=' + vzBefore.toFixed(0) + ' después=' + vzAfter.toFixed(1) +
+    ' giro máx=' + maxPitchRate.toFixed(2) + ' rad/s; doble salto Δvz=' + dvz.toFixed(1) };
+});
+
+Tests.add('Extra D. Flip cancel detiene la rotación (half-flip) y el giro no supera 5.5 rad/s', () => {
+  const { w, car } = testCar(0, 0, 0);
+  settle(w, 0.5);
+  car.controls.jump = true;
+  for (let i = 0; i < 24; i++) w.step();
+  car.controls.jump = false;
+  for (let i = 0; i < 12; i++) w.step();
+  car.controls.pitch = 1; car.controls.jump = true; w.step(); car.controls.jump = false; // backflip
+  for (let i = 0; i < 14; i++) w.step();
+  const rateBefore = Math.abs(car.angVel.dot(car.rot.l));
+  car.controls.pitch = -1; // empujar hacia adelante = cancelar
+  let maxRate = 0;
+  for (let i = 0; i < 30; i++) { w.step(); maxRate = Math.max(maxRate, car.angVel.length()); }
+  const rateAfter = Math.abs(car.angVel.dot(car.rot.l));
+  return { pass: rateBefore > 4 && rateAfter < 1.0 && maxRate <= 5.5001, detail: 'giro antes ' + rateBefore.toFixed(2) + ' rad/s, después del cancel ' + rateAfter.toFixed(2) + ' rad/s, máx ' + maxRate.toFixed(3) };
+});
+
+Tests.add('Extra E. Pegado: se mantiene en el techo rápido y se despega lento en la pared', () => {
+  // En el techo, boca abajo, a 1000 uu/s
+  let { w, car } = testCar(0, 0, 0);
+  car.pos.set(0, 0, AR.H - CONFIG.car.restZ);
+  car.rot.f.set(1, 0, 0); car.rot.u.set(0, 0, -1); car.rot.orthonormalize();
+  car.prevPos.copy(car.pos); car.prevRot.copy(car.rot);
+  car.vel.set(1000, 0, 0); car.controls.throttle = 1;
+  let ceilTicks = 0;
+  for (let i = 0; i < 1.2 * TICK_RATE; i++) { w.step(); if (car.onGround && car.groundNormal.z < -0.9) ceilTicks++; }
+  const okCeil = ceilTicks > 1.1 * TICK_RATE;
+  // En la pared lateral, despacio, sin acelerar
+  ({ w, car } = testCar(0, 0, 0));
+  car.pos.set(AR.Xq + AR.r - CONFIG.car.restZ, 0, 1000);
+  car.rot.f.set(0, 1, 0); car.rot.u.set(-1, 0, 0); car.rot.orthonormalize();
+  car.prevPos.copy(car.pos); car.prevRot.copy(car.rot);
+  car.vel.set(0, 150, 0);
+  let detached = false;
+  for (let i = 0; i < 1.5 * TICK_RATE; i++) { w.step(); if (car.numContacts === 0) detached = true; }
+  return { pass: okCeil && detached, detail: 'techo: ' + (ceilTicks * DT).toFixed(2) + ' s pegado; pared lenta: ' + (detached ? 'se despegó' : 'NO se despegó') };
 });
 
 // =====================================================================
@@ -1041,13 +1947,340 @@ function buildLights() {
 }
 
 // ---------------------------------------------------------------------
+// Autos: modelo low-poly original hecho con geometría (coordenadas locales de física → toThree)
+// ---------------------------------------------------------------------
+const TEAM_COLORS = [
+  { paint: 0x1f6fff, accent: 0x9fd2ff, glow: 0x3d9bff, css: '#2f8cff', name: 'Azul' },
+  { paint: 0xff7a12, accent: 0xffd08a, glow: 0xff9a2e, css: '#ff8a1f', name: 'Naranja' },
+];
+let mergeGeometries = null;
+const _carMatCache = {};
+function carMaterials(team) {
+  if (_carMatCache[team]) return _carMatCache[team];
+  const T = TEAM_COLORS[team];
+  const m = {
+    paint: new THREE.MeshStandardMaterial({ color: T.paint, metalness: 0.55, roughness: 0.3 }),
+    dark: new THREE.MeshStandardMaterial({ color: 0x15181f, metalness: 0.45, roughness: 0.5 }),
+    glass: new THREE.MeshStandardMaterial({ color: 0x0a1624, metalness: 0.9, roughness: 0.06, envMapIntensity: 1.6 }),
+    accent: new THREE.MeshStandardMaterial({ color: T.accent, emissive: T.glow, emissiveIntensity: 0.45, metalness: 0.3, roughness: 0.35 }),
+    light: new THREE.MeshBasicMaterial({ vertexColors: true, toneMapped: false }),
+    wheel: new THREE.MeshStandardMaterial({ vertexColors: true, metalness: 0.55, roughness: 0.45 }),
+    strut: new THREE.MeshStandardMaterial({ vertexColors: true, metalness: 0.7, roughness: 0.35 }),
+    nozzle: new THREE.MeshBasicMaterial({ color: 0x331500, toneMapped: false }),
+  };
+  _carMatCache[team] = m;
+  return m;
+}
+/** Geometría lista para fusionar: no indexada, sin UV, con color de vértice opcional. */
+function prepGeo(geo, color) {
+  let g = geo.index ? geo.toNonIndexed() : geo;
+  if (g !== geo) geo.dispose();
+  g.deleteAttribute('uv');
+  if (!g.getAttribute('normal')) g.computeVertexNormals();
+  const c = new THREE.Color(color === undefined ? 0xffffff : color);
+  const n = g.getAttribute('position').count, arr = new Float32Array(n * 3);
+  for (let i = 0; i < n; i++) { arr[i * 3] = c.r; arr[i * 3 + 1] = c.g; arr[i * 3 + 2] = c.b; }
+  g.setAttribute('color', new THREE.BufferAttribute(arr, 3));
+  return g;
+}
+/** Caja en coordenadas locales de física (centro, tamaño). */
+function boxLocal(cx, cy, cz, sx, sy, sz) {
+  const g = new THREE.BoxGeometry(sx * INV_UU, sz * INV_UU, sy * INV_UU);
+  const c = toThree(cx, cy, cz, new THREE.Vector3());
+  g.translate(c.x, c.y, c.z);
+  return g;
+}
+/** Prisma de 8 vértices (base y tapa rectangulares) en coordenadas locales de física. */
+function frustumLocal(xb0, xb1, yb, zb, xt0, xt1, yt, zt) {
+  const P = [[xb0, -yb, zb], [xb1, -yb, zb], [xb1, yb, zb], [xb0, yb, zb], [xt0, -yt, zt], [xt1, -yt, zt], [xt1, yt, zt], [xt0, yt, zt]];
+  const faces = [[0, 1, 2, 3], [4, 5, 6, 7], [0, 1, 5, 4], [1, 2, 6, 5], [2, 3, 7, 6], [3, 0, 4, 7]];
+  const cx = (xb0 + xb1 + xt0 + xt1) / 4, cz = (zb + zt) / 2;
+  const pos = [];
+  const v = new THREE.Vector3(), a = new THREE.Vector3(), b = new THREE.Vector3(), c = new THREE.Vector3();
+  for (const f of faces) {
+    const q = f.map((i) => P[i]);
+    // orientar hacia afuera
+    a.set(q[1][0] - q[0][0], q[1][1] - q[0][1], q[1][2] - q[0][2]);
+    b.set(q[2][0] - q[0][0], q[2][1] - q[0][1], q[2][2] - q[0][2]);
+    c.crossVectors(a, b);
+    const fc = [(q[0][0] + q[2][0]) / 2 - cx, (q[0][1] + q[2][1]) / 2, (q[0][2] + q[2][2]) / 2 - cz];
+    const order = (c.x * fc[0] + c.y * fc[1] + c.z * fc[2]) >= 0 ? [0, 1, 2, 0, 2, 3] : [0, 2, 1, 0, 3, 2];
+    for (const i of order) { toThree(q[i][0], q[i][1], q[i][2], v); pos.push(v.x, v.y, v.z); }
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  g.computeVertexNormals();
+  return g;
+}
+function mergeParts(list) {
+  const g = mergeGeometries(list, false);
+  for (const x of list) x.dispose();
+  return g;
+}
+const CAR_VIS_WHEEL_Y = [37, -37, 39, -39];
+function buildCarModel(team) {
+  const M = carMaterials(team), T = TEAM_COLORS[team];
+  const group = new THREE.Group();
+  const parts = { paint: [], dark: [], glass: [], accent: [], light: [] };
+  // Chasis: perfil lateral (x, z) extruido a lo ancho, con capó inclinado
+  const prof = [[76, 7], [79, 15], [64, 24], [24, 31], [-30, 34], [-46, 32], [-51, 22], [-49, 8], [-37, 2], [64, 2]];
+  const shape = new THREE.Shape(prof.map(([x, z]) => new THREE.Vector2(x * INV_UU, z * INV_UU)));
+  const body = new THREE.ExtrudeGeometry(shape, { depth: 70 * INV_UU, bevelEnabled: true, bevelThickness: 4 * INV_UU,
+    bevelSize: 2.5 * INV_UU, bevelSegments: 2, curveSegments: 1, steps: 1 });
+  body.translate(0, 0, -35 * INV_UU);
+  parts.paint.push(prepGeo(body));
+  // Cabina con vidrios y techo
+  parts.glass.push(prepGeo(frustumLocal(-29, 22, 30, 30, -20, 4, 23, 46)));
+  parts.paint.push(prepGeo(frustumLocal(-19, 3, 22, 45.5, -17, 1, 20, 48)));
+  // Guardabarros sobre las ruedas y faldones laterales
+  for (let i = 0; i < 4; i++) {
+    const w = CONFIG.car.wheels[i], y = CAR_VIS_WHEEL_Y[i];
+    const top = w.front ? 9 : 14;
+    parts.paint.push(prepGeo(boxLocal(w.x, y, top + 4, w.r * 2 + 12, 15, 9)));
+    parts.dark.push(prepGeo(boxLocal(w.x, y + Math.sign(y) * 7.4, top + 1, w.r * 2 + 10, 1.5, 4)));
+  }
+  parts.dark.push(prepGeo(boxLocal(8, 0, 1, 118, 74, 3)));
+  // Franja del capó y del techo
+  const hood = boxLocal(0, 0, 0, 44, 10, 1.2);
+  hood.rotateZ(Math.atan2(31 - 24, 24 - 64));
+  hood.rotateZ(Math.PI);
+  const hc = toThree(44, 0, 30.4, new THREE.Vector3());
+  hood.translate(hc.x, hc.y, hc.z);
+  parts.accent.push(prepGeo(hood));
+  parts.accent.push(prepGeo(boxLocal(-8, 0, 48.4, 18, 10, 0.8)));
+  // Alerón
+  parts.dark.push(prepGeo(boxLocal(-42, 20, 40, 4, 3, 12)));
+  parts.dark.push(prepGeo(boxLocal(-42, -20, 40, 4, 3, 12)));
+  parts.accent.push(prepGeo(boxLocal(-45, 0, 47, 16, 80, 3)));
+  parts.dark.push(prepGeo(boxLocal(-45, 41, 46, 19, 2, 11)));
+  parts.dark.push(prepGeo(boxLocal(-45, -41, 46, 19, 2, 11)));
+  // Faros, luces traseras y tobera del turbo
+  parts.light.push(prepGeo(boxLocal(78, 24, 15, 3, 13, 4), 0xfff4d6));
+  parts.light.push(prepGeo(boxLocal(78, -24, 15, 3, 13, 4), 0xfff4d6));
+  parts.light.push(prepGeo(boxLocal(-51.5, 0, 26, 2, 62, 3.5), 0xff2030));
+  const noz = new THREE.CylinderGeometry(9 * INV_UU, 10 * INV_UU, 8 * INV_UU, 14, 1, true);
+  noz.rotateZ(Math.PI / 2);
+  const nc = toThree(-51, 0, 14, new THREE.Vector3());
+  noz.translate(nc.x, nc.y, nc.z);
+  parts.dark.push(prepGeo(noz));
+  for (const key of Object.keys(parts)) {
+    if (!parts[key].length) continue;
+    const mesh = new THREE.Mesh(mergeParts(parts[key]), M[key]);
+    group.add(mesh);
+  }
+  // Brillo interior de la tobera (cambia al usar turbo)
+  const glowGeo = new THREE.CircleGeometry(7 * INV_UU, 14);
+  glowGeo.rotateY(-Math.PI / 2);
+  const gc = toThree(-53, 0, 14, new THREE.Vector3());
+  glowGeo.translate(gc.x, gc.y, gc.z);
+  const nozzleMat = M.nozzle.clone();
+  const nozzleGlow = new THREE.Mesh(glowGeo, nozzleMat);
+  group.add(nozzleGlow);
+  // Ruedas: pivote (dirección + suspensión) con rueda que gira y amortiguador visible
+  const wheels = [];
+  for (let i = 0; i < 4; i++) {
+    const w = CONFIG.car.wheels[i];
+    const pivot = new THREE.Group();
+    const wp = [];
+    const tire = new THREE.CylinderGeometry(w.r * INV_UU, w.r * INV_UU, 14 * INV_UU, 22);
+    tire.rotateX(Math.PI / 2);
+    wp.push(prepGeo(tire, 0x16171a));
+    const rim = new THREE.CylinderGeometry(w.r * 0.62 * INV_UU, w.r * 0.62 * INV_UU, 14.6 * INV_UU, 12);
+    rim.rotateX(Math.PI / 2);
+    wp.push(prepGeo(rim, 0xc8d0dc));
+    for (let k = 0; k < 3; k++) {
+      const sp = new THREE.BoxGeometry(w.r * 1.12 * INV_UU, 2.2 * INV_UU, 15.2 * INV_UU);
+      sp.rotateZ(k * Math.PI / 3);
+      wp.push(prepGeo(sp, T.accent));
+    }
+    const spinner = new THREE.Mesh(mergeParts(wp), M.wheel);
+    pivot.add(spinner);
+    const side = Math.sign(CAR_VIS_WHEEL_Y[i]);
+    const sp = [];
+    const strut = new THREE.CylinderGeometry(1.8 * INV_UU, 1.8 * INV_UU, 26 * INV_UU, 8);
+    const sc = toThree(0, -side * 7, 13, new THREE.Vector3());
+    strut.translate(sc.x, sc.y, sc.z);
+    sp.push(prepGeo(strut, 0xb8c2cf));
+    const coil = new THREE.CylinderGeometry(3.4 * INV_UU, 3.4 * INV_UU, 11 * INV_UU, 10);
+    coil.translate(sc.x, sc.y + 4 * INV_UU, sc.z);
+    sp.push(prepGeo(coil, T.accent));
+    const arm = boxLocal(0, -side * 10, 2, 5, 16, 2.5);
+    sp.push(prepGeo(arm, 0x30343c));
+    pivot.add(new THREE.Mesh(mergeParts(sp), M.strut));
+    group.add(pivot);
+    wheels.push({ pivot, spinner });
+  }
+  // Caja de colisión (overlay F3)
+  const H = CONFIG.car.hitboxHalf, O = CONFIG.car.hitboxOffset;
+  const hb = new THREE.LineSegments(new THREE.EdgesGeometry(new THREE.BoxGeometry(H[0] * 2 * INV_UU, H[2] * 2 * INV_UU, H[1] * 2 * INV_UU)),
+    new THREE.LineBasicMaterial({ color: 0x66ff88, depthTest: false, transparent: true }));
+  toThree(O[0], O[1], O[2], hb.position);
+  hb.renderOrder = 20;
+  hb.visible = false;
+  group.add(hb);
+  return { group, wheels, hitbox: hb, nozzleGlow };
+}
+
+const _qa = { q0: null, q1: null, m: null, vx: null, vy: null, vz: null };
+/** Cuaternión de Three.js a partir de la base de física (f, l, u). */
+function basisToQuat(b, q) {
+  toThree(b.f.x, b.f.y, b.f.z, _qa.vx, 1);
+  toThree(b.u.x, b.u.y, b.u.z, _qa.vy, 1);
+  toThree(-b.l.x, -b.l.y, -b.l.z, _qa.vz, 1);
+  _qa.m.makeBasis(_qa.vx, _qa.vy, _qa.vz);
+  return q.setFromRotationMatrix(_qa.m);
+}
+function initRenderTemps() {
+  _qa.q0 = new THREE.Quaternion(); _qa.q1 = new THREE.Quaternion(); _qa.m = new THREE.Matrix4();
+  _qa.vx = new THREE.Vector3(); _qa.vy = new THREE.Vector3(); _qa.vz = new THREE.Vector3();
+}
+
+const _cvP = new V3();
+class CarView {
+  constructor(car) {
+    this.car = car;
+    this.model = buildCarModel(car.team);
+    this.group = this.model.group;
+    R.scene.add(this.group);
+    this.renderPos = new V3();
+    this.renderRot = new Basis();
+  }
+  update(alpha) {
+    const car = this.car;
+    this.group.visible = !car.demolished;
+    if (car.demolished) return;
+    _cvP.lerpVectors(car.prevPos, car.pos, alpha);
+    this.renderPos.copy(_cvP);
+    toThree(_cvP.x, _cvP.y, _cvP.z, this.group.position);
+    basisToQuat(car.prevRot, _qa.q0);
+    basisToQuat(car.rot, _qa.q1);
+    this.group.quaternion.slerpQuaternions(_qa.q0, _qa.q1, alpha);
+    // base interpolada (para cámara y efectos)
+    this.renderRot.f.lerpVectors(car.prevRot.f, car.rot.f, alpha);
+    this.renderRot.u.lerpVectors(car.prevRot.u, car.rot.u, alpha);
+    this.renderRot.orthonormalize();
+    const mz = CONFIG.car.suspension.mountZ;
+    for (let i = 0; i < 4; i++) {
+      const w = car.wheels[i], vw = this.model.wheels[i];
+      toThree(w.x, CAR_VIS_WHEEL_Y[i], mz - w.susLen, vw.pivot.position);
+      vw.pivot.rotation.y = w.front ? car.steerVis : 0;
+      vw.spinner.rotation.z = -w.spin;
+    }
+    this.model.hitbox.visible = Debug.on;
+    const glow = car.boosting ? 1 : 0;
+    this.model.nozzleGlow.material.color.setRGB(0.2 + glow * 1.8, 0.08 + glow * 0.9, 0.02 + glow * 0.2);
+  }
+  dispose() {
+    R.scene.remove(this.group);
+  }
+}
+
+// ---------------------------------------------------------------------
+// Cámara del jugador: cámara de pelota / cámara de auto, sin atravesar paredes
+// ---------------------------------------------------------------------
+const Z_UP = new V3(0, 0, 1);
+const CameraRig = {
+  pos: new V3(), look: new V3(), up: new V3(0, 0, 1), heading: new V3(0, 1, 0), elev: 0,
+  ballCam: true, inited: false, shakeAmp: 0, shakeTime: 0, swivel: 0,
+  _w: new V3(), _t: new V3(), _d: new V3(), _n: new V3(), _hit: { t: 0, x: 0, y: 0, z: 0, nx: 0, ny: 0, nz: 0 },
+  reset() { this.inited = false; },
+  addShake(a) { if (Settings.data.camera.shake) this.shakeAmp = Math.max(this.shakeAmp, a); },
+  update(dt, carPos, carRot, carOnGround, ballPos, carSpeed) {
+    const S = Settings.data.camera;
+    const w = this._w, t = this._t;
+    // "Arriba" de la cámara: sigue la superficie en paredes/techo, vuelve al mundo en el aire (sin giros bruscos)
+    const tu = carOnGround ? carRot.u : Z_UP;
+    if (!this.inited) this.up.copy(tu);
+    const ku = 1 - Math.exp(-3.5 * dt);
+    this.up.x += (tu.x - this.up.x) * ku; this.up.y += (tu.y - this.up.y) * ku; this.up.z += (tu.z - this.up.z) * ku;
+    this.up.normalize();
+    const U = this.up;
+    // Dirección deseada
+    const useBall = this.ballCam && ballPos;
+    if (useBall) w.subVectors(ballPos, carPos);
+    else {
+      w.copy(carRot.f);
+      if (Math.abs(w.dot(U)) > 0.92) w.copy(carRot.u).scale(-Math.sign(carRot.f.dot(U)));
+    }
+    let wantElev = 0;
+    const along = w.dot(U);
+    w.addScaled(U, -along);
+    const planar = w.length();
+    if (useBall) wantElev = Math.atan2(along, Math.max(planar, 1));
+    if (planar > 1e-3) w.scale(1 / planar); else w.copy(this.heading);
+    if (!this.inited) { this.heading.copy(w); this.elev = wantElev; this.inited = true; }
+    // Suavizado del rumbo según la rigidez (rápido = poco retraso)
+    this.heading.addScaled(U, -this.heading.dot(U));
+    if (this.heading.lengthSq() < 1e-6) this.heading.copy(w); else this.heading.normalize();
+    const rate = lerp(5, 26, clamp(S.stiffness, 0, 1)) * (useBall ? S.transition : 1);
+    const k = 1 - Math.exp(-rate * dt);
+    const dotHW = clamp(this.heading.dot(w), -1, 1);
+    if (dotHW < -0.999) { t.crossVectors(U, this.heading); this.heading.addScaled(t, 0.05).normalize(); }
+    this.heading.x += (w.x - this.heading.x) * k; this.heading.y += (w.y - this.heading.y) * k; this.heading.z += (w.z - this.heading.z) * k;
+    this.heading.addScaled(U, -this.heading.dot(U)).normalize();
+    this.elev += (wantElev - this.elev) * (1 - Math.exp(-6 * dt));
+    // Giro manual con el stick derecho
+    const rs = Input.rightStick();
+    this.swivel += ((rs[0] * Math.PI * 0.9) - this.swivel) * (1 - Math.exp(-10 * dt));
+    const H = this._d.copy(this.heading);
+    if (Math.abs(this.swivel) > 1e-3) { t.crossVectors(U, H); const c = Math.cos(this.swivel), s = Math.sin(this.swivel); H.scale(c).addScaled(t, -s).normalize(); }
+    // Posición: detrás del auto; en cámara de pelota baja un poco cuando la pelota sube
+    const ang = S.angle * Math.PI / 180;
+    const camElev = clamp(this.elev, -0.25, 1.1) * 0.42;
+    const dist = S.distance * (1 + (1 - S.stiffness) * 0.18 * clamp(carSpeed / 2300, 0, 1));
+    const ce = Math.cos(camElev), se = Math.sin(camElev);
+    this.pos.copy(carPos).addScaled(U, S.height).addScaled(H, -dist * ce).addScaled(U, -dist * se);
+    // Mirada
+    const lookElev = ang + (useBall ? clamp(this.elev, -0.4, 1.25) * 0.72 : 0);
+    this.look.copy(H).scale(Math.cos(lookElev)).addScaled(U, Math.sin(lookElev));
+    // Anticolisión: acercar la cámara si una pared se interpone
+    const fx = carPos.x + U.x * S.height * 0.6, fy = carPos.y + U.y * S.height * 0.6, fz = carPos.z + U.z * S.height * 0.6;
+    const dx = this.pos.x - fx, dy = this.pos.y - fy, dz = this.pos.z - fz;
+    const len = Math.sqrt(dx * dx + dy * dy + dz * dz);
+    const margin = 32;
+    if (len > 1) {
+      const ux = dx / len, uy = dy / len, uz = dz / len;
+      if (arenaRaycast(fx, fy, fz, ux, uy, uz, len + margin, this._hit, margin * 0.5) && this._hit.t < len + margin) {
+        const tt = Math.max(15, this._hit.t - margin);
+        this.pos.set(fx + ux * tt, fy + uy * tt, fz + uz * tt);
+      }
+    }
+    for (let i = 0; i < 3; i++) {
+      const d = arenaSDF(this.pos.x, this.pos.y, this.pos.z, this._n);
+      if (d >= margin * 0.6) break;
+      this.pos.addScaled(this._n, margin * 0.6 - d);
+    }
+    // Sacudida
+    if (this.shakeAmp > 0.01) {
+      this.shakeTime += dt;
+      const a = this.shakeAmp;
+      this.pos.x += Math.sin(this.shakeTime * 71) * a; this.pos.y += Math.sin(this.shakeTime * 83 + 1) * a; this.pos.z += Math.sin(this.shakeTime * 97 + 2) * a;
+      this.shakeAmp *= Math.exp(-4 * dt);
+    }
+  },
+  apply(cam) {
+    const S = Settings.data.camera;
+    toThree(this.pos.x, this.pos.y, this.pos.z, cam.position);
+    toThree(this.up.x, this.up.y, this.up.z, cam.up, 1);
+    toThree(this.pos.x + this.look.x * 100, this.pos.y + this.look.y * 100, this.pos.z + this.look.z * 100, R.tmpV);
+    cam.lookAt(R.tmpV);
+    const vfov = 2 * Math.atan(Math.tan(S.fov * Math.PI / 360) / cam.aspect) * 180 / Math.PI;
+    const f = clamp(vfov, 30, 125);
+    if (Math.abs(cam.fov - f) > 1e-3) { cam.fov = f; cam.updateProjectionMatrix(); }
+  },
+};
+
+// ---------------------------------------------------------------------
 // Cámara libre (depuración / fase 1)
 // ---------------------------------------------------------------------
 const FreeCam = {
-  pos: new V3(0, -8200, 1900), yaw: Math.PI / 2, pitch: -0.22, keys: new Set(), drag: false, lx: 0, ly: 0,
+  pos: new V3(0, -8200, 1900), yaw: Math.PI / 2, pitch: -0.22, keys: new Set(), drag: false, lx: 0, ly: 0, active: false,
   init() {
     const c = R.renderer.domElement;
-    window.addEventListener('keydown', (e) => this.keys.add(e.code));
+    window.addEventListener('keydown', (e) => {
+      this.keys.add(e.code);
+      if (e.code === 'F4') { e.preventDefault(); this.active = !this.active; Input.gameActive = !this.active && Game.playing(); }
+    });
     window.addEventListener('keyup', (e) => this.keys.delete(e.code));
     c.addEventListener('mousedown', (e) => { this.drag = true; this.lx = e.clientX; this.ly = e.clientY; });
     window.addEventListener('mouseup', () => { this.drag = false; });
@@ -1106,6 +2339,28 @@ const Debug = {
 // BUCLE PRINCIPAL Y ARRANQUE
 // =====================================================================
 const _dbgN = new V3();
+// =====================================================================
+// JUEGO (sesión actual) — fase 2: auto en la cancha
+// =====================================================================
+const Game = {
+  world: null, player: null, views: [], acc: 0, state: 'menu',
+  playing() { return this.state === 'jugando'; },
+  startSandbox() {
+    for (const v of this.views) v.dispose();
+    this.world = new World();
+    this.player = this.world.addCar(new Car(0, 0, Settings.data.playerName));
+    this.player.placeAt(0, -3000, Math.PI / 2);
+    this.views = [new CarView(this.player)];
+    this.state = 'jugando';
+    Input.gameActive = true;
+    CameraRig.reset();
+  },
+  tick() {
+    Input.sample(this.player.controls);
+    this.world.step();
+  },
+};
+
 const Main = {
   last: 0, running: false,
   start() {
@@ -1119,16 +2374,25 @@ const Main = {
       const dt = Math.min((now - this.last) / 1000, 0.1);
       this.last = now;
       Debug.frame(dt);
-      FreeCam.update(dt);
-      FreeCam.apply(R.camera);
+      const G = Game;
+      if (G.playing()) {
+        G.acc += dt;
+        let n = 0;
+        while (G.acc >= DT && n < CONFIG.physics.maxTicksPerFrame) { G.tick(); G.acc -= DT; n++; }
+        if (n >= CONFIG.physics.maxTicksPerFrame) G.acc = 0;
+      }
+      const alpha = clamp(G.acc / DT, 0, 1);
+      for (const v of G.views) v.update(alpha);
+      if (FreeCam.active || !G.player) {
+        FreeCam.update(dt);
+        FreeCam.apply(R.camera);
+      } else {
+        const v = G.views[0];
+        CameraRig.update(dt, v.renderPos, v.renderRot, G.player.onGround, null, G.player.vel.length());
+        CameraRig.apply(R.camera);
+      }
       R.renderer.render(R.scene, R.camera);
-      const d = arenaSDF(FreeCam.pos.x, FreeCam.pos.y, FreeCam.pos.z, _dbgN);
-      Debug.update([
-        'FPS: ' + Debug.fps.toFixed(1),
-        'Cámara libre (uu): ' + FreeCam.pos.x.toFixed(0) + ', ' + FreeCam.pos.y.toFixed(0) + ', ' + FreeCam.pos.z.toFixed(0),
-        'SDF cámara: ' + d.toFixed(1) + '  n=(' + _dbgN.x.toFixed(2) + ', ' + _dbgN.y.toFixed(2) + ', ' + _dbgN.z.toFixed(2) + ')',
-        'Draw calls: ' + R.renderer.info.render.calls + '  Triángulos: ' + R.renderer.info.render.triangles,
-      ]);
+      if (Debug.on) Debug.update(debugLines());
       requestAnimationFrame((t) => this.frame(t));
     } catch (err) {
       this.running = false;
@@ -1137,37 +2401,64 @@ const Main = {
   },
 };
 
+function debugLines() {
+  const lines = ['FPS: ' + Debug.fps.toFixed(1) + '   draw calls: ' + R.renderer.info.render.calls + '   triángulos: ' + R.renderer.info.render.triangles];
+  const car = Game.player;
+  if (car) {
+    const sp = car.vel.length();
+    lines.push('Velocidad: ' + sp.toFixed(0) + ' uu/s' + (car.supersonic ? '  (SUPERSÓNICO)' : ''));
+    lines.push('Turbo: ' + car.boost.toFixed(1) + (car.boosting ? '  (usando)' : ''));
+    lines.push('Estado: ' + (car.onGround ? 'SUELO' : 'AIRE') + '  ruedas en contacto: ' + car.numContacts + '  normal: (' +
+      car.groundNormal.x.toFixed(2) + ', ' + car.groundNormal.y.toFixed(2) + ', ' + car.groundNormal.z.toFixed(2) + ')');
+    lines.push('Saltos disponibles: ' + car.jumpsAvailable() + (car.isFlipping ? '  (dodge ' + car.flipTime.toFixed(2) + ' s)' : '') + (car.hasDoubleJumped ? '  (doble salto usado)' : ''));
+    lines.push('Derrape: ' + (car.handbrakeAmt * 100).toFixed(0) + '%   giro: ' + car.angVel.length().toFixed(2) + ' rad/s');
+    lines.push('Posición: ' + car.pos.x.toFixed(0) + ', ' + car.pos.y.toFixed(0) + ', ' + car.pos.z.toFixed(0));
+  }
+  if (FreeCam.active) {
+    const d = arenaSDF(FreeCam.pos.x, FreeCam.pos.y, FreeCam.pos.z, _dbgN);
+    lines.push('Cámara libre (F4): ' + FreeCam.pos.x.toFixed(0) + ', ' + FreeCam.pos.y.toFixed(0) + ', ' + FreeCam.pos.z.toFixed(0) + '  SDF ' + d.toFixed(0));
+  }
+  return lines;
+}
+
 async function boot() {
   const params = new URLSearchParams(location.search);
+  window.__TFT = { CONFIG, World, Car, Controls, V3, Basis, arenaSDF, arenaRaycast, hitboxMinSDF, AR, DT, TICK_RATE };
   if (params.has('test')) {
     window.__tfArrancado = true;
     await Tests.run();
     return;
   }
   try {
-    const [three, ec, rp, ub, op, re] = await Promise.all([
+    const [three, ec, rp, ub, op, re, bgu] = await Promise.all([
       import('three'),
       import('three/addons/postprocessing/EffectComposer.js'),
       import('three/addons/postprocessing/RenderPass.js'),
       import('three/addons/postprocessing/UnrealBloomPass.js'),
       import('three/addons/postprocessing/OutputPass.js'),
       import('three/addons/environments/RoomEnvironment.js'),
+      import('three/addons/utils/BufferGeometryUtils.js'),
     ]);
     THREE = three; EffectComposer = ec.EffectComposer; RenderPass = rp.RenderPass;
     UnrealBloomPass = ub.UnrealBloomPass; OutputPass = op.OutputPass; RoomEnvironment = re.RoomEnvironment;
+    mergeGeometries = bgu.mergeGeometries;
   } catch (err) {
     window.__tfMostrarError('No se pudo cargar Three.js',
       'Falló la descarga de los módulos desde cdn.jsdelivr.net. Revisa tu conexión a internet.\n' + err.message, err.stack);
     return;
   }
+  Settings.load();
   initRenderer();
+  initRenderTemps();
   buildSky();
   buildLights();
   buildArena();
+  Input.init(R.renderer.domElement);
   FreeCam.init();
   Debug.init();
+  Game.startSandbox();
   document.getElementById('carga').classList.add('oculto');
-  window.__TF = { CONFIG, FreeCam, arenaSDF, R, V3 };
+  window.__TF = { CONFIG, FreeCam, arenaSDF, R, V3, Game, Input, CameraRig, Settings };
   window.__tfArrancado = true;
   Main.start();
 }
