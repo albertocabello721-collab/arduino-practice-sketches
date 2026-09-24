@@ -158,8 +158,15 @@ export function bindGameFx(ctx, game, view) {
     effects.flash(p.x, p.y, p.z, 12, 10, 6, 3, 0.12);
     for (let i = 0; i < 16; i++) effects.spawnSpark(p.x, p.y, p.z, (Math.random() - 0.5) * 5, Math.random() * 4, (Math.random() - 0.5) * 5, 1);
     if (by && by === me()) { hud.hitmarker('kill'); audio.hitConfirm('kill'); }
-    const what = t.kind === 'drone' ? 'dron' : 'cámara';
-    hud.feed(`${nameHtml(by)} <span class="w">destruye ${t.kind === 'drone' ? 'un' : 'una'} ${what}</span>`, by === me() ? 'mine' : '');
+    const what = t.kind === 'drone' ? 'un dron' : t.kind === 'defuser' ? 'el desactivador' : 'una cámara';
+    hud.feed(`${nameHtml(by)} <span class="w">destruye ${what}</span>`, by === me() ? 'mine' : '');
+  });
+  // impacto en un objeto con vida (el desactivador): chispas y marcador de impacto
+  on('targetHit', (t, by, point) => {
+    const p = point || (t.center ? t.center() : null);
+    if (!p) return;
+    for (let i = 0; i < 5; i++) effects.spawnSpark(p.x, p.y, p.z, (Math.random() - 0.5) * 3, Math.random() * 2.5, (Math.random() - 0.5) * 3, 1);
+    if (by && by === me()) { hud.hitmarker('hit'); audio.hitConfirm('hit'); }
   });
   on('spotted', (target, viewerObj, team) => {
     const my = me();

@@ -353,6 +353,20 @@ export class MapBuilder {
     }
   }
 
+  /**
+   * Barricada de madera en la capa interior de cada ventana (las ventanas empiezan la
+   * ronda con barricada, como en Siege). Llamar antes de guardar la copia original.
+   */
+  barricadeWindows() {
+    for (const o of this.windows) {
+      const inSide = -(o.out || 1);
+      const c0 = inSide < 0 ? o.line - H : o.line, c1 = c0 + H;
+      const a = o.center - o.width / 2, b = o.center + o.width / 2;
+      if (o.axis === 'x') this.paintAir(a, o.y0, c0, b, o.y1, c1, MAT.BARRICADE);
+      else this.paintAir(c0, o.y0, a, c1, o.y1, b, MAT.BARRICADE);
+    }
+  }
+
   // ---------- consultas ----------
   roomAt(x, y, z) {
     for (const r of this.rooms) {

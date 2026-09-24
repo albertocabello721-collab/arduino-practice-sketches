@@ -7,9 +7,10 @@ import { DRONE } from '../sim/recon.js';
 const $ = (id) => document.getElementById(id);
 
 export class FeedController {
-  constructor(ctx, getRecon) {
+  constructor(ctx, getRecon, getPlayer = () => null) {
     this.ctx = ctx;
     this.getRecon = getRecon;
+    this.getPlayer = getPlayer;     // quien mira las cámaras (se le apuntan las marcas)
     this.mode = 'body';       // 'body' | 'drone' | 'cams'
     this.drone = null;
     this.cam = null;
@@ -73,7 +74,7 @@ export class FeedController {
       this.cam.look(-m.dx * sens * 0.8, -m.dy * sens * inv * 0.8);
       if (input.pressed('left')) this.cycleCam(-1);
       if (input.pressed('right')) this.cycleCam(1);
-      if (input.mouseClicked(0)) { const r = this.getRecon(); if (r) r.mark(this.cam, myTeam); }
+      if (input.mouseClicked(0)) { const r = this.getRecon(); if (r) r.mark(this.cam, myTeam, this.getPlayer()); }
     }
     return m;
   }

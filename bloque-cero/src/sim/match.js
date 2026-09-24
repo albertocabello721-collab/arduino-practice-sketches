@@ -11,7 +11,10 @@
 //           · se agota el tiempo sin plantar
 //           · inutiliza el desactivador (7 s manteniendo F junto a él)
 // Tras plantar, eliminar al ataque no basta: hay que inutilizar el desactivador.
-// Gana la partida el primer equipo con 4 rondas; se cambia de bando cada 3.
+// Gana la partida el primer equipo con 4 rondas; se cambia de bando cada 3 y, con 3-3,
+// la ronda decisiva sortea los bandos. Si el reloj llega a 0 mientras alguien planta, la
+// ronda sigue hasta que termine o lo interrumpan. Disparar al desactivador plantado lo
+// destruye (cuenta como inutilizarlo). El desactivador caído se recoge con F.
 import { Emitter } from '../core/events.js';
 import { RNG } from '../core/rng.js';
 import { Game } from './game.js';
@@ -20,7 +23,7 @@ import { OP_BY_ID, opsForSide } from './operators.js';
 import { boxFree } from './physics.js';
 import { SOLID } from '../world/materials.js';
 import { Fortify } from './fortify.js';
-import { Recon } from './recon.js';
+import { Recon, rayAABB } from './recon.js';
 
 export const RULES = {
   selectTime: 25,     // selección de operador
@@ -36,7 +39,8 @@ export const RULES = {
   disableRange: 1.8,
 };
 
-export const SCORE = { kill: 100, headshot: 25, down: 50, assist: 50, revive: 50, plant: 100, disable: 100, roundWin: 60, survive: 20 };
+export const SCORE = { kill: 100, assist: 50, down: 50, revive: 50, plant: 100, disable: 100, mark: 10, reinforce: 10, gadget: 20 };
+export const DEFUSER_HP = 150;   // el desactivador plantado aguanta unas cuantas balas
 
 export const END_REASON = {
   defendersDown: 'Defensores eliminados',
@@ -44,10 +48,11 @@ export const END_REASON = {
   timeUp: 'Tiempo agotado',
   defused: 'Desactivador completado',
   disabled: 'Desactivador inutilizado',
+  destroyed: 'Desactivador destruido',
 };
 
 export const otherSide = (s) => (s === 'atk' ? 'def' : 'atk');
-const newStats = () => ({ score: 0, kills: 0, deaths: 0, assists: 0, headshots: 0, downs: 0, revives: 0, plants: 0, disables: 0, damage: 0, roundsSurvived: 0 });
+const newStats = () => ({ score: 0, kills: 0, deaths: 0, assists: 0, headshots: 0, downs: 0, revives: 0, plants: 0, disables: 0, damage: 0, roundsSurvived: 0, marks: 0, reinforcements: 0, gadgets: 0 });
 
 export class Match extends Emitter {
   /**
@@ -83,6 +88,7 @@ export class Match extends Emitter {
     this.lastResult = null;
     this.winner = null;
     this.time = 0;
+    this.deciderSide = null;   // bando del equipo 0 en la ronda decisiva (3-3), sorteado
     // fortificación de la defensa y reconocimiento (drones y cámaras) — Fase 4
     this.fort = new Fortify(this.game, { canFortify: (op) => op.side === 'def' && (this.phase === 'prep' || this.phase === 'action' || this.phase === 'planted') });
     this.recon = new Recon(this.game, { cameras: map.cameras || [] });
@@ -92,6 +98,8 @@ export class Match extends Emitter {
 
   // ------------------------------------------------------------------ consultas
   sideOf(team, round = this.round) {
+    // ronda decisiva (3-3): bandos sorteados
+    if (this.deciderSide && round === this.round) return team === 0 ? this.deciderSide : otherSide(this.deciderSide);
     const swapped = Math.floor((Math.max(1, round) - 1) / this.rules.swapEvery) % 2 === 1;
     const s0 = swapped ? otherSide(this.startSide) : this.startSide;
     return team === 0 ? s0 : otherSide(s0);
@@ -123,6 +131,7 @@ export class Match extends Emitter {
   // ------------------------------------------------------------------ flujo
   start() {
     this.round = 0;
+    this.deciderSide = null;
     this.teams[0].score = 0; this.teams[1].score = 0;
     this.history = [];
     for (const s of this.slots) s.stats = newStats();
@@ -132,6 +141,9 @@ export class Match extends Emitter {
 
   _nextRound() {
     this.round++;
+    // 3-3 (o el empate que deje a ambos a una ronda de ganar): bandos al azar
+    const R = this.rules.roundsToWin;
+    this.deciderSide = this.teams[0].score === R - 1 && this.teams[1].score === R - 1 ? (this.rng.next() < 0.5 ? 'atk' : 'def') : null;
     this.phase = 'select';
     this.timer = this.rules.selectTime;
     this.location = null;
@@ -142,6 +154,7 @@ export class Match extends Emitter {
     this.lastResult = null;
     this.world.resetToPristine();
     this.game.operators.length = 0;
+    this.game.targets = this.game.targets.filter((t) => t.kind !== 'defuser');
     this.fort.reset();
     this.recon.reset({ defTeam: this.teamOfSide('def'), site: null });
     for (const s of this.slots) { s.op = null; s.ready = !s.human; }
@@ -301,7 +314,8 @@ export class Match extends Emitter {
       this.recon.tick(dt);
       if (this.phase !== 'action') return;   // se plantó este tick
       if (this._checkElimination()) return;
-      if (this.timer <= 0) this._endRound('def', 'timeUp');
+      // tiempo agotado, salvo que alguien esté plantando (sigue hasta que acabe o lo corten)
+      if (this.timer <= 0 && !this.plant) this._endRound('def', 'timeUp');
       return;
     }
     if (this.phase === 'planted') {
@@ -336,7 +350,7 @@ export class Match extends Emitter {
     }
     if (!d.carrier && d.pos) {
       for (const op of this.opsOfSide('atk')) {
-        if (op.state !== 'alive') continue;
+        if (op.state !== 'alive' || !op.intent.interact) continue;     // se recoge con F
         const b = op.body.pos;
         if (Math.hypot(b.x - d.pos.x, b.z - d.pos.z) < this.rules.pickupRange && Math.abs(b.y - d.pos.y) < 1.2) {
           d.carrier = op; d.pos = null;
@@ -371,6 +385,8 @@ export class Match extends Emitter {
       this.phase = 'planted';
       this.timer = this.rules.fuseTime;
       d.fuse = this.timer;
+      d.target = defuserTarget(c.team, d.plantPos);
+      this.game.targets.push(d.target);
       this.emit('planted', c, site, d.plantPos);
     }
   }
@@ -422,10 +438,10 @@ export class Match extends Emitter {
     for (const op of this.game.operators) {
       const s = op.slot;
       if (!s) continue;
-      if (op.team === winner) s.stats.score += SCORE.roundWin;
-      if (op.state === 'alive') { s.stats.roundsSurvived++; s.stats.score += SCORE.survive; }
+      if (op.state === 'alive') s.stats.roundsSurvived++;
       op.channel = null;
     }
+    if (this.defuser && this.defuser.target) this.defuser.target.alive = false;
     const res = { round: this.round, winner, winSide, code, reason: END_REASON[code], location: this.location, score: [this.teams[0].score, this.teams[1].score] };
     this.history.push(res);
     this.lastResult = res;
@@ -468,7 +484,7 @@ export class Match extends Emitter {
       const by = ev.by;
       if (by && by !== target && by.slot && by.team !== target.team) {
         by.slot.stats.kills++;
-        by.slot.stats.score += SCORE.kill + (ev.headshot ? SCORE.headshot : 0);
+        by.slot.stats.score += SCORE.kill;
         if (ev.headshot) by.slot.stats.headshots++;
       }
       if (target.contrib) {
@@ -481,6 +497,23 @@ export class Match extends Emitter {
       // el portador del desactivador lo suelta al morir (se resuelve en el tick)
     });
     g.on('revived', (target, by) => { if (by && by.slot) { by.slot.stats.revives++; by.slot.stats.score += SCORE.revive; } });
+    // marcar a un enemigo (con dron, cámara o a la vista), reforzar y destruir gadgets enemigos
+    g.on('spotted', (target, viewer, team, by) => {
+      const who = by || (viewer && viewer.owner) || null;
+      if (who && who.slot && who.team === team) { who.slot.stats.marks++; who.slot.stats.score += SCORE.mark; }
+    });
+    g.on('reinforced', (op) => { if (op && op.slot) { op.slot.stats.reinforcements++; op.slot.stats.score += SCORE.reinforce; } });
+    g.on('targetDestroyed', (tg, by) => {
+      if (tg.kind === 'defuser') {
+        // disparar al desactivador plantado lo destruye: cuenta como inutilizarlo
+        if (this.phase !== 'planted') return;
+        if (by && by.slot) { by.slot.stats.disables++; by.slot.stats.score += SCORE.disable; }
+        this.emit('defuserDestroyed', by);
+        this._endRound('def', 'destroyed');
+        return;
+      }
+      if (by && by.slot && by.team !== tg.team) { by.slot.stats.gadgets++; by.slot.stats.score += SCORE.gadget; }
+    });
   }
 
   // Estado de los 10 retratos para el HUD.
@@ -553,4 +586,14 @@ export function spawnPointsInRooms(world, rooms, count, rng) {
     out.push({ x: best.x, y: best.y, z: best.z, yaw });
   }
   return out;
+}
+
+// El desactivador plantado como objeto disparable (solo la defensa puede dañarlo).
+export function defuserTarget(team, P) {
+  const x = P.x, y = P.y, z = P.z;
+  return {
+    kind: 'defuser', team, alive: true, hp: DEFUSER_HP, maxHp: DEFUSER_HP,
+    center() { return { x, y: y + 0.18, z }; },
+    rayTest(o, d, maxT) { return rayAABB(o, d, x - 0.22, y, z - 0.22, x + 0.22, y + 0.42, z + 0.22, maxT); },
+  };
 }

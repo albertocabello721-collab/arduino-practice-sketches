@@ -32,12 +32,20 @@ Reglas de Siege, contra bots:
   El ataque elige punto de entrada: calle principal, jardín trasero o camino lateral.
 - **Preparación** 45 s: la defensa se coloca; el ataque espera fuera (drones en la Fase 4).
 - **Acción** 3:00: el portador del desactivador lo planta en A o B manteniendo F 7 s.
-  Plantado, corre 45 s; la defensa lo inutiliza manteniendo F 7 s junto a él.
+  Plantado, corre 45 s; la defensa lo inutiliza manteniendo F 7 s junto a él o lo destruye a
+  balazos (aguanta 150 de daño; las balas del ataque no le afectan). Si el reloj llega a 0
+  mientras alguien planta, la ronda sigue hasta que termine o lo interrumpan. Si el portador
+  cae, el desactivador queda en el suelo y cualquier atacante lo recoge con **F**.
 - **Victoria de ronda**: ataque si toda la defensa está eliminada o derribada, o si el
   desactivador completa sus 45 s; defensa si elimina al ataque antes de plantar, si se
   acaba el tiempo sin plantar o si inutiliza el desactivador. Tras plantar, eliminar al
   ataque no basta.
-- **Partida**: el primero en 4 rondas; cambio de bando cada 3 (la 7.ª decide).
+- **Partida**: el primero en 4 rondas; cambio de bando cada 3; con 3-3, la ronda decisiva sortea
+  los bandos.
+- **Puntos**: baja 100, asistencia 50, derribo 50, reanimar 50, plantar 100, inutilizar 100,
+  marcar 10, refuerzo 10, gadget enemigo destruido 20.
+- **Ventanas**: todas empiezan la ronda con barricada. Se rompe a golpes y, rota, se salta a
+  través (las astillas que quedan se arrastran); entera, no.
 - HUD: reloj arriba al centro con los 10 retratos (tachados al morir, parpadean derribados),
   marcador (Tab), cartel de fin de ronda, pantalla final con el mejor jugador.
 - Bots con IA completa (Fase 5, abajo).

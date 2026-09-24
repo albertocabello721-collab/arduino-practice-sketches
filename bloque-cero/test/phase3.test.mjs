@@ -215,7 +215,7 @@ test('si toda la defensa cae con el desactivador plantado, gana el ataque al mom
   assert.equal(m.lastResult.code, 'defendersDown');
 });
 
-test('el desactivador cae al morir el portador y otro atacante lo recoge al pasar', () => {
+test('el desactivador cae al morir el portador y otro atacante lo recoge con F', () => {
   const m = newMatch();
   toAction(m);
   const c = m.defuser.carrier;
@@ -228,7 +228,10 @@ test('el desactivador cae al morir el portador y otro atacante lo recoge al pasa
   assert.ok(m.defuser.pos, 'en el suelo');
   place(other, m.defuser.pos.x + 0.5, m.defuser.pos.y + 0.01, m.defuser.pos.z);
   m.tick(TICK);
-  assert.equal(m.defuser.carrier, other);
+  assert.equal(m.defuser.carrier, null, 'pasar por encima no basta');
+  other.intent.interact = true;
+  m.tick(TICK);
+  assert.equal(m.defuser.carrier, other, 'con F lo recoge');
 });
 
 test('el jugador manda: si elige el operador de un bot, el bot cambia; la defensa humana elige ubicación', () => {

@@ -2,11 +2,11 @@
 // corre igual en el navegador que en Node (tests de partidas completas).
 import { Emitter } from '../core/events.js';
 import { RNG } from '../core/rng.js';
-import { traceBullet, applyBulletPlan, powerAt, meleeBreak } from '../world/destruction.js';
+import { traceBullet, applyBulletPlan, powerAt, meleeBreak, shatterGlass } from '../world/destruction.js';
 import { falloffAt } from './weapons.js';
 import { rayHitRig } from './skeleton.js';
 import { raycastFirst, lineOfSight } from '../world/raycast.js';
-import { SOLID, MAT } from '../world/materials.js';
+import { SOLID, MAT, GLASS } from '../world/materials.js';
 
 export const TICK = 1 / 60;
 export const LIMB_MUL = 0.75;
@@ -75,7 +75,7 @@ export class Game extends Emitter {
     const end = cutT === Infinity ? d.range : cutT;
     const point = { x: origin.x + dir.x * end, y: origin.y + dir.y * end, z: origin.z + dir.z * end };
     const res = { origin: { ...origin }, dir: { ...dir }, end, hit, point, segments: plan.segments, destroyed, power: plan.finalPower, hitOp, zone: hitZone, damage: 0, hitTarget };
-    if (hitTarget) this.destroyTarget(hitTarget, op, point);
+    if (hitTarget) this.hitTarget(hitTarget, d.damage * falloffAt(d, targetT) * powerAt(plan, targetT, 1.0), op, point);
     if (hitOp) {
       const pen = powerAt(plan, hitT, 1.0);
       const fall = falloffAt(d, hitT);
@@ -133,6 +133,15 @@ export class Game extends Emitter {
     this.emit('killed', target, { ...ev, by });
   }
 
+  // Daño a un objeto: los que tienen vida (el desactivador) la pierden; el resto cae de un golpe.
+  hitTarget(tg, amount, by = null, point = null) {
+    if (!tg.alive) return;
+    if (tg.hp === undefined) { this.destroyTarget(tg, by, point); return; }
+    tg.hp -= amount;
+    this.emit('targetHit', tg, by, point, amount);
+    if (tg.hp <= 0) this.destroyTarget(tg, by, point);
+  }
+
   destroyTarget(tg, by = null, point = null) {
     if (!tg.alive) return;
     tg.alive = false;
@@ -165,16 +174,40 @@ export class Game extends Emitter {
     for (const tg of this.targets) {
       if (!tg.alive || tg.team === op.team) continue;
       const t = tg.rayTest(eye, dir, 1.4);
-      if (t >= 0) { this.destroyTarget(tg, op); this.emit('melee', op, { point: tg.center() }); return; }
+      if (t >= 0) { this.hitTarget(tg, MELEE_DAMAGE, op, tg.center()); this.emit('melee', op, { point: tg.center() }); return; }
     }
     const hit = raycastFirst(this.world, eye.x, eye.y, eye.z, dir.x, dir.y, dir.z, 1.45, SOLID, true);
     if (!hit) { this.emit('melee', op, {}); return; }
     const px = eye.x + dir.x * hit.t, py = eye.y + dir.y * hit.t, pz = eye.z + dir.z * hit.t;
+    // el cristal se rompe entero, como con una bala
+    if (GLASS[hit.mat]) {
+      const list = shatterGlass(this.world, hit.x, hit.y, hit.z);
+      if (list.length) this.emit('voxels', list, 'melee', { x: px, y: py, z: pz }, dir);
+      this.emit('melee', op, { point: { x: px, y: py, z: pz }, mat: hit.mat, destroyed: list });
+      return;
+    }
     // la madera de las barricadas salta en trozos grandes; el pladur cede un parche
     const r = hit.mat === MAT.BARRICADE ? 0.62 : 0.36;
     const list = meleeBreak(this.world, px + dir.x * 0.1, py + dir.y * 0.1, pz + dir.z * 0.1, r);
     if (list.length) this.emit('voxels', list, 'melee', { x: px, y: py, z: pz }, dir);
     this.emit('melee', op, { point: { x: px, y: py, z: pz }, mat: hit.mat, destroyed: list });
+  }
+
+  // Quita vóxeles (coordenadas de vóxel) y avisa a render, audio e IA.
+  clearVoxels(list, cause = 'misc', point = null) {
+    const w = this.world, out = [];
+    let x0 = Infinity, y0 = Infinity, z0 = Infinity, x1 = -Infinity, y1 = -Infinity, z1 = -Infinity;
+    for (const [x, y, z] of list) {
+      const m = w.get(x, y, z);
+      if (!m) continue;
+      w.setRaw(x, y, z, MAT.AIR);
+      out.push({ x, y, z, mat: m });
+      if (x < x0) x0 = x; if (y < y0) y0 = y; if (z < z0) z0 = z; if (x > x1) x1 = x; if (y > y1) y1 = y; if (z > z1) z1 = z;
+    }
+    if (!out.length) return out;
+    w.notify(x0, y0, z0, x1, y1, z1);
+    this.emit('voxels', out, cause, point, null);
+    return out;
   }
 
   // Compañero derribado más cercano al alcance de `op` (para reanimar con F).

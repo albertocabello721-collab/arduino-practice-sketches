@@ -387,7 +387,7 @@ class Brain {
     const p = this.op.body.pos;
     const moving = this.mover.status === 'moving' || this.mover.status === 'planning' || this.mover.status === 'failed';
     if (Math.hypot(p.x - this._lastPos.x, p.z - this._lastPos.z) > 0.5) { this._lastPos.x = p.x; this._lastPos.z = p.z; this.stillT = 0; }
-    else if (moving && !this.target && !this.op.channel && !(this.pauseT > 0)) {
+    else if (moving && !this.target && !this.op.channel && !(this.pauseT > 0 && this.task && this.task.kind === 'clear')) {
       this.stillT += dt;
       this.maxStillT = Math.max(this.maxStillT, this.stillT);
       if (this.stillT > 7) this._unstick();
@@ -481,6 +481,7 @@ class Brain {
     if (this.task && this.task.key === t.key) return;
     this.task = t;
     this.hold = null;
+    this.pauseT = 0;          // la pausa del avance a saltos es solo de «despejar»
   }
 
   _think(phase) {
@@ -1009,6 +1010,9 @@ class Brain {
     if (!P) { this._stand(dt); return; }
     const op = this.op, I = op.intent, p = op.body.pos;
     const dist = Math.hypot(P.x - p.x, P.z - p.z);
+    // a la vista: dispararle (destruirlo cuenta como inutilizarlo)
+    const ammo = op.weapons.reduce((n, w) => n + w.ammo + w.reserve, 0);
+    if (d.target && d.target.alive && ammo > 0 && dist < 30 && dist > 1.5 && this._shootDefuser(dt, d.target)) return;
     const disabler = this._closestTeammateTo(P);
     if (disabler !== op && dist < 5 && Math.abs(P.y - p.y) < 1.2) {
       // cubrir al que inutiliza: mirar hacia fuera
@@ -1026,6 +1030,29 @@ class Brain {
     }
     this._goto(P, dt, { r: 0.8, sprint: dist > 10 && !this._threat(), exact: true });
   }
+  _shootDefuser(dt, tg) {
+    const op = this.op, I = op.intent, D = this.diff;
+    this.defT = (this.defT || 0) - dt;
+    if (this.defT <= 0) {
+      this.defT = 0.3;
+      const e = op.eyePos(), c = tg.center();
+      this.defSeen = lineOfSight(this.game.world, e.x, e.y, e.z, c.x, c.y, c.z);
+    }
+    if (!this.defSeen) return false;
+    if (this.mover.busy) this.mover.stop();
+    I.moveX = 0; I.moveZ = 0; I.sprint = false;
+    const e = op.eyePos(), c = tg.center();
+    const dx = c.x - e.x, dy = c.y - e.y, dz = c.z - e.z, dh = Math.hypot(dx, dz);
+    const wantYaw = Math.atan2(-dx, -dz), wantPitch = Math.atan2(dy, dh);
+    op.yaw += clamp(angleDiff(op.yaw, wantYaw), -dt * D.turn, dt * D.turn);
+    op.pitch += clamp(wantPitch - op.pitch, -dt * D.turn, dt * D.turn);
+    I.ads = dh > 4;
+    const tol = Math.max(0.02, Math.min(0.08, 0.2 / Math.max(1, dh)));
+    if (Math.abs(angleDiff(op.yaw, wantYaw)) < tol && Math.abs(wantPitch - op.pitch) < tol * 1.3) { this.semi = op.weapon.def.auto ? true : !this.semi; I.fire = this.semi; }
+    if (op.weapon.ammo === 0) I.reload = true;
+    return true;
+  }
+
   _closestTeammateTo(P) {
     let best = null, bd = Infinity;
     for (const o of this.game.operators) {
@@ -1157,6 +1184,14 @@ class Brain {
   _tPickup(dt) {
     const d = this.match.defuser;
     if (!d || !d.pos) { this.task = null; this.thinkT = 0; return; }
+    const p = this.op.body.pos;
+    // al llegar, recogerlo con F
+    if (Math.hypot(d.pos.x - p.x, d.pos.z - p.z) < this.match.rules.pickupRange * 0.9 && Math.abs(d.pos.y - p.y) < 1.1) {
+      this._stand(dt);
+      this.op.intent.interact = true;
+      this._idleLook(dt, null);
+      return;
+    }
     this._goto(d.pos, dt, { r: 0.5, sprint: this.mover.remaining > 6 && !this._threat(), exact: true });
   }
 

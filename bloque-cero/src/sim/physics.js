@@ -1,7 +1,7 @@
 // Física de personaje contra el mundo de vóxeles: caja AABB con barrido por ejes,
 // subida automática de escalones (hasta 3 vóxeles = 0,375 m), pegado al bajar
 // escaleras, trepar escaleras de mano y comprobaciones de hueco libre.
-import { SOLID, CLIMB } from '../world/materials.js';
+import { SOLID, CLIMB, MAT } from '../world/materials.js';
 import { VS } from '../world/voxelworld.js';
 
 const EPS = 1e-4;
@@ -40,6 +40,37 @@ function layerSolid(world, vy, vx0, vx1, vz0, vz1) {
 
 export function boxFree(world, x, y, z, r, h) {
   return !world.worldBoxHasSolid(x - r, y, z - r, x + r, y + h, z + r);
+}
+const boxFreeAll = boxFree;
+// ¿Hay algo sólido en la caja, sin contar el material `except`?
+function boxHasSolidExcept(world, x0, y0, z0, x1, y1, z1, except) {
+  const a = world.vx(x0 + 1e-6), b = world.vx(x1 - 1e-6), c = world.vy(y0 + 1e-6), d = world.vy(y1 - 1e-6), e = world.vz(z0 + 1e-6), f = world.vz(z1 - 1e-6);
+  for (let y = c; y <= d; y++) for (let z = e; z <= f; z++) for (let x = a; x <= b; x++) {
+    const m = world.get(x, y, z);
+    if (SOLID[m] && m !== except) return true;
+  }
+  return false;
+}
+/**
+ * Astillas de barricada en el pasillo de un salto (del cuerpo al punto de aterrizaje, a
+ * la altura del salto). Devuelve la lista de vóxeles [x, y, z] (coordenadas de vóxel).
+ */
+export function woodInVault(world, b, v, dirX, dirZ) {
+  const out = [], seen = new Set(), p = b.pos;
+  const len = Math.hypot(v.x - p.x, v.z - p.z);
+  for (let d = 0; d <= len; d += VS * 0.5) {
+    for (let s = -0.28; s <= 0.28; s += VS * 0.5) {
+      const x = p.x + dirX * d - dirZ * s, z = p.z + dirZ * d + dirX * s;
+      for (let y = v.top + 0.02; y <= v.top + 1.17; y += VS * 0.5) {
+        const vx = world.vx(x), vy = world.vy(y), vz = world.vz(z);
+        if (world.get(vx, vy, vz) !== MAT.BARRICADE) continue;
+        const k = `${vx},${vy},${vz}`;
+        if (seen.has(k)) continue;
+        seen.add(k); out.push([vx, vy, vz]);
+      }
+    }
+  }
+  return out;
 }
 
 // Barrido en un eje; devuelve true si choca.
@@ -185,13 +216,23 @@ export function tryResize(world, b, newHeight) {
  * lo cruza entero y aterriza al otro lado; si es profundo, se sube encima.
  * Devuelve {x, y, z, top} (punto final del salto; luego actúa la gravedad) o null.
  */
-export function findVault(world, b, dirX, dirZ) {
+export function findVault(world, b, dirX, dirZ, { throughWood = false } = {}) {
   const p = b.pos;
-  const obstacleTop = (cx, cz) => {
+  // con `throughWood`, las astillas de una barricada rota no cuentan (se arrastran al saltar)
+  const solidAt = throughWood ? (x, y, z) => { const m = world.getWorld(x, y, z); return SOLID[m] === 1 && m !== MAT.BARRICADE; } : (x, y, z) => world.solidAtWorld(x, y, z);
+  const boxFree = throughWood ? (x, y, z, r, h) => !boxHasSolidExcept(world, x - r, y, z - r, x + r, y + h, z + r, MAT.BARRICADE) : boxFreeAll;
+  const topAt = (cx, cz) => {
     for (let h = 1.35; h >= 0.28; h -= VS) {
-      if (world.solidAtWorld(cx, p.y + h, cz)) return Math.floor((p.y + h - world.oy) * 8 + 1) / 8 + world.oy;
+      if (solidAt(cx, p.y + h, cz)) return Math.floor((p.y + h - world.oy) * 8 + 1) / 8 + world.oy;
     }
     return -1;
+  };
+  // la altura del obstáculo en todo el ancho del cuerpo (un alféizar roto es irregular)
+  const obstacleTop = (cx, cz) => {
+    let t = topAt(cx, cz);
+    if (t < 0) return t;
+    for (const s of [-0.2, 0.2]) t = Math.max(t, topAt(cx - dirZ * s, cz + dirX * s));
+    return t;
   };
   let d0 = -1, top = -1;
   for (let d = b.radius + 0.05; d <= b.radius + 0.6; d += 0.0625) {

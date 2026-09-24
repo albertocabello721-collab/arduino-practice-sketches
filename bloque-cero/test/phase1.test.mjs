@@ -117,9 +117,21 @@ test('el mundo vuelve al estado original al reiniciar la ronda', () => {
 });
 
 test('saltar obstáculo: vaultea un alféizar hacia fuera', () => {
-  // ventana salón oeste en z=4: alféizar a 1.0 m. Romper cristal y saltar.
+  // ventana salón oeste en z=4: alféizar a 1.0 m. Romper la barricada (las ventanas
+  // empiezan con ella) y el cristal, y saltar.
   const op = game.addOperator(new Operator('p7', { x: 0.7, y: 0, z: 4, yaw: Math.PI / 2, loadout: ['ar'] }));
-  game.fireBullet(op, { x: 1, y: 1.6, z: 4 }, { x: -1, y: 0, z: 0 }, op.weapon);
+  assert.equal(world.getWorld(0.06, 1.5, 4), MAT.BARRICADE, 'la ventana empieza con barricada');
+  game.fireBullet(op, { x: 1, y: 1.6, z: 4 }, { x: -1, y: 0, z: 0 }, op.weapon);     // la bala atraviesa la madera y rompe el cristal
+  // con la barricada entera no se puede saltar; se rompe a golpes y entonces sí
+  // (las astillas que quedan se arrastran al saltar)
+  const wood = () => { let n = 0; for (let y = 1.06; y < 2.25; y += 0.125) for (let z = 3.44; z < 4.6; z += 0.125) if (world.getWorld(0.06, y, z) === MAT.BARRICADE) n++; return n; };
+  const before = wood();
+  op.intent.vault = true;
+  run(op, 0.3);
+  assert.ok(op.body.pos.x > 0.4, 'con la barricada entera no salta');
+  for (let i = 0; i < 9; i++) { op.yaw = Math.PI / 2 + [-0.35, 0, 0.35][i % 3]; op.pitch = [-0.2, 0.15, 0.5][Math.floor(i / 3)]; op.meleeT = 0; game.melee(op); }
+  assert.ok(before > 60 && wood() < before * 0.3, `barricada rota a golpes (${before} → ${wood()})`);
+  op.yaw = Math.PI / 2; op.pitch = 0;
   run(op, 0.2);
   op.intent.vault = true;
   run(op, 1.5);

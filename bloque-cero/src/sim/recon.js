@@ -173,6 +173,14 @@ export class Recon {
       const eyes = [];
       for (const d of this.drones) if (d.alive) eyes.push({ who: d, e: d.eyePos() });
       for (const op of g.operators) if (op.team === this.attackTeam && op.state === 'alive') eyes.push({ who: op, e: op.eyePos() });
+      // dentro de la sala del objetivo (aunque los muebles tapen el punto exacto) también cuenta
+      const rooms = g.map && g.map.builder ? { A: this.site.A, B: this.site.B } : null;
+      for (const { who, e } of eyes) {
+        if (!rooms) break;
+        const r = g.map.builder.roomAt(e.x, e.y - 0.1, e.z);
+        const k = r && (r.id === rooms.A ? 'A' : r.id === rooms.B ? 'B' : null);
+        if (k) { this.objectiveFound = true; g.emit('objectiveFound', who, k); return; }
+      }
       for (const k of ['A', 'B']) {
         const b = this.site.bombs[k];
         for (const { who, e } of eyes) {
@@ -191,7 +199,7 @@ export class Recon {
    * Marcar: el enemigo al que apunta el visor (dron, cámara u operador) queda señalado.
    * Devuelve el operador señalado o null.
    */
-  mark(viewer, team) {
+  mark(viewer, team, by = null) {
     const g = this.game;
     const e = viewer.eyePos(), d = viewer.viewDir();
     let best = null, bt = MARK_RANGE;
@@ -211,7 +219,7 @@ export class Recon {
     g.emit('markTry', viewer, best);
     if (!best) return null;
     this.spotted.set(best, { until: g.time + SPOT_TIME, team, by: viewer });
-    g.emit('spotted', best, viewer, team);
+    g.emit('spotted', best, viewer, team, by);
     return best;
   }
   isSpottedFor(op, team) { const s = this.spotted.get(op); return !!s && s.team === team; }

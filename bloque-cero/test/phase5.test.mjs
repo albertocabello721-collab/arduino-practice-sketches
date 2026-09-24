@@ -219,7 +219,7 @@ test('combate: dispara a través del pladur a un enemigo que oye al otro lado', 
     if (a.weapon.ammo > 5) a.weapon.ammo = 5;
     m.tick(TICK);
   }
-  assert.ok(wallShots >= 3, `dispara a través de la pared (disparos ${d.stats.shots}, a través del pladur ${wallShots})`);
+  assert.ok(wallShots >= 1 && (wallShots >= 3 || a.state !== 'alive'), `dispara a través de la pared (disparos ${d.stats.shots}, a través del pladur ${wallShots}, atacante ${a.state})`);
   bots.dispose();
 });
 

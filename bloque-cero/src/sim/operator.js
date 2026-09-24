@@ -3,13 +3,14 @@
 // trepar escaleras de mano, manejo del arma y estado de combate
 // (vivo → derribado con sangrado → muerto). Recibe "intenciones" cada tick
 // (del teclado o de la IA) y emite eventos para render, audio e IA.
-import { Body, STANCES, stepBody, tryResize, findVault, boxFree } from './physics.js';
+import { Body, STANCES, stepBody, tryResize, findVault, woodInVault, boxFree } from './physics.js';
 import { WeaponState, WEAPONS } from './weapons.js';
 import { makePoseState, computePose, BONE_COUNT } from './skeleton.js';
 import { clamp, damp, DEG } from '../core/math.js';
 import { SOUND } from '../world/materials.js';
 
 export const LEAN_DIST = 0.38;      // desplazamiento lateral de la cabeza al asomarse (m)
+const VAULT_WOOD_MAX = 14;          // astillas de barricada que se arrastran al saltar (una entera tiene ~40 en el pasillo)
 const LEAN_ROLL = 13 * DEG;         // giro de cámara al asomarse
 const SPEED = { walk: 3.3, sprint: 5.4, crouch: 1.85, prone: 0.8, crawl: 0.5, adsMul: 0.62, leanMul: 0.9 };
 export const ARMOR_HP = { 1: 100, 2: 110, 3: 125 };
@@ -210,7 +211,13 @@ export class Operator {
     const dl = Math.hypot(ddx, ddz), maxD = accel * dt;
     if (dl > maxD) { b.vel.x += ddx / dl * maxD; b.vel.z += ddz / dl * maxD; } else { b.vel.x = tx; b.vel.z = tz; }
     if (I.vault && !downed && !busy && b.onGround && this.stance !== 'prone') {
-      const t = findVault(world, b, -sy, -cy);
+      let t = findVault(world, b, -sy, -cy);
+      // barricada rota (quedan astillas): se salta a través y se arrastran
+      if (!t) {
+        const tw = findVault(world, b, -sy, -cy, { throughWood: true });
+        const wood = tw ? woodInVault(world, b, tw, -sy, -cy) : null;
+        if (tw && wood.length <= VAULT_WOOD_MAX) { if (wood.length) game.clearVoxels(wood, 'vault', tw); t = tw; }
+      }
       if (t) {
         this.vault = { t: 0, dur: 0.42 + (t.top - b.pos.y) * 0.25, from: { x: b.pos.x, y: b.pos.y, z: b.pos.z }, to: t };
         this.stance = 'crouch'; b.height = STANCES.crouch.height;

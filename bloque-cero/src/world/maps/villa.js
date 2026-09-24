@@ -258,6 +258,9 @@ export function buildVilla(world) {
   b.zone('lateral_oeste', 'Lateral oeste', -14, 0, 0, 26);
   b.zone('camino_garaje', 'Camino lateral', 40, 0, 54, 26);
 
+  // las ventanas empiezan cada ronda con barricada
+  b.barricadeWindows();
+
   world.snapshot();
 
   // ================= METADATOS DE JUEGO =================

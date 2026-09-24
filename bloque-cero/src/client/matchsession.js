@@ -21,7 +21,7 @@ export class MatchSession extends Session {
     this.bots = new BotSquad(this.match, this.opts.difficulty, { nav: ctx.nav });
     this.disposers.push(() => this.bots.dispose());
     this.ui = new MatchUI(ctx, this);
-    this.feed = new FeedController(ctx, () => this.match.recon);
+    this.feed = new FeedController(ctx, () => this.match.recon, () => this.match.player);
     this.deadAt = -1;
     this.spectating = null;
     this.beepT = 0;
@@ -132,7 +132,8 @@ export class MatchSession extends Session {
       this.ui.showPhase('Desactivador plantado', `Sitio ${site} · ${this.mySide() === 'atk' ? 'defiéndelo 45 s' : 'inutilízalo antes de 45 s'}`, 3);
     });
     on('disableStart', (op) => { if (op === this.player) audio.cue('plantStart'); });
-    on('defuserDropped', () => { if (this.mySide() === 'atk') this.ui.showPhase('Desactivador en el suelo', 'Pasa por encima para recogerlo', 2.2); });
+    on('defuserDropped', () => { if (this.mySide() === 'atk') this.ui.showPhase('Desactivador en el suelo', 'Pulsa F junto a él para recogerlo', 2.2); });
+    on('defuserDestroyed', (by) => { this.ui.showPhase('Desactivador destruido', by ? `Por ${by.name}` : '', 2.2); });
     on('defuserPicked', (op) => { if (op === this.player) this.ui.showPhase('Tienes el desactivador', 'Plántalo en A o B', 2); });
     on('roundEnd', (res) => {
       this.feed.exit();
@@ -274,6 +275,9 @@ export class MatchSession extends Session {
         if (def && def.carrier === p && m.phase === 'action') {
           const s = m.siteAt(p.body.pos.x, p.body.pos.y, p.body.pos.z);
           if (s) prompt = `Mantén F para plantar el desactivador · sitio ${s}`;
+        } else if (def && !def.carrier && def.pos && p.side === 'atk' && m.phase === 'action' &&
+          Math.hypot(p.body.pos.x - def.pos.x, p.body.pos.z - def.pos.z) < m.rules.pickupRange && Math.abs(p.body.pos.y - def.pos.y) < 1.2) {
+          prompt = 'Pulsa F para recoger el desactivador';
         } else if (def && def.planted && p.side === 'def' && m.phase === 'planted') {
           const P = def.plantPos;
           if (Math.hypot(p.body.pos.x - P.x, p.body.pos.z - P.z) < m.rules.disableRange && Math.abs(p.body.pos.y - P.y) < 1.2) prompt = 'Mantén F para inutilizar el desactivador';
