@@ -15,7 +15,7 @@ Es un único archivo HTML autónomo: no necesita servidor ni conexión.
 | F2 | Operadores tácticos, zonas de impacto, derribo con sangrado, reanimación, arsenal de 11 armas | ✅ |
 | F3 | Rondas 5v5, 3 ubicaciones de sitios (los defensores eligen), desactivador, HUD con reloj y 10 retratos | ✅ |
 | F4 | Preparación: refuerzos, barricadas, trampillas, drones, cámaras, cuerpo a cuerpo | ✅ |
-| F5 | Bots: navegación, percepción, combate, tácticas por bando | ✅ (órdenes a aliados en curso) |
+| F5 | Bots: navegación, percepción, combate, tácticas por bando, órdenes (H), marcas (T), chat de equipo, depuración (P) | ✅ |
 | F6 | Operadores 8 + 8 y contrajuego de gadgets | pendiente |
 | F7 | Animaciones en primera y tercera persona | pendiente |
 | F8 | Recarga por partes | pendiente |
@@ -118,6 +118,18 @@ Reglas de Siege, contra bots:
   «¡Desactivador plantado!» y «Queda uno». Cada bot habla como mucho cada 2 s y el mismo aviso
   no se repite antes de 4 s. En Opciones, **Voz de los aliados** (apagada por defecto) los lee
   con la voz del navegador en español, con un tono distinto por aliado.
+- **Órdenes (mantén H)**: se abre una rueda; el ratón elige (la vista no se mueve) y al soltar H
+  (o con clic) los aliados bot la cumplen: **Seguirme** (detrás de ti a 2–4,4 m, sin pararse a
+  recalcular la ruta mientras andas, y al llegar cada uno cubre un ángulo: frente, lados,
+  espalda), **Mantener aquí** (se quedan donde están, vigilando hacia donde miraban), **Ir a mi
+  marca** (a tu marca de posición, o a donde miras si no tienes; cada uno a su hueco alrededor
+  y vigilando en la dirección en que la señalaste), **Reforzar aquí** (defensa, en preparación
+  o acción: los aliados con refuerzos refuerzan las paredes y trampillas de la sala señalada
+  más cercanas a la marca, hasta 2 cada uno, y luego vuelven por libre) y **Por libre**. Un
+  aliado responde por radio y la orden activa se ve abajo a la izquierda. Combatir, reanimar,
+  recoger el desactivador, plantarlo (con el sitio a la vista o menos de 50 s) y retomar el
+  plantado mandan sobre la orden; si caes, vuelven por libre; cada ronda empieza sin órdenes.
+  *Poner gadget aquí* llegará con los gadgets de la Fase 6.
 - **Depuración (P)**: puntos de la rejilla de navegación a menos de 14 m (verde de pie,
   amarillo solo agachado, magenta barricada por romper, azul pie de escalera), la ruta que
   sigue cada bot, su cono de visión de 100° (rojo si tiene a alguien a tiro) y una etiqueta
@@ -139,6 +151,7 @@ Reglas de Siege, contra bots:
 | V | Golpe cuerpo a cuerpo (rompe barricadas y pladur) |
 | 5 | Dron (ataque) / cámaras (defensa) |
 | T / botón central | Marcar al enemigo que miras (6 s para tu equipo) o poner una marca de posición (15 s) |
+| H (mantener) | Rueda de órdenes a los aliados: el ratón elige, al soltar se da la orden |
 | Tab | Marcador |
 | Clic / Espacio | (Muerto) cambiar de compañero observado |
 | G | (Campo de pruebas) carga de brecha en la pared que miras |

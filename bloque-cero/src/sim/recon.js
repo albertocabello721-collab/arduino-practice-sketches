@@ -239,14 +239,19 @@ export class Recon {
   markOrPing(op) {
     const enemy = this.mark(op, op.team, op);
     if (enemy) return { kind: 'enemy', op: enemy };
+    const ping = this.ping(op);
+    return ping ? { kind: 'ping', ping } : null;
+  }
+  /** Marca de posición donde mira `op` (null si no mira a nada a menos de 60 m). */
+  ping(op) {
     const g = this.game, e = op.eyePos(), d = op.viewDir();
     const hit = raycastFirst(g.world, e.x, e.y, e.z, d.x, d.y, d.z, PING_RANGE);
     if (!hit) return null;
     const t = Math.max(0, hit.t - 0.06);
-    const ping = { x: e.x + d.x * t, y: e.y + d.y * t, z: e.z + d.z * t, team: op.team, by: op, t: g.time, until: g.time + PING_TIME };
+    const ping = { x: e.x + d.x * t, y: e.y + d.y * t, z: e.z + d.z * t, team: op.team, by: op, t: g.time, until: g.time + PING_TIME, from: { x: e.x, y: e.y, z: e.z } };
     this.pings.set(op, ping);
     g.emit('pinged', op, ping);
-    return { kind: 'ping', ping };
+    return ping;
   }
   /** La marca de posición más reciente del equipo (o la de `by`, si se indica). */
   pingOf(team, by = null) {

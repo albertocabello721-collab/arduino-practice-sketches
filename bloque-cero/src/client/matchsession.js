@@ -5,6 +5,7 @@ import { Session } from './session.js';
 import { bindGameFx } from './fx.js';
 import { FeedController } from './feeds.js';
 import { TeamChat } from './chat.js';
+import { OrderWheel, ORDERS } from '../ui/wheel.js';
 import { Match } from '../sim/match.js';
 import { BotSquad } from '../sim/bots.js';
 import { operatorLook } from '../render/character.js';
@@ -25,6 +26,9 @@ export class MatchSession extends Session {
     this.feed = new FeedController(ctx, () => this.match.recon, () => this.match.player);
     this.chat = new TeamChat(ctx);
     this.disposers.push(() => this.chat.dispose());
+    this.wheel = new OrderWheel();
+    this.disposers.push(() => this.wheel.close());
+    this.holdFire = false;       // tras elegir en la rueda con clic, no disparar hasta soltar el botón
     this.deadAt = -1;
     this.spectating = null;
     this.beepT = 0;
@@ -99,6 +103,7 @@ export class MatchSession extends Session {
       audio.stopDowned();
       this.feed.exit();
       this.chat.clear();
+      this.wheel.close();
       hud.setDeath(false); hud.setDowned(false); hud.setRevive(null, 0);
       this.ui.hideBanner();
       this.ui.setPrepInfo(null);
@@ -189,12 +194,53 @@ export class MatchSession extends Session {
 
   // ------------------------------------------------------------------ entrada y simulación
   input(active) {
-    const p = this.player;
+    const p = this.player, { input } = this.ctx;
     if (this.feed.active) {
       if (p && p.state === 'alive') { const I = p.intent; I.moveX = 0; I.moveZ = 0; I.fire = false; I.ads = false; I.sprint = false; I.interact = false; I.lean = 0; }
       return this.feed.input(active, this.myTeam);
     }
-    return super.input(active);
+    // rueda de órdenes abierta: el ratón elige en la rueda (la vista no se mueve) y no se dispara
+    if (this.wheel.open) {
+      const d = input.consumeMouse();
+      if (active) this.wheel.move(d.dx, d.dy);
+    }
+    const r = super.input(active);
+    if (!input.mouse.left) this.holdFire = false;
+    if (p && (this.wheel.open || this.holdFire)) { p.intent.fire = false; if (this.wheel.open) p.intent.ads = false; }
+    return r;
+  }
+
+  // ------------------------------------------------------------------ órdenes a los aliados
+  canOrder() {
+    const m = this.match, p = this.player;
+    if (!p || p.state !== 'alive' || this.feed.active) return false;
+    return m.phase === 'action' || m.phase === 'planted' || (m.phase === 'prep' && this.mySide() === 'def');
+  }
+  orderItems() {
+    const m = this.match, def = this.mySide() === 'def';
+    const items = [{ kind: 'follow' }, { kind: 'hold' }, { kind: 'goto' }];
+    if (def) items.push({ kind: 'reinforce', disabled: !(m.phase === 'prep' || m.phase === 'action') });
+    items.push({ kind: 'free' });
+    return items;
+  }
+  alliesAlive() { return [...this.bots.brains.values()].filter((B) => B.team === this.myTeam && B.op.state !== 'dead').length; }
+  /** Da una orden a los aliados bot (desde la rueda). Devuelve cuántos la cumplen. */
+  giveOrder(kind) {
+    const m = this.match, p = this.player, { audio, hud } = this.ctx;
+    if (!this.canOrder()) return 0;
+    let pos = null;
+    if (kind === 'goto') pos = m.recon.pingOf(p.team, p) || m.recon.ping(p);
+    if (kind === 'reinforce') pos = m.recon.ping(p);
+    if ((kind === 'goto' || kind === 'reinforce') && !pos) { audio.ping('deny'); hud.toast('Mira a un punto del mapa'); return 0; }
+    this.chat.push('Tú', ORDERS[kind].say, { cls: 'me' });
+    const n = this.bots.order(kind, p, pos);
+    if (n) audio.ui('click'); else audio.ping('deny');
+    return n;
+  }
+  // Orden que cumplen ahora los aliados (para el HUD)
+  activeOrder() {
+    for (const B of this.bots.brains.values()) if (B.team === this.myTeam && B.order && B.op.state !== 'dead') return B.order.kind;
+    return null;
   }
 
   tick(dt) {
@@ -218,6 +264,17 @@ export class MatchSession extends Session {
     if (markKey && p && p.state === 'alive' && !this.feed.active && (m.phase === 'prep' || m.phase === 'action' || m.phase === 'planted') && m.time - this.markAt >= 0.4) {
       this.markAt = m.time;
       if (!m.recon.markOrPing(p)) audio.ping('deny');
+    }
+    // H: rueda de órdenes para los aliados bot (mantener, elegir con el ratón, soltar)
+    if (this.wheel.open) {
+      if (!this.canOrder() || input.mouseClicked(2)) this.wheel.close();
+      else if (!input.isDown('orders') || input.mouseClicked(0)) {
+        if (input.mouse.left) this.holdFire = true;
+        const it = this.wheel.close();
+        if (it) this.giveOrder(it.kind);
+      }
+    } else if (input.pressed('orders') && this.canOrder()) {
+      if (!this.alliesAlive()) { audio.ping('deny'); hud.toast('No te quedan aliados'); } else this.wheel.show(this.orderItems());
     }
     // 5: dron (ataque) o cámaras (defensa)
     if (input.pressed('drone') && p && p.state === 'alive' && (m.phase === 'prep' || m.phase === 'action' || m.phase === 'planted')) {
@@ -328,9 +385,11 @@ export class MatchSession extends Session {
     const el = document.getElementById('gear');
     if (!p || p.state === 'dead' || this.feed.active) { if (this._gearHtml !== '') { this._gearHtml = ''; el.classList.add('hidden'); } return; }
     const m = this.match;
+    const ord = this.activeOrder();
+    const orders = `<span class="ord">H órdenes${ord ? ` · <b>${ORDERS[ord].label}</b>` : ''}</span>`;
     const html = side === 'atk'
-      ? `<span>Drones <b>${m.recon.dronesLeft(p)}</b></span><span>5 dron · V golpe</span>`
-      : `<span>Refuerzos <b>${m.fort.remaining(p)}</b></span><span>5 cámaras · V golpe</span>`;
+      ? `<span>Drones <b>${m.recon.dronesLeft(p)}</b></span><span>5 dron · V golpe</span>${orders}`
+      : `<span>Refuerzos <b>${m.fort.remaining(p)}</b></span><span>5 cámaras · V golpe</span>${orders}`;
     if (this._gearHtml !== html) { this._gearHtml = html; el.innerHTML = html; el.classList.remove('hidden'); }
   }
 

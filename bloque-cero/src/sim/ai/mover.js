@@ -39,13 +39,17 @@ export class Mover {
     this.opts = {};
     this.clock = 0;
     this.failAt = -9;
+    this.pending = null;         // ruta nueva que se calcula mientras se sigue la vieja (keepPath)
+    this.pendingGoal = null;
   }
 
   /**
    * Ir a `goal` ({x,y,z}). Opciones: `r` radio de llegada, `avoid(node)` coste extra,
-   * `noBreak` (no romper barricadas). Si ya va hacia ese punto, no replanifica.
+   * `noBreak` (no romper barricadas), `keepPath` (perseguir algo que se mueve: sigue por
+   * la ruta actual mientras se calcula la nueva). Si ya va hacia ese punto, no replanifica.
    */
   go(goal, opts = {}) {
+    if (this.pending && Math.hypot(goal.x - this.pendingGoal.x, (goal.y - this.pendingGoal.y) * 2, goal.z - this.pendingGoal.z) < (opts.same ?? 0.4)) return this.status;
     if (this.goal && this.status !== 'idle') {
       const d = Math.hypot(goal.x - this.goal.x, (goal.y - this.goal.y) * 2, goal.z - this.goal.z);
       if (d < (opts.same ?? 0.4)) {
@@ -57,22 +61,40 @@ export class Mover {
         if (this.status === 'arrived' && Math.hypot(p.x - goal.x, p.z - goal.z) < this.arriveR + 0.6 && Math.abs(p.y - goal.y) < 1.2) return this.status;
       }
     }
+    // (los drones no rompen barricadas: si no hay camino, van lo más cerca posible)
+    const o = { avoid: opts.avoid || null, noBreak: !!opts.noBreak || this.drone, noLadder: this.drone, breakCost: opts.breakCost || 0, partial: !!opts.partial || this.drone };
+    if (opts.keepPath && this.status === 'moving' && this.path) {
+      if (this.pending) this.nav.cancel(this.pending);
+      const p = this.op.body.pos;
+      this.pendingGoal = { x: goal.x, y: goal.y, z: goal.z };
+      this.pendingR = opts.r ?? 0.45;
+      this.opts = o;
+      this.pending = this.nav.request({ x: p.x, y: p.y, z: p.z }, this.pendingGoal, { ...o, raw: true });
+      return this.status;
+    }
     this.goal = { x: goal.x, y: goal.y, z: goal.z };
     this.arriveR = opts.r ?? 0.45;
-    // (los drones no rompen barricadas: si no hay camino, van lo más cerca posible)
-    this.opts = { avoid: opts.avoid || null, noBreak: !!opts.noBreak || this.drone, noLadder: this.drone, breakCost: opts.breakCost || 0, partial: !!opts.partial || this.drone };
+    this.opts = o;
     this.repaths = 0;
     this._plan();
     return this.status;
   }
   stop() {
     if (this.job) this.nav.cancel(this.job);
-    this.job = null; this.goal = null; this.path = null; this.status = 'idle';
+    if (this.pending) this.nav.cancel(this.pending);
+    this.job = null; this.pending = null; this.goal = null; this.path = null; this.status = 'idle';
+  }
+  // Pasa la ruta pendiente (keepPath) a ser la búsqueda en curso.
+  _adoptPending() {
+    this.job = this.pending; this.pending = null;
+    this.goal = this.pendingGoal; this.arriveR = this.pendingR;
+    this.status = 'planning';
   }
   get busy() { return this.status === 'moving' || this.status === 'planning'; }
 
   _plan() {
     if (this.job) this.nav.cancel(this.job);
+    if (this.pending) { this.nav.cancel(this.pending); this.goal = this.pendingGoal; this.arriveR = this.pendingR; this.pending = null; }
     const p = this.op.body.pos;
     this.job = this.nav.request({ x: p.x, y: p.y, z: p.z }, this.goal, { ...this.opts, raw: true });
     this.status = 'planning';
@@ -123,6 +145,16 @@ export class Mover {
     if (!this.drone) I.sprint = false;
     this.wantYaw = null;
     this.mustFace = false;
+    // ruta nueva lista (keepPath): cambiar a ella sin pararse
+    if (this.pending && this.status === 'moving' && this.pending.status !== 'queued' && this.pending.status !== 'running') {
+      const j = this.pending;
+      this.pending = null;
+      if (j.status === 'done' && j.result) {
+        this.path = j.result.points; this.goal = this.pendingGoal; this.arriveR = this.pendingR;
+        this.navVersion = this.nav.version; this.i = 0; this.stuckT = 0; this.best = Infinity;
+        this._lookahead();
+      }
+    }
     if (this.status === 'planning') {
       const j = this.job;
       if (!j || j.status === 'queued' || j.status === 'running') return this.status;
@@ -148,7 +180,11 @@ export class Mover {
       if (dh < r && Math.abs(q.y - p.y) < 1.1) { this.i++; advanced = true; this.best = Infinity; this.stuckT = 0; continue; }
       break;
     }
-    if (this.i >= pts.length) { this.status = 'arrived'; return this.status; }
+    if (this.i >= pts.length) {
+      if (this.pending) { this._adoptPending(); return this.status; }     // se acabó la vieja: esperar a la nueva
+      this.status = 'arrived';
+      return this.status;
+    }
     if (advanced) this._lookahead();
     const q = pts[this.i];
     const dx = q.x - p.x, dz = q.z - p.z;

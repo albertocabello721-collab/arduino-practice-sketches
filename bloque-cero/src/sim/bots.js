@@ -14,7 +14,11 @@
 //                localizan el objetivo); acción: entradas repartidas, agruparse, despejar,
 //                plantar con escolta, defender el desactivador y recogerlo si cae.
 //  · radio: los bots avisan a su equipo (contacto con el nombre de la sala, recargando,
-//    derribado, desactivador plantado, queda uno) con límites de frecuencia.
+//    derribado, desactivador plantado, queda uno) con límites de frecuencia;
+//  · órdenes del jugador (rueda H): seguirle, mantener la posición, ir a su marca,
+//    reforzar donde mira o volver por libre. Combatir, reanimar, recoger el desactivador,
+//    plantarlo (con el sitio a la vista o poco tiempo) y retomar el plantado mandan sobre
+//    la orden; si el jugador muere, vuelven por libre.
 import { NavGrid } from './nav.js';
 import { Mover } from './ai/mover.js';
 import { Perception, TeamBoard } from './ai/perception.js';
@@ -104,6 +108,132 @@ export class BotSquad {
     on(m, 'plantStart', (op) => this._noise(op, op.body.pos, 'plant', 30));
     on(m, 'disableStart', (op) => { for (const B of this.brains.values()) if (B.side === 'atk') B.per.hear(op.body.pos, 'disable', op, 999); });
   }
+  // ---------------------------------------------------------------- órdenes del jugador
+  /**
+   * Orden para los bots del equipo de `by`: 'follow' (seguirle), 'hold' (mantener aquí),
+   * 'goto' (ir a `pos`), 'reinforce' (reforzar junto a `pos`, defensa) o 'free' (por
+   * libre). Devuelve cuántos aliados la cumplen (0 si ninguno puede).
+   */
+  order(kind, by, pos = null) {
+    const now = this.game.time, bp = by.body.pos;
+    const allies = [...this.brains.values()].filter((B) => B.team === by.team && B.op !== by && B.op.state !== 'dead');
+    if (!allies.length) return 0;
+    const dist = (B) => Math.hypot(B.op.body.pos.x - bp.x, (B.op.body.pos.y - bp.y) * 2, B.op.body.pos.z - bp.z);
+    allies.sort((a, b) => dist(a) - dist(b));
+    const speaker = allies.find((B) => B.op.state === 'alive') || allies[0];
+    const ack = (text) => this.radio.say(speaker.op, 'ack', text, { force: true });
+    if (kind === 'free') {
+      for (const B of allies) B.setOrder(null);
+      ack('Por libre');
+      return allies.length;
+    }
+    if (kind === 'reinforce') return this._orderReinforce(by, pos, allies, ack);
+    let spots = null;
+    if (kind === 'goto') {
+      if (!pos) return 0;
+      spots = this._spreadSpots(pos, pos.from || by.eyePos(), allies.length);
+      if (!spots.length) { ack('No puedo llegar ahí'); return 0; }
+      // cada uno a su hueco: el más cercano al punto, al centro
+      const from = pos.from || by.eyePos();
+      const look = Math.atan2(-(pos.x - from.x), -(pos.z - from.z));
+      allies.forEach((B, i) => {
+        const sp = spots[Math.min(i, spots.length - 1)];
+        B.setOrder({ kind, by, at: now, rank: i, spot: { x: sp.x, y: sp.y, z: sp.z, yaw: look + (i - (allies.length - 1) / 2) * 0.45, crouch: B.crouchPref } });
+      });
+      ack('Voy para allá');
+      return allies.length;
+    }
+    allies.forEach((B, i) => {
+      const p = B.op.body.pos;
+      B.setOrder({ kind, by, at: now, rank: i, spot: kind === 'hold' ? { x: p.x, y: p.y, z: p.z, yaw: B.op.yaw, crouch: B.crouchPref } : null });
+    });
+    ack(kind === 'follow' ? 'Te sigo' : 'Mantengo la posición');
+    return allies.length;
+  }
+
+  // Huecos para `count` aliados alrededor de `pos`, en el lado desde el que se señaló.
+  _spreadSpots(pos, from, count) {
+    const nav = this.nav, world = this.game.world;
+    const dx = from.x - pos.x, dy = from.y - pos.y, dz = from.z - pos.z, l = Math.hypot(dx, dy, dz) || 1;
+    const back = { x: pos.x + dx / l * 0.35, y: pos.y + dy / l * 0.35, z: pos.z + dz / l * 0.35 };
+    const n0 = nav.nearest(back.x, back.y - 0.8, back.z, 2.5, 2.4, (n) => !n.crouch && lineOfSight(world, n.px, n.y + 1.0, n.pz, back.x, back.y, back.z))
+      || nav.nearest(back.x, back.y - 0.8, back.z, 2.5, 2.4);
+    if (!n0) return [];
+    const chosen = [n0], cands = [], seen = new Set([n0.id]), queue = [n0];
+    while (queue.length) {
+      const n = queue.shift();
+      for (const e of n.edges) {
+        if (e.kind !== 'walk' || seen.has(e.to)) continue;
+        const m = nav.nodes[e.to];
+        seen.add(e.to);
+        if (!m || !m.alive || m.crouch || Math.hypot(m.x - n0.x, m.z - n0.z) > 3 || Math.abs(m.y - n0.y) > 0.5) continue;
+        queue.push(m); cands.push(m);
+      }
+    }
+    while (chosen.length < count && cands.length) {
+      let best = -1, bs = -Infinity;
+      for (let i = 0; i < cands.length; i++) {
+        const m = cands[i];
+        let dmin = Infinity;
+        for (const c of chosen) dmin = Math.min(dmin, Math.hypot(c.x - m.x, c.z - m.z));
+        const sc = Math.min(dmin, 1.4) - Math.hypot(m.x - n0.x, m.z - n0.z) * 0.12;
+        if (sc > bs) { bs = sc; best = i; }
+      }
+      chosen.push(cands[best]);
+      cands.splice(best, 1);
+    }
+    return chosen.map((n) => ({ x: n.px, y: n.y, z: n.pz }));
+  }
+
+  // «Reforzar aquí»: paredes y trampillas de la sala señalada, las más cercanas a la marca,
+  // para los aliados que aún tienen refuerzos (hasta 2 cada uno, el más cercano primero).
+  _orderReinforce(by, pos, allies, ack) {
+    const M = this.match, fort = M.fort, phase = M.phase;
+    if (!fort || by.side !== 'def' || !(phase === 'prep' || phase === 'action')) { ack('Ahora no se puede reforzar'); return 0; }
+    if (!pos) return 0;
+    const map = M.map, from = pos.from || by.eyePos();
+    const dx = from.x - pos.x, dz = from.z - pos.z, l = Math.hypot(dx, dz) || 1;
+    const room = map.builder.roomAt(pos.x, pos.y, pos.z) || map.builder.roomAt(pos.x + dx / l * 0.4, pos.y, pos.z + dz / l * 0.4) || map.builder.roomAt(by.body.pos.x, by.body.pos.y + 0.2, by.body.pos.z);
+    if (!room) { ack('Ahí no hay nada que reforzar'); return 0; }
+    const plan = fort.planFor([room]);
+    const taken = new Set();
+    for (const B of this.brains.values()) for (const t of B.fort) taken.add(t.kind === 'hatch' ? 'h' + t.hatch.x + ',' + t.hatch.z : t.kind === 'wall' ? 'w' + t.panel.line + ',' + t.panel.u0 : '');
+    const key = (t) => t.kind === 'hatch' ? 'h' + t.hatch.x + ',' + t.hatch.z : 'w' + t.panel.line + ',' + t.panel.u0;
+    const jobs = [...plan.walls, ...plan.hatches].filter((t) => !taken.has(key(t)))
+      .sort((a, b) => Math.hypot(a.stand.x - pos.x, a.stand.z - pos.z) - Math.hypot(b.stand.x - pos.x, b.stand.z - pos.z));
+    if (!jobs.length) { ack('Ahí no hay nada que reforzar'); return 0; }
+    const workers = allies.filter((B) => B.op.state === 'alive' && fort.remaining(B.op) > 0)
+      .sort((a, b) => Math.hypot(a.op.body.pos.x - pos.x, a.op.body.pos.z - pos.z) - Math.hypot(b.op.body.pos.x - pos.x, b.op.body.pos.z - pos.z));
+    if (!workers.length) { ack('No nos quedan refuerzos'); return 0; }
+    const mine = new Map(workers.map((B) => [B, []]));
+    let n = 0, wi = 0;
+    for (const job of jobs.slice(0, workers.length * 2)) {
+      // el siguiente con hueco (2 por bot y sin pasarse de los refuerzos que le quedan)
+      let B = null;
+      for (let k = 0; k < workers.length && !B; k++) {
+        const cand = workers[(wi + k) % workers.length];
+        if (mine.get(cand).length < Math.min(2, fort.remaining(cand.op))) B = cand;
+      }
+      if (!B) break;
+      wi = (workers.indexOf(B) + 1) % workers.length;
+      mine.get(B).push({ ...job, t: 0, walkT: 0, ordered: true });
+      n++;
+    }
+    let helpers = 0;
+    for (const B of workers) {
+      const list = mine.get(B);
+      if (!list.length) continue;
+      // los suyos primero, en orden de cercanía; luego lo que tuviera pendiente
+      const p = B.op.body.pos;
+      list.sort((a, b) => Math.hypot(a.stand.x - p.x, a.stand.z - p.z) - Math.hypot(b.stand.x - p.x, b.stand.z - p.z));
+      B.fort = [...list, ...B.fort.filter((t) => !t.ordered)];
+      B.setOrder({ kind: 'reinforce', by, at: this.game.time, rank: helpers++ });
+    }
+    if (!n) { ack('No nos quedan refuerzos'); return 0; }
+    this.radio.say(workers.find((B) => mine.get(B).length).op, 'ack', 'Refuerzo ahí', { force: true });
+    return helpers;
+  }
+
   // ---------------------------------------------------------------- radio
   // Un bot ve a un enemigo: si nadie de su equipo lo veía desde hace 6 s, lo canta.
   sighted(op, enemy) {
@@ -383,7 +513,8 @@ class Brain {
     this.reported = new Map();
     this.role = null;
     this.fort = [];
-    this.post = null;             // puesto fijo (órdenes, pruebas)
+    this.post = null;             // puesto fijo (pruebas)
+    this.order = null;            // orden del jugador {kind, by, rank, spot, at}
     this.task = null;
     this.hold = null;
     this.target = null;
@@ -401,6 +532,13 @@ class Brain {
     this.droneGoal = null; this.dm = null;
     // diagnóstico (tests): tiempo sin moverse queriendo moverse
     this.stillT = 0; this.maxStillT = 0; this._lastPos = { x: op.body.pos.x, z: op.body.pos.z };
+  }
+
+  setOrder(o) {
+    this.order = o;
+    // los refuerzos encargados solo siguen mientras dure la orden de reforzar
+    if (!o || o.kind !== 'reinforce') this.fort = this.fort.filter((t) => !t.ordered);
+    this.thinkT = 0;                // decidir ya
   }
 
   idle() {
@@ -533,8 +671,34 @@ class Brain {
     if (this.post) return this._setTask({ kind: 'post', key: 'post' });
     const rv = this._reviveCandidate();
     if (rv) return this._setTask({ kind: 'revive', key: 'revive:' + rv.id, who: rv });
+    if (this.order) { const t = this._orderTask(phase); if (t) return this._setTask(t); }
     if (this.side === 'def') return this._thinkDef(phase);
     return this._thinkAtk(phase);
+  }
+
+  // Tarea que pide la orden del jugador, o null si ahora manda otra cosa (o la orden se acaba).
+  _orderTask(phase) {
+    const o = this.order, M = this.match, d = M.defuser;
+    if (!o.by || o.by.state === 'dead') { this.setOrder(null); return null; }           // quien la dio ha caído
+    if (this.side === 'def' && phase === 'planted') { this.setOrder(null); return null; }  // retomar el desactivador
+    if (this.side === 'atk' && phase !== 'prep') {
+      if (this.sq.pickupBy === this.op && d && d.pos) return { kind: 'pickup', key: 'pickup' };   // recoger el desactivador
+      if (d && d.carrier === this.op && M.recon.objectiveFound && phase === 'action') {
+        const p = this.op.body.pos;
+        if (M.timer < 50 || M.siteAt(p.x, p.y, p.z) !== null) return { kind: 'plant', key: 'plant' };   // plantar
+      }
+    }
+    switch (o.kind) {
+      case 'follow': return { kind: 'follow', key: 'order:follow:' + o.at };
+      case 'hold': return { kind: 'holdHere', key: 'order:hold:' + o.at };
+      case 'goto': return { kind: 'gotoMark', key: 'order:goto:' + o.at };
+      case 'reinforce':
+        if (this.fort.some((t) => t.ordered)) return { kind: 'fortify', key: 'fortify' };
+        this.setOrder(null);
+        this.sq.radio.say(this.op, 'done', 'Refuerzo puesto');
+        return null;
+      default: this.setOrder(null); return null;
+    }
   }
 
   _reviveCandidate() {
@@ -682,6 +846,9 @@ class Brain {
       case 'plant': this._tPlant(dt); break;
       case 'guard': this._tGuard(dt); break;
       case 'pickup': this._tPickup(dt); break;
+      case 'follow': this._tFollow(dt); break;
+      case 'holdHere': this._tHoldHere(dt); break;
+      case 'gotoMark': this._tGotoMark(dt); break;
       default: this._stand(dt); this._idleLook(dt, null);
     }
     void phase;
@@ -695,10 +862,10 @@ class Brain {
   }
 
   // Ir a `pos` por la rejilla; al final, los últimos centímetros en línea recta.
-  _goto(pos, dt, { r = 0.45, sprint = false, speed = 1, look = 'path', crouch = false, exact = false } = {}) {
+  _goto(pos, dt, { r = 0.45, sprint = false, speed = 1, look = 'path', crouch = false, exact = false, keep = false } = {}) {
     const op = this.op, I = op.intent, p = op.body.pos;
     // la defensa solo rompe sus propias barricadas si no hay otro camino
-    const st = this.mover.go(pos, { r: Math.max(r, 0.3), breakCost: this.side === 'def' ? 25 : 0 });
+    const st = this.mover.go(pos, { r: Math.max(r, 0.3), breakCost: this.side === 'def' ? 25 : 0, keepPath: keep });
     const lookYaw = this._lookFor(dt, look);
     let status = this.mover.update(dt, { sprint, crouch, lookYaw, speed });
     if (this.mover.mustFace && this.mover.wantYaw !== null) this._turn(this.mover.wantYaw, this.mover.pitchWant || 0, 9, dt);
@@ -1224,6 +1391,43 @@ class Brain {
       if (!this.hold) this.hold = { x: P.x, y: P.y, z: P.z, yaw: this.op.yaw, crouch: true };
     }
     this._holdAt(dt, this.hold);
+  }
+
+  // Orden «Seguirme»: detrás del jugador, cada uno a su distancia (2–4,4 m), y al llegar
+  // cubriendo un ángulo distinto (su frente, derecha, izquierda, espalda).
+  _tFollow(dt) {
+    const o = this.order;
+    if (!o || !o.by) { this._stand(dt); return; }
+    const L = o.by, p = this.op.body.pos, q = L.body.pos;
+    const r = 2.0 + (o.rank % 4) * 0.8;
+    const d = Math.hypot(q.x - p.x, q.z - p.z), dy = Math.abs(q.y - p.y);
+    const far = d > r + 0.9 || dy > 1.6;
+    if (far || (this.mover.busy && d > r)) {
+      // nueva ruta cuando el jugador se ha movido (menos a menudo cuanto más lejos), sin pararse a calcularla
+      if (!o.goal || Math.hypot(q.x - o.goal.x, q.z - o.goal.z) > Math.max(1.5, d * 0.3) || Math.abs(q.y - o.goal.y) > 1) o.goal = { x: q.x, y: q.y, z: q.z };
+      this._goto(o.goal, dt, { r, sprint: d > 7 && !this._threat(), keep: true });
+      return;
+    }
+    this._stand(dt);
+    this.op.intent.stance = L.stance === 'stand' ? 'stand' : 'crouch';
+    const cover = [0, -Math.PI / 2, Math.PI / 2, Math.PI][o.rank % 4];
+    this._idleLook(dt, L.yaw + cover);
+  }
+  // Orden «Mantener aquí»: quedarse donde estaba, vigilando hacia donde miraba.
+  _tHoldHere(dt) {
+    const o = this.order;
+    if (!o || !o.spot) { this._stand(dt); return; }
+    this._holdAt(dt, o.spot);
+  }
+  // Orden «Ir a mi marca»: cada uno a su hueco junto a la marca y vigilar hacia donde se señaló.
+  _tGotoMark(dt) {
+    const o = this.order;
+    if (!o || !o.spot) { this._stand(dt); return; }
+    this._holdAt(dt, o.spot);
+    if ((o.spot.fails || 0) >= 2) {
+      this.sq.radio.say(this.op, 'cant', 'No puedo llegar a la marca', { force: true });
+      this.setOrder(null);
+    }
   }
 
   _tPickup(dt) {

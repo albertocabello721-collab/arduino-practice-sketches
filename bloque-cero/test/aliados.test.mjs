@@ -1,5 +1,6 @@
 // Ayudas de equipo: marcar con T (enemigo o marca de posición; las marcas entran en la
-// memoria de los bots aliados) y la radio de los bots (chat de equipo, voz opcional).
+// memoria de los bots aliados), la radio de los bots (chat de equipo, voz opcional) y las
+// órdenes de la rueda H (seguirme, mantener aquí, ir a mi marca, reforzar aquí, por libre).
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createVillaWorld, buildVilla } from '../src/world/maps/villa.js';
@@ -8,6 +9,8 @@ import { Match, SCORE } from '../src/sim/match.js';
 import { BotSquad, navFor } from '../src/sim/bots.js';
 import { SPOT_TIME, PING_TIME } from '../src/sim/recon.js';
 import { SOLID } from '../src/world/materials.js';
+import { Mover } from '../src/sim/ai/mover.js';
+import { angleDiff, clamp } from '../src/core/math.js';
 import { callout, RADIO } from '../src/sim/ai/radio.js';
 import { AllyVoice } from '../src/client/chat.js';
 
@@ -211,4 +214,157 @@ test('voz de los aliados: apagada por defecto, en español cuando se activa y si
   } finally {
     if (saved === undefined) delete globalThis.window; else globalThis.window = saved;
   }
+});
+
+// ---------------------------------------------------------------- órdenes (rueda H)
+// Partida con jugador humano en defensa, en la preparación (sin combate): los drones del
+// ataque se quedan quietos (sin cerebro) y los 4 aliados bot reciben las órdenes.
+function withPlayer(seed, { startSide = 'def', prepTime = 150 } = {}) {
+  const m = new Match({ world, map, seed, rules: { selectTime: 0, prepTime, roundEndTime: 0.2 }, human: true, startSide });
+  const sq = new BotSquad(m, 'normal', { nav });
+  m.on('roundStart', () => { sq.reset(); for (const [op, B] of [...sq.brains]) if (B.side !== startSide) sq.brains.delete(op); });
+  m.start();
+  while (m.phase === 'select') m.tick(TICK);
+  const me = m.player;
+  const allies = [...sq.brains.values()].filter((B) => B.team === me.team);
+  return { m, sq, me, allies };
+}
+function run(m, sq, secs, each = null) {
+  for (let t = 0; t < secs; t += TICK) { if (each && each(t) === false) break; sq.update(TICK); m.tick(TICK); }
+}
+const hd = (a, b) => Math.hypot(a.x - b.x, a.z - b.z);
+
+test('órdenes: los aliados siguen «Ir a mi marca» (llegan, se reparten y vigilan hacia donde se señaló)', () => {
+  const { m, sq, me, allies } = withPlayer(21);
+  assert.equal(allies.length, 4);
+  run(m, sq, 2);
+  // el jugador, en el hall, señala el suelo unos metros por delante
+  place(me, 17, 0.01, 14.5, 0, -0.32);
+  m.tick(TICK);
+  const pg = m.recon.ping(me);
+  assert.ok(pg && Math.abs(pg.x - 17) < 0.5 && pg.z < 13 && pg.z > 7, `marca en el suelo del hall (${pg && pg.z.toFixed(2)})`);
+  const said = [];
+  m.game.on('radio', (op, text) => said.push(text));
+  assert.equal(sq.order('goto', me, pg), 4);
+  assert.ok(said.includes('Voy para allá'), 'un aliado responde');
+  let t = 0;
+  run(m, sq, 30, () => { t += TICK; return !allies.every((B) => hd(B.op.body.pos, pg) < 3.2 && B.mover.status !== 'moving' && B.mover.status !== 'planning'); });
+  for (const B of allies) {
+    const p = B.op.body.pos;
+    assert.ok(hd(p, pg) < 3.2 && Math.abs(p.y - 0) < 0.6, `${B.op.name} junto a la marca (${hd(p, pg).toFixed(2)} m, ${t.toFixed(1)} s)`);
+    assert.equal(B.task.kind, 'gotoMark');
+  }
+  assert.ok(t < 30, `llegan en ${t.toFixed(1)} s`);
+  for (let i = 0; i < allies.length; i++) for (let j = i + 1; j < allies.length; j++) {
+    assert.ok(hd(allies[i].op.body.pos, allies[j].op.body.pos) > 0.7, 'cada uno en su hueco');
+  }
+  // se quedan y vigilan hacia donde se señaló (hacia -z), con su abanico
+  run(m, sq, 4);
+  for (const B of allies) {
+    assert.ok(hd(B.op.body.pos, pg) < 3.4, `${B.op.name} sigue allí`);
+    assert.ok(Math.abs(angleDiff(B.op.yaw, 0)) < 1.6, `${B.op.name} mira hacia la marca (${B.op.yaw.toFixed(2)})`);
+  }
+});
+
+test('órdenes: «Seguirme» los lleva detrás del jugador por la casa; si el jugador muere, vuelven por libre', () => {
+  const { m, sq, me, allies } = withPlayer(22);
+  run(m, sq, 1);
+  // el equipo, junto al jugador en el hall
+  place(me, 17, 0.01, 12, Math.PI / 2);
+  allies.forEach((B, i) => { B.mover.stop(); place(B.op, 15 + i * 1.2, 0.01, 10, Math.PI / 2); });
+  m.tick(TICK);
+  assert.equal(sq.order('follow', me), 4);
+  // el jugador anda del hall al comedor (por el salón) con el seguidor de rutas
+  const mv = new Mover(me, nav);
+  const goal = { x: 6, y: 0, z: 21 };
+  mv.go(goal, { r: 0.5 });
+  let t = 0, worst = 0, st = mv.status;
+  run(m, sq, 60, () => {
+    t += TICK;
+    if (mv.wantYaw !== null) me.yaw += clamp(angleDiff(me.yaw, mv.wantYaw), -TICK * 8, TICK * 8);
+    st = mv.update(TICK, { sprint: false });
+    if (t > 8) for (const B of allies) worst = Math.max(worst, hd(B.op.body.pos, me.body.pos));
+    return st === 'moving' || st === 'planning';
+  });
+  const mp = me.body.pos;
+  assert.ok(st === 'arrived' && hd(mp, goal) < 2, `el jugador llega (${st}, ${t.toFixed(1)} s, ${mp.x.toFixed(2)} ${mp.y.toFixed(2)} ${mp.z.toFixed(2)})`);
+  run(m, sq, 7);
+  for (const B of allies) {
+    const d = hd(B.op.body.pos, me.body.pos);
+    assert.ok(d < 6 && Math.abs(B.op.body.pos.y - me.body.pos.y) < 0.6, `${B.op.name} detrás del jugador (${d.toFixed(2)} m)`);
+    assert.equal(B.task.kind, 'follow');
+  }
+  assert.ok(worst < 14, `nadie se queda atrás por el camino (máx. ${worst.toFixed(1)} m)`);
+  // cubren ángulos distintos al pararse
+  const yaws = allies.map((B) => B.op.yaw);
+  assert.ok(Math.max(...yaws.map((y) => Math.abs(angleDiff(y, me.yaw)))) > 1.0, 'alguno cubre los lados o la espalda');
+  // el jugador muere: órdenes anuladas
+  m.game.kill(me, { by: null });
+  run(m, sq, 0.5);
+  for (const B of allies) assert.equal(B.order, null, `${B.op.name} por libre`);
+});
+
+test('órdenes: «Mantener aquí» los deja quietos; «Por libre» les devuelve su plan', () => {
+  const { m, sq, me, allies } = withPlayer(23);
+  run(m, sq, 3);
+  assert.equal(sq.order('hold', me), 4);
+  const spots = allies.map((B) => ({ x: B.op.body.pos.x, y: B.op.body.pos.y, z: B.op.body.pos.z }));
+  let maxOff = 0;
+  run(m, sq, 15, () => { allies.forEach((B, i) => { maxOff = Math.max(maxOff, hd(B.op.body.pos, spots[i])); }); });
+  assert.ok(maxOff < 1.0, `no se mueven (máx. ${maxOff.toFixed(2)} m)`);
+  for (const B of allies) assert.equal(B.task.kind, 'holdHere');
+  assert.equal(sq.order('free', me), 4);
+  run(m, sq, 0.5);
+  for (const B of allies) {
+    assert.equal(B.order, null);
+    assert.ok(['fortify', 'anchor', 'roam', 'hunt'].includes(B.task.kind), `${B.op.name} vuelve a su plan (${B.task.kind})`);
+  }
+});
+
+test('órdenes: «Reforzar aquí» refuerza la pared señalada del sitio', () => {
+  const { m, sq, me, allies } = withPlayer(24);
+  run(m, sq, 0.5);
+  const room = map.rooms.find((r) => r.id === m.site.A);
+  // en el centro de la sala, mirando a cada pared hasta encontrar una que se pueda reforzar
+  const cx = (room.x0 + room.x1) / 2, cz = (room.z0 + room.z1) / 2;
+  let pg = null, n = 0;
+  for (const yaw of [0, Math.PI / 2, Math.PI, -Math.PI / 2]) {
+    place(me, cx, room.floorY + 0.01, cz, yaw, 0);
+    m.tick(TICK);
+    pg = m.recon.ping(me);
+    const before = allies.map((B) => B.fort.length);
+    n = sq.order('reinforce', me, pg);
+    if (n > 0) break;
+    void before;
+  }
+  assert.ok(n > 0, 'algún aliado acepta reforzar');
+  const ordered = allies.filter((B) => B.order && B.order.kind === 'reinforce');
+  assert.equal(ordered.length, n);
+  const jobs = ordered.flatMap((B) => B.fort.filter((t) => t.ordered));
+  assert.ok(jobs.length >= 1 && jobs.length <= ordered.length * 2, `${jobs.length} refuerzos encargados`);
+  const panels0 = m.fort.panels.length;
+  run(m, sq, 40, () => ordered.some((B) => B.order));
+  const done = m.fort.panels.slice(panels0).filter((p) => p.op && ordered.some((B) => B.op === p.op));
+  assert.ok(done.length >= 1, 'hay refuerzos nuevos de los aliados');
+  for (const B of ordered) assert.equal(B.order, null, `${B.op.name} termina y vuelve por libre`);
+  const near = done.filter((p) => Math.hypot(p.center.x - pg.x, p.center.z - pg.z) < 7);
+  assert.ok(near.length >= 1, 'cerca de la marca');
+});
+
+test('órdenes: plantar y retomar mandan sobre la orden', () => {
+  // ataque: el portador bot, con orden de mantener lejos, se va a plantar cuando aprieta el tiempo
+  const A = withPlayer(25, { startSide: 'atk', prepTime: 0.5 });
+  const { m, sq, me } = A;
+  while (m.phase !== 'action') { sq.update(TICK); m.tick(TICK); }
+  // el desactivador lo lleva el jugador: se lo damos a un aliado bot
+  const carrierB = A.allies[0];
+  m.defuser.carrier = carrierB.op;
+  m.recon.objectiveFound = true;
+  assert.equal(sq.order('hold', me), 4);
+  run(m, sq, 1);
+  assert.equal(carrierB.task.kind, 'holdHere');
+  m.timer = 45;
+  run(m, sq, 0.5);
+  assert.equal(carrierB.task.kind, 'plant', 'con poco tiempo, planta');
+  assert.ok(carrierB.order, 'la orden sigue para después');
 });

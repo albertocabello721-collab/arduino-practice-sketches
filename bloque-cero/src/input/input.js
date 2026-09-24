@@ -2,13 +2,13 @@
 // WASD mover, Mayús correr, C agacharse, Z cuerpo a tierra, Q/E asomarse,
 // Espacio saltar obstáculo, R recargar, F interactuar, G gadget secundario,
 // X habilidad del operador, 1/2 armas, V cuerpo a cuerpo, T (o botón central) marcar,
-// Tab marcador, P depuración.
+// H órdenes a los aliados, Tab marcador, P depuración.
 export const BINDINGS = {
   forward: 'KeyW', back: 'KeyS', left: 'KeyA', right: 'KeyD',
   sprint: 'ShiftLeft', crouch: 'KeyC', prone: 'KeyZ',
   leanLeft: 'KeyQ', leanRight: 'KeyE', vault: 'Space',
   reload: 'KeyR', interact: 'KeyF', gadget: 'KeyG', ability: 'KeyX',
-  primary: 'Digit1', secondary: 'Digit2', melee: 'KeyV', drone: 'Digit5', mark: 'KeyT',
+  primary: 'Digit1', secondary: 'Digit2', melee: 'KeyV', drone: 'Digit5', mark: 'KeyT', orders: 'KeyH',
   scoreboard: 'Tab', perf: 'F3', debug: 'KeyP',
 };
 

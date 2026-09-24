@@ -1,5 +1,6 @@
 // Prueba de humo en el navegador de las ayudas de equipo: capa de depuración (P),
-// marcar con T (marca de posición y enemigo marcado) y chat de equipo con voz.
+// marcar con T (marca de posición y enemigo marcado), chat de equipo con voz y rueda de
+// órdenes H (Seguirme, Ir a mi marca).
 // Uso: node tools/smoke-aliados.mjs <carpeta de capturas>
 import { createRequire } from 'node:module';
 import path from 'node:path';
@@ -57,7 +58,44 @@ const pingInfo = await page.evaluate(() => {
 });
 console.log('marca de posición:', JSON.stringify(pingInfo));
 await shot('a2_marca_posicion', 400);
-await ticks(60 * 42);
+
+// ---------------- 3) rueda de órdenes H: «Seguirme» y luego «Ir a mi marca»
+await page.keyboard.down('KeyH');
+await page.waitForFunction(() => window.__bc.session.wheel.open, null, { timeout: 20000 }).catch(() => {});
+await page.evaluate(() => window.__bc.session.wheel.move(0, -70));      // ratón hacia arriba: «Seguirme»
+await page.waitForTimeout(700);
+const wheel = await page.evaluate(() => ({
+  abierta: window.__bc.session.wheel.open,
+  opciones: [...document.querySelectorAll('#wheel .wo')].map((e) => e.textContent + (e.classList.contains('on') ? ' [x]' : '') + (e.classList.contains('off') ? ' (no)' : '')),
+}));
+console.log('rueda:', JSON.stringify(wheel));
+await shot('a3_rueda', 200);
+await page.keyboard.up('KeyH');
+await page.waitForFunction(() => !window.__bc.session.wheel.open, null, { timeout: 20000 }).catch(() => {});
+await ticks(60 * 8);
+const follow = await page.evaluate(() => {
+  const bc = window.__bc, s = bc.session, me = bc.player;
+  const allies = [...s.bots.brains.values()].filter((B) => B.team === 0);
+  return { orden: s.activeOrder(), distancias: allies.map((B) => +Math.hypot(B.op.body.pos.x - me.body.pos.x, B.op.body.pos.z - me.body.pos.z).toFixed(1)), chat: [...document.querySelectorAll('#chat .cl')].map((e) => e.textContent), gear: document.getElementById('gear').textContent };
+});
+console.log('seguirme:', JSON.stringify(follow));
+await shot('a4_seguirme', 1200);
+await page.keyboard.down('KeyH');
+await page.waitForFunction(() => window.__bc.session.wheel.open, null, { timeout: 20000 }).catch(() => {});
+const w2 = await page.evaluate(() => { const w = window.__bc.session.wheel; w.pick('goto'); return { abierta: w.open, sel: w.sel, fase: window.__bc.match.phase, puede: window.__bc.session.canOrder() }; });
+console.log('rueda (2):', JSON.stringify(w2));
+await page.keyboard.up('KeyH');
+await page.waitForFunction(() => !window.__bc.session.wheel.open, null, { timeout: 20000 }).catch(() => {});
+await page.evaluate(() => { const bc = window.__bc; window.__goto = bc.match.recon.pingOf(0, bc.player); });
+await ticks(60 * 12);
+await shot('a4b_ir_a_mi_marca', 1200);
+const go = await page.evaluate(() => {
+  const bc = window.__bc, s = bc.session, m = bc.match, pg = window.__goto;
+  const allies = [...s.bots.brains.values()].filter((B) => B.team === 0);
+  return { orden: s.activeOrder(), marca: pg && { x: +pg.x.toFixed(1), z: +pg.z.toFixed(1) }, aLaMarca: pg ? allies.map((B) => +Math.hypot(B.op.body.pos.x - pg.x, B.op.body.pos.z - pg.z).toFixed(1)) : null, tareas: allies.map((B) => B.task && B.task.kind) };
+});
+console.log('ir a mi marca:', JSON.stringify(go));
+await ticks(60 * 20);
 const marked = await page.evaluate(() => {
   const bc = window.__bc, m = bc.match;
   const foe = m.game.operators.find((o) => o.team === 1 && o.state === 'alive');
@@ -83,7 +121,7 @@ const spotted = await page.evaluate(() => {
   return { marcados: list, marcadores: mk, puntos: m.humanSlot.stats.marks };
 });
 console.log('enemigo marcado con T:', marked, JSON.stringify(spotted));
-await shot('a3_enemigo_marcado', 300);
+await shot('a5_enemigo_marcado', 300);
 
 // la acción con la capa encendida
 await page.evaluate(() => {
@@ -92,7 +130,7 @@ await page.evaluate(() => {
   if (foe) { const p = foe.body.pos; bc.place(p.x + Math.sin(foe.yaw) * 3, p.y, p.z + Math.cos(foe.yaw) * 3, foe.yaw, -0.2); }
 });
 await ticks(60 * 12);
-await shot('a4_depuracion_accion', 1500);
+await shot('a6_depuracion_accion', 1500);
 const dbg2 = await page.evaluate(() => ({ stats: { ...window.__bc.debug.stats }, labels: [...document.querySelectorAll('#dbg .dl')].filter((e) => e.style.display !== 'none').map((e) => e.textContent).slice(0, 6) }));
 console.log('depuración en la acción:', JSON.stringify(dbg2));
 // chat de equipo: lo que los aliados han dicho por radio (y lo que queda en pantalla)
@@ -102,7 +140,7 @@ for (let k = 0; k < 8; k++) {
 }
 const chat = await page.evaluate(() => ({ radio: window.__radio.slice(0, 10), lineas: [...document.querySelectorAll('#chat .cl')].map((e) => e.textContent) }));
 console.log('radio:', JSON.stringify(chat));
-await shot('a5_chat', 300);
+await shot('a7_chat', 300);
 await page.keyboard.press('KeyP');
 await page.waitForFunction(() => !window.__bc.debug.on, null, { timeout: 20000 }).catch(() => {});
 await page.waitForTimeout(300);

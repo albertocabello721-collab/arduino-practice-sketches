@@ -190,7 +190,7 @@ export class DebugView {
 const TASK = {
   post: 'puesto', fortify: 'fortificar', anchor: 'ancla', roam: 'merodear', hunt: 'cazar', disable: 'inutilizar',
   revive: 'reanimar', approach: 'acercarse', stack: 'agruparse', clear: 'despejar', siteHold: 'sostener', plant: 'plantar',
-  guard: 'vigilar', pickup: 'recoger',
+  guard: 'vigilar', pickup: 'recoger', follow: 'orden: seguir', holdHere: 'orden: mantener', gotoMark: 'orden: ir a la marca',
 };
 const STAGE = { approach: 'acercarse', stack: 'agruparse', clear: 'despejar', hold: 'sostener' };
 const ROLE = { anchor: 'ancla', roam: 'merodeador' };
