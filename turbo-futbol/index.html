@@ -465,17 +465,16 @@ const CONFIG = {
     autoRollTorque: 80,                   // rad/s² (CAR_AUTOROLL_TORQUE)
   },
   ball: {
-    radius: 91.25,
-    mass: 30,
-    restitution: 0.6,
-    maxSpeed: 6000,
-    maxAngSpeed: 6,
-    drag: 0.03,             // fracción de velocidad perdida por segundo (arrastre de aire leve)
-    friction: 0.285,        // μ del rebote (el giro se acopla a la superficie)
-    frictionY: 2.0,         // relación normal/tangencial del modelo de rebote
-    inertiaFactor: 0.4,     // esfera sólida: I = 0.4·m·R²
-    restingSpeed: 25,       // bajo esta velocidad normal no rebota (evita microsaltos)
-    spawnZ: 93.15,
+    radius: 91.25,          // (BALL_COLLISION_RADIUS_SOCCAR)
+    mass: 30,               // (BALL_MASS_BT = 180/6)
+    restitution: 0.6,       // (BALL_RESTITUTION); con la cancha (0.3) Bullet usa el mayor → 0.6
+    restitutionThreshold: 10,   // uu/s: más lento no rebota (m_restitutionVelocityThreshold = 0.2 de Bullet)
+    maxSpeed: 6000,         // (BALL_MAX_SPEED)
+    maxAngSpeed: 6,         // (BALL_MAX_ANG_SPEED)
+    drag: 0.03,             // v·(1 − 0.03)^dt, amortiguación lineal de Bullet (BALL_DRAG)
+    friction: 0.35,         // μ de Coulomb con la cancha (BALL_FRICTION); con la cancha (0.6) Bullet usa el menor → 0.35
+    inertiaFactor: 0.4,     // esfera sólida: I = 0.4·m·R² (btSphereShape)
+    spawnZ: 93.15,          // (BALL_REST_Z)
   },
   collision: {
     carBall: {
@@ -1523,21 +1522,27 @@ class Ball {
       if (vn < 0) this.bounce(_bn, vn);
     }
   }
-  /** Rebote contra una superficie de normal n (modelo tipo RLUtilities: restitución + fricción con giro). */
+  /**
+   * Rebote contra una superficie de normal n, como el contacto de Bullet que usa RocketSim: impulso normal con
+   * restitución y fricción de Coulomb (μ = BALL_FRICTION) sobre el deslizamiento del punto de contacto, en una esfera
+   * sólida. Si el impulso necesario para que la pelota ruede supera μ·impulso normal, desliza.
+   */
   bounce(n, vn) {
     const B = CONFIG.ball, R = B.radius;
-    // velocidad tangencial del punto de contacto: v_par + R (n × ω)
-    _bt.copy(this.vel).addScaled(n, -vn);                       // v paralela
-    _bs.crossVectors(n, this.angVel).scale(R).add(_bt);         // deslizamiento s
+    const e = -vn >= B.restitutionThreshold ? B.restitution : 0;
+    const jn = -(1 + e) * vn;                                   // impulso normal por unidad de masa
+    _bt.copy(this.vel).addScaled(n, -vn);                       // velocidad tangencial del centro
+    _bs.crossVectors(n, this.angVel).scale(R).add(_bt);         // deslizamiento del punto de contacto: v_t + R (n × ω)
     const sl = _bs.length();
-    const e = -vn > B.restingSpeed ? B.restitution : 0;
-    const ratio = -vn / Math.max(sl, 1e-4);
-    const k = Math.min(1, B.frictionY * ratio) * B.friction;
-    // Δv tangencial y su efecto en el giro: Δω = (Δv × n) / (f·R)
-    _bq.copy(_bs).scale(-k);
-    this.vel.addScaled(n, -(1 + e) * vn).add(_bq);
-    _bt.crossVectors(_bq, n).scale(1 / (B.inertiaFactor * R));
-    this.angVel.add(_bt);
+    this.vel.addScaled(n, jn);
+    if (sl > 1e-9) {
+      const invMassT = 1 + 1 / B.inertiaFactor;                 // 1/m_eff tangencial por unidad de masa (= 3.5)
+      const jt = Math.min(sl / invMassT, B.friction * jn);      // el necesario para rodar, limitado por Coulomb
+      _bs.scale(1 / sl);
+      this.vel.addScaled(_bs, -jt);
+      _bq.crossVectors(n, _bs).scale(jt / (B.inertiaFactor * R));   // Δω = (r × J)/I con r = −n·R
+      this.angVel.add(_bq);
+    }
     if (!this.sim && -vn > 180) this.events.push({ type: 'rebote', speed: -vn, x: this.pos.x - n.x * R, y: this.pos.y - n.y * R, z: this.pos.z - n.z * R });
   }
   isFinite() { return this.pos.isFinite() && this.vel.isFinite() && this.angVel.isFinite(); }
