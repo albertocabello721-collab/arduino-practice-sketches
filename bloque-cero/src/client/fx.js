@@ -109,6 +109,15 @@ export function bindGameFx(ctx, game, view) {
     audio.zap(p, false, occlusion(p));
   });
   on('electrified', (o) => { if (o.owner === me()) hud.toast('¡Electrificado! La batería ha quemado la carga', 1.8); });
+  // placas, estimulantes y gas
+  on('platePicked', (op) => { if (op === me()) { audio.ping('ping'); hud.toast('Placa de armadura · +20', 1.6); } });
+  on('stim', (by, t) => {
+    const p = t.body.pos;
+    for (let i = 0; i < 12; i++) effects.spawnSpark(p.x, p.y + 1.0, p.z, (Math.random() - 0.5) * 1.5, Math.random() * 1.5, (Math.random() - 0.5) * 1.5, 0.6);
+    audio.ping('ping');
+    if (t === me()) hud.toast(by === t ? 'Estimulante · +40' : `Estimulante de ${by.name} · +40`, 1.6);
+  });
+  on('gas', (s) => audio.smokeHiss(s, occlusion(s)));
   // mina láser: aviso a la defensa (dónde ha saltado)
   on('mineAlert', (c, op) => {
     const my = me();

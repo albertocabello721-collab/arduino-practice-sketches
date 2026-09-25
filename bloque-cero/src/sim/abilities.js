@@ -36,13 +36,19 @@
 //   · CEPO · mina láser ×5: X en el marco de una puerta o ventana (1 s); el láser cruza el hueco.
 //   · OJO · cámara adhesiva ×3: X la lanza; se pega y se suma a las cámaras.
 //   · GUARDIÁN · interceptor ×2: X lo pone (1 s); destruye proyectiles del ataque a 6 m.
-// El resto (6.5c) llega en la siguiente ronda: hasta entonces X no hace nada.
+// Defensa (Fase 6.5c):
+//   · CORAZA · placas ×5: X deja la bolsa a sus pies; cada defensor coge una al pasar (ver gadgets.js).
+//   · REMEDIO · estimulantes ×3: X dispara al aliado del punto de mira (30 m): +40 de vida
+//     hasta 140 (lo que pasa del máximo baja 1 por segundo); a un derribado lo levanta a
+//     distancia. Sin aliado delante, se lo pone él.
+//   · TIZÓN · gas ×3: X lanza un bote; mantener X (o pulsarla sin botes en la mano) activa
+//     todos los que están en el suelo.
 // Simulación pura (corre en Node).
-import { ABILITY_CD, FLASH } from './gadgets.js';
+import { ABILITY_CD, FLASH, PLATES, GAS } from './gadgets.js';
 import { raycastFirst, lineOfSight } from '../world/raycast.js';
 import { SOLID } from '../world/materials.js';
 import { rayAABB } from './recon.js';
-import { BONE } from './skeleton.js';
+import { BONE, rayHitRig } from './skeleton.js';
 
 export const SCAN = { warn: 2, active: 4, speed: 0.25, linger: 0.6 };
 export const THERMAL_SCOPE = { range: 30, zoom: 3, still: 0.3, ads: 0.85 };
@@ -52,7 +58,8 @@ export const SHOCK = { charges: 6, regen: 12, range: 8, cooldown: 0.5 };
 export const BSHIELD = { hw: 0.31, front: 0.42, low: 0.45, lowCrouch: 0.18, top: 0.22, cover: 0.34, bash: 40, windup: 0.4, range: 5, cone: Math.cos(Math.PI / 4) };
 
 /** Habilidades ya programadas (las demás aún no se muestran en el HUD). */
-export const ABILITY_READY = { thermal: true, breachround: true, remotesmoke: true, emp: true, scan: true, thermalscope: true, shockdrone: true, shield: true, battery: true, jammer: true, lasermine: true, stickycam: true, interceptor: true };
+export const STIM = { range: 30, heal: 40, max: 140, revive: 40, decay: 1 };
+export const ABILITY_READY = { thermal: true, breachround: true, remotesmoke: true, emp: true, scan: true, thermalscope: true, shockdrone: true, shield: true, battery: true, jammer: true, lasermine: true, stickycam: true, interceptor: true, plates: true, stim: true, gas: true };
 
 /** ¿Tiene `op` el escudo balístico levantado? (correr, plantar o reanimar lo bajan) */
 export function shieldUp(op) {
@@ -147,6 +154,8 @@ export class Abilities {
       case 'shield': return this.startFlash(op) ? 'flash' : null;
       case 'battery': case 'jammer': case 'lasermine': case 'interceptor': return G.startPlace(op, 'ability') ? 'place' : null;
       case 'stickycam': return G.throwFrom(op, 'ability') ? 'throw' : null;
+      case 'plates': return G.dropPlates(op) ? 'drop' : null;
+      case 'stim': return this.stim(op) ? 'stim' : null;
       default: return null;       // (el visor térmico es pasivo: apuntar y quedarse quieto)
     }
   }
@@ -198,6 +207,58 @@ export class Abilities {
         if (op.flashT <= 0) { op.flashT = 0; if (op.state === 'alive') this._shieldFlash(op); }
       }
     }
+  }
+
+  // ---------------------------------------------------------------- estimulantes (REMEDIO)
+  /** El aliado al que apunta `op` (a 30 m, a la vista) o null. */
+  stimTarget(op) {
+    const g = this.game, e = op.eyePos(), d = op.viewDir();
+    const wall = raycastFirst(g.world, e.x, e.y, e.z, d.x, d.y, d.z, STIM.range, SOLID, true);
+    let best = null, bt = wall ? wall.t : STIM.range;
+    for (const t of g.operators) {
+      if (t === op || t.team !== op.team || t.state === 'dead' || t.frozen) continue;
+      const r = rayHitRig(t.rig, e, d, bt);
+      let tt = r ? r.t : -1;
+      if (tt < 0) {
+        // (generoso: basta con apuntar cerca del cuerpo, si se ve)
+        const c = t.center(), vx = c.x - e.x, vy = c.y - e.y, vz = c.z - e.z;
+        const along = vx * d.x + vy * d.y + vz * d.z;
+        const perp = Math.hypot(vx - d.x * along, vy - d.y * along, vz - d.z * along);
+        if (along > 0 && along < bt && perp < 0.35 + along * 0.02 && lineOfSight(g.world, e.x, e.y, e.z, c.x, c.y, c.z)) tt = along;
+      }
+      if (tt >= 0 && tt < bt) { bt = tt; best = t; }
+    }
+    return best;
+  }
+  stim(op) {
+    if (!this.gadgets.canUse(op, 'ability')) return false;
+    const g = this.game, ally = this.stimTarget(op), t = ally || op;
+    if (!ally && op.hp >= STIM.max) { g.emit('abilityDenied', op, 'Apunta a un compañero para curarlo'); return false; }
+    op.ability.left--;
+    op.abilityCd = ABILITY_CD;
+    if (t.state === 'downed') {
+      t.revive();
+      t.hp = STIM.revive;
+      g.emit('revived', t, op);
+    } else t.hp = Math.min(STIM.max, t.hp + STIM.heal);
+    g.emit('stim', op, t);
+    return true;
+  }
+
+  // ---------------------------------------------------------------- gas (TIZÓN)
+  // X lanza un bote; mantener X (0,6 s) o pulsarla sin botes en la mano los activa.
+  _gasInput(op, dt, pressed) {
+    const G = this.gadgets, I = op.intent;
+    if (pressed) {
+      if (op.ability.left > 0) {
+        if (G.throwFrom(op, 'ability')) { op.gasHold = 0; op.gasArmed = true; }
+      } else if (!G.activateGas(op)) this.game.emit('abilityEmpty', op);
+      return;
+    }
+    if (I.abilityHeld && op.gasArmed) {
+      op.gasHold += dt;
+      if (op.gasHold >= GAS.hold) { op.gasArmed = false; G.activateGas(op); }
+    } else op.gasArmed = false;
   }
 
   // ---------------------------------------------------------------- dron de choque (PULGA)
@@ -289,13 +350,18 @@ export class Abilities {
     const g = this.game;
     for (const op of g.operators) {
       if (op.abilityCd > 0) op.abilityCd -= dt;
+      // vida de más (estimulantes): baja 1 por segundo hasta el máximo (+20 con placa)
+      if (op.state === 'alive') { const cap = op.maxHp + (op.plate ? PLATES.hp : 0); if (op.hp > cap) op.hp = Math.max(cap, op.hp - STIM.decay * dt); }
       const I = op.intent;
-      if (!I.ability) continue;
+      const pressed = !!I.ability;
       I.ability = false;
+      if (op.ability && op.ability.id === 'gas' && op.state === 'alive' && !op.frozen) { this._gasInput(op, dt, pressed); continue; }
+      if (!pressed) continue;
       // (PULGA: X a pie lleva al dron de choque; eso lo resuelve la vista del jugador)
       if (op.ability && op.ability.id === 'shockdrone') continue;
       if (this.use(op) || op.state !== 'alive' || !this.ready(op)) continue;
       if (op.ability.id === 'thermalscope') { g.emit('abilityDenied', op, 'Visor térmico: apunta con el arma principal y quédate quieto'); continue; }
+      if (op.ability.id === 'plates' && op.ability.dropped) { g.emit('abilityDenied', op, 'La bolsa de placas ya está en el suelo'); continue; }
       // sin cargas (y nada que encender): aviso
       if (op.ability.left === 0 && !this.gadgets.thermalOf(op)) g.emit('abilityEmpty', op);
     }

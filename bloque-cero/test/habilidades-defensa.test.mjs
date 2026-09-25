@@ -356,3 +356,120 @@ test('interceptor: destruye 2 granadas en el aire; la tercera explota; recupera 
     assert.equal(ic.charges, 1, 'recarga una a los 20 s');
   }
 });
+
+// ---------------------------------------------------------------- F6.5c: placas, estimulantes, gas
+import { PLATES, GAS } from '../src/sim/gadgets.js';
+import { STIM } from '../src/sim/abilities.js';
+
+test('placas: CORAZA deja la bolsa; cada defensor coge una (+20) y un disparo mortal al cuerpo lo deja derribado', () => {
+  const c = fresh();
+  const k = withAbility(c.game.addOperator(new Operator('k', { team: 1, x: 17, y: 0, z: 13, yaw: 0, armor: 3, loadout: ['ar'] })), 'plates', 5);
+  const d1 = c.game.addOperator(new Operator('d1', { team: 1, x: 19, y: 0, z: 13, yaw: 0, loadout: ['ar'] }));
+  const d2 = c.game.addOperator(new Operator('d2', { team: 1, x: 20, y: 0, z: 14, yaw: 0, loadout: ['ar'] }));
+  const a = c.game.addOperator(new Operator('a', { team: 0, x: 17, y: 0, z: 8, yaw: Math.PI, loadout: ['ar'] }));
+  step(c, 0.2);
+  pressX(c, k);
+  const bag = c.gadgets.placed.find((p) => p.kind === 'platebag');
+  assert.ok(bag, 'bolsa en el suelo');
+  // CORAZA está encima: coge la suya enseguida (quedan 4 de 5)
+  step(c, 0.1);
+  assert.ok(k.plate && bag.plates === 4 && k.ability.left === 4, 'CORAZA coge una');
+  assert.equal(k.hp, k.maxHp + PLATES.hp, '+20');
+  // otra X: la bolsa ya está
+  const why = [];
+  c.game.on('abilityDenied', (op, w) => why.push(w));
+  pressX(c, k);
+  assert.ok(/bolsa/i.test(why[0] || ''), why[0]);
+  // d1 pasa por encima
+  d1.body.pos.x = bag.pos.x + 0.5; d1.body.pos.z = bag.pos.z;
+  step(c, 0.1);
+  assert.ok(d1.plate && bag.plates === 3, 'd1 coge otra');
+  // un disparo mortal al cuerpo: derribado, no muerto; la placa se gasta
+  c.game.damage(d1, 500, { by: a, zone: 'body' });
+  assert.equal(d1.state, 'downed', 'derribado');
+  assert.ok(!d1.plate, 'placa gastada');
+  // la misma persona no coge otra
+  d1.revive(); step(c, 0.2);
+  assert.ok(!d1.plate && bag.plates === 3, 'una por cabeza');
+  // con placa, un tiro a la cabeza mata igual
+  d2.body.pos.x = bag.pos.x - 0.4; d2.body.pos.z = bag.pos.z;
+  step(c, 0.1);
+  assert.ok(d2.plate);
+  c.game.damage(d2, 60, { by: a, zone: 'head' });
+  assert.equal(d2.state, 'dead', 'a la cabeza, muerto');
+  // un disparo destruye la bolsa
+  c.game.destroyTarget(bag.target, a);
+  step(c, TICK);
+  assert.ok(!bag.alive, 'bolsa destruida');
+});
+
+test('estimulantes: +40 hasta 140 a un aliado; a un derribado lo levanta a 10 m; sin aliado, a sí mismo; el exceso baja', () => {
+  const c = fresh();
+  // (en el pasillo del sótano: largo y despejado)
+  const r = withAbility(c.game.addOperator(new Operator('r', { team: 1, x: 27, y: -3.5, z: 11, yaw: Math.PI / 2, loadout: ['ar'] })), 'stim', 3);
+  const ally = c.game.addOperator(new Operator('m', { team: 1, x: 22, y: -3.5, z: 11, yaw: -Math.PI / 2, loadout: ['ar'] }));
+  step(c, 0.2);
+  aim(r, ally.center());
+  pressX(c, r);
+  assert.equal(r.ability.left, 2);
+  assert.ok(Math.abs(ally.hp - Math.min(STIM.max, ally.maxHp + STIM.heal)) < 0.1, `+40 (hasta 140): ${ally.hp.toFixed(2)}`);
+  // el exceso baja 1 por segundo
+  step(c, 5);
+  assert.ok(Math.abs(ally.hp - (Math.min(STIM.max, ally.maxHp + STIM.heal) - 5)) < 0.2, `baja (${ally.hp.toFixed(1)})`);
+  // derribado a 10 m: lo levanta
+  ally.body.pos.x = 17;
+  c.game.damage(ally, ally.hp + 5, { zone: 'body' });
+  assert.equal(ally.state, 'downed');
+  step(c, 0.8);
+  aim(r, ally.center());
+  const revived = [];
+  c.game.on('revived', (t, by) => revived.push([t, by]));
+  pressX(c, r);
+  assert.equal(ally.state, 'alive', 'levantado a distancia');
+  assert.ok(Math.abs(ally.hp - STIM.revive) < 0.1);
+  assert.deepEqual(revived, [[ally, r]]);
+  // sin nadie delante: a sí mismo
+  r.hp = 50;
+  r.yaw += Math.PI;
+  step(c, 1.1);
+  pressX(c, r);
+  assert.ok(Math.abs(r.hp - 90) < 0.1, 'a sí mismo');
+  assert.equal(r.ability.left, 0);
+});
+
+test('gas: X lanza botes; mantener X los activa; 12 por segundo al atacante; un bote disparado antes no se activa', () => {
+  const c = fresh();
+  const t = withAbility(c.game.addOperator(new Operator('t', { team: 1, x: 17, y: 0, z: 13, yaw: 0, loadout: ['ar'] })), 'gas', 3);
+  const a = c.game.addOperator(new Operator('a', { team: 0, x: 17, y: 0, z: 9.5, yaw: Math.PI, loadout: ['ar'] }));
+  step(c, 0.2);
+  t.pitch = -1.0;
+  pressX(c, t);                                   // bote 1
+  step(c, 1.6);
+  t.yaw = 0.6;
+  pressX(c, t);                                   // bote 2
+  step(c, 1.6);
+  const cans = c.gadgets.items.filter((i) => i.kind === 'gas');
+  assert.equal(cans.length, 2);
+  assert.ok(cans.every((i) => i.rest && i.target), 'en el suelo, se pueden disparar');
+  assert.equal(c.gadgets.gasClouds.length, 0, 'aún sin activar');
+  // el bote 2, disparado: fuera
+  c.game.destroyTarget(cans[1].target, a);
+  step(c, TICK);
+  assert.ok(!cans[1].alive);
+  // mantener X: se activa el que queda
+  t.intent.ability = true; t.intent.abilityHeld = true;
+  step(c, TICK);
+  assert.equal(t.ability.left, 0, 'el tercero sale al pulsar');
+  step(c, GAS.hold + 0.1);
+  t.intent.abilityHeld = false;
+  assert.equal(c.gadgets.gasClouds.length, 1, 'nube de gas (el disparado no cuenta)');
+  const cl = c.gadgets.gasClouds[0];
+  // el atacante, dentro de la nube: 12 por segundo
+  a.body.pos.x = cl.x; a.body.pos.z = cl.z;
+  step(c, GAS.grow);
+  const hp0 = a.hp;
+  step(c, 1.0);
+  assert.ok(hp0 - a.hp >= 11 && hp0 - a.hp <= 13, `12 por segundo (${(hp0 - a.hp).toFixed(1)})`);
+  assert.equal(t.hp, t.maxHp, 'a la defensa no le hace nada');
+  assert.ok(c.gadgets.smokeBlocks({ x: cl.x - 4, y: cl.y, z: cl.z }, { x: cl.x + 4, y: cl.y, z: cl.z }), 'tapa la vista');
+});

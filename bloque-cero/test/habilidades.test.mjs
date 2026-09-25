@@ -6,7 +6,8 @@ import { createVillaWorld, buildVilla } from '../src/world/maps/villa.js';
 import { Game, TICK } from '../src/sim/game.js';
 import { Operator } from '../src/sim/operator.js';
 import { Gadgets, THERMAL, BREACHROUND, SMOKEROUND, EMP, ABILITY_CD } from '../src/sim/gadgets.js';
-import { Abilities } from '../src/sim/abilities.js';
+import { Abilities, ABILITY_READY } from '../src/sim/abilities.js';
+import { OPERATORS } from '../src/sim/operators.js';
 import { Recon } from '../src/sim/recon.js';
 import { Fortify, REINFORCE_TIME } from '../src/sim/fortify.js';
 import { boxFree } from '../src/sim/physics.js';
@@ -256,7 +257,7 @@ test('granada PEM: X la lanza; a los 2 s apaga 15 s cámaras y alarmas a 5 m, au
   assert.equal(rings.length, 1, 'y la alarma suena');
 });
 
-test('X sin cargas avisa; las habilidades aún sin programar no hacen nada', () => {
+test('X sin cargas avisa; las 16 habilidades de la plantilla están programadas', () => {
   const c = fresh();
   const a = withAbility(c.game.addOperator(new Operator('a', { team: 0, x: 29, y: -3.5, z: 11, yaw: Math.PI / 2, loadout: ['ar'] })), 'remotesmoke', 0);
   const empty = [];
@@ -265,10 +266,7 @@ test('X sin cargas avisa; las habilidades aún sin programar no hacen nada', () 
   pressX(c, a);
   assert.deepEqual(empty, [a]);
   assert.equal(c.gadgets.items.length, 0);
-  withAbility(a, 'stim', 3);
-  pressX(c, a);
-  assert.equal(empty.length, 1, 'habilidad pendiente: ni aviso');
-  assert.equal(a.ability.left, 3);
+  for (const o of OPERATORS) assert.ok(ABILITY_READY[o.ability.id], `${o.name}: ${o.ability.id}`);
 });
 
 // ---------------------------------------------------------------- información (F6.4b)

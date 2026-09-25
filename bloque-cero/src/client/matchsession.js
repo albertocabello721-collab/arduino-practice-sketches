@@ -459,6 +459,14 @@ export class MatchSession extends Session {
       const spot = G.placeSpot(p, 'thermal');
       return spot && spot.ok ? 'X para colocar la carga térmica' : '';
     }
+    if (a.id === 'gas') {
+      const out = G.items.some((i) => i.alive && i.kind === 'gas' && i.owner === p && i.rest);
+      return out ? (a.left ? 'Mantén X para activar el gas' : 'X para activar el gas') : '';
+    }
+    if (a.id === 'stim' && a.left) {
+      const ally = m.abilities.stimTarget(p);
+      return ally ? `X para ${ally.state === 'downed' ? 'levantar' : 'curar'} a ${ally.name}` : '';
+    }
     if (a.id === 'battery' || a.id === 'jammer' || a.id === 'lasermine' || a.id === 'interceptor') {
       if (!a.left) return '';
       const spot = G.placeSpot(p, a.id);
@@ -474,6 +482,23 @@ export class MatchSession extends Session {
     const spot = G.placeSpot(p);
     if (!spot || !spot.ok) return g.id === 'breach' && spot && spot.why && spot.why.startsWith('Muro') ? spot.why : '';
     return `G para colocar ${PLACE_LABEL[g.id]}`;
+  }
+
+  // Nubes de gas de TIZÓN: partículas amarillo verdosas, menos densas que el humo.
+  _gasFx(dt, G, fx) {
+    this.gasAcc = (this.gasAcc || 0) + dt;
+    const n = Math.floor(this.gasAcc * 16);
+    if (!n) return;
+    this.gasAcc -= n / 16;
+    for (const s of G.gasClouds) {
+      const r = G.gasRadius(s);
+      if (r <= 0.2) continue;
+      for (let i = 0; i < n; i++) {
+        const a = Math.random() * Math.PI * 2, d = Math.sqrt(Math.random()) * r * 0.85;
+        const k = 0.9 + Math.random() * 0.1;
+        fx.spawnDust(s.x + Math.cos(a) * d, s.y - 0.9 + Math.random() * 2.0, s.z + Math.sin(a) * d, (Math.random() - 0.5) * 0.25, 0.03 + Math.random() * 0.08, (Math.random() - 0.5) * 0.25, 1.2 + Math.random() * 0.8, [0.6 * k, 0.64 * k, 0.28 * k], 2.4 + Math.random() * 1.2, 0.3);
+      }
+    }
   }
 
   // Lo que electrifica una batería: alguna chispa azul de vez en cuando por su superficie.
@@ -511,6 +536,7 @@ export class MatchSession extends Session {
   // Nubes de humo: partículas grandes y grises mientras duran.
   _smokeFx(dt) {
     const G = this.match.gadgets, fx = this.ctx.effects;
+    if (G && G.gasClouds && G.gasClouds.length) this._gasFx(dt, G, fx);
     if (!G || !G.smokes.length) return;
     this.smokeAcc = (this.smokeAcc || 0) + dt;
     const n = Math.floor(this.smokeAcc * 26);

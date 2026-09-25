@@ -16,7 +16,7 @@ Es un único archivo HTML autónomo: no necesita servidor ni conexión.
 | F3 | Rondas 5v5, 3 ubicaciones de sitios (los defensores eligen), desactivador, HUD con reloj y 10 retratos | ✅ |
 | F4 | Preparación: refuerzos, barricadas, trampillas, drones, cámaras, cuerpo a cuerpo | ✅ |
 | F5 | Bots: navegación, percepción, combate, tácticas por bando, órdenes (H), marcas (T), chat de equipo, depuración (P) | ✅ |
-| F6 | Operadores 8 + 8 y contrajuego de gadgets | en curso: arsenal ✅ · plantilla de 16 ✅ · granadas y explosivos ✅ · gadgets defensivos ✅ · 8 habilidades de ataque ✅ · baterías, inhibidores, minas, cámaras adhesivas e interceptores ✅ · placas, estimulantes y gas en camino |
+| F6 | Operadores 8 + 8 y contrajuego de gadgets | en curso: arsenal ✅ · plantilla de 16 ✅ · granadas y explosivos ✅ · gadgets defensivos ✅ · 8 habilidades de ataque ✅ · 16 habilidades ✅ · uso de gadgets y habilidades por los bots en camino |
 | F7 | Animaciones en primera y tercera persona | pendiente |
 | F8 | Recarga por partes | pendiente |
 | F9 | Audio 3D con oclusión | pendiente |
@@ -140,8 +140,18 @@ Defensa:
   en el aire las granadas de fragmentación, humo y cegadoras, las PEM y los proyectiles de ROMPE
   y NUBE que entran a 6 m con línea de vista: para 2 y recupera 1 cada 20 s. Contras: la PEM,
   saturarlo con más proyectiles de los que puede parar, un disparo.
-- Las de CORAZA, REMEDIO y TIZÓN llegan en la siguiente ronda de la Fase 6; hasta entonces X no
-  hace nada con ellos.
+- **CORAZA · placas de armadura** (bolsa de 5): **X** deja la bolsa a sus pies. Cada defensor
+  que pasa a menos de 1 m coge una (una por cabeza): +20 de vida (hasta 20 por encima de su
+  máximo; la barra se pone verde y el HUD dice «placa») y la próxima vez que moriría sin un
+  tiro a la cabeza, queda derribado. Contras: los tiros a la cabeza; destruir la bolsa.
+- **REMEDIO · pistola de estimulantes** (×3): **X** dispara al compañero del punto de mira (a
+  30 m, a la vista; el aviso dice a quién): +40 de vida hasta 140 (lo que pasa del máximo baja
+  1 por segundo) y a un derribado lo levanta a distancia con 40. Sin nadie delante, se lo pone él.
+- **TIZÓN · botes de gas** (×3): **X** lanza un bote, que espera en el suelo (un disparo lo
+  destruye); **mantener X** (o pulsarla sin botes en la mano) activa todos: nube amarillenta de
+  4 m durante 10 s que quita 12 por segundo a los atacantes que están dentro y tapa algo la
+  vista (a jugadores y bots).
+- Con esto están las 16 habilidades; los bots aún no las usan (llega en la Fase 6.6).
 - La cámara blindada ya mira hacia la habitación (antes quedaba mirando a la pared).
 - Los golpes cuerpo a cuerpo ya no alcanzan objetos a través de una pared.
 

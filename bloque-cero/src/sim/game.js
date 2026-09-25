@@ -110,7 +110,9 @@ export class Game extends Emitter {
     target.hp -= amount;
     this.emit('damaged', target, ev);
     if (target.hp <= 0) {
-      if (!info.noDown && before > 0 && -target.hp < DOWN_OVERKILL) this.down(target, ev);
+      // con una placa de CORAZA siempre se queda derribado (salvo tiro a la cabeza, arriba)
+      if (target.plate && before > 0) { target.plate = false; this.down(target, ev); }
+      else if (!info.noDown && before > 0 && -target.hp < DOWN_OVERKILL) this.down(target, ev);
       else this.kill(target, ev);
     }
   }

@@ -47,6 +47,7 @@ export class PlayerControl {
     if (op.gadget && input.pressed('gadget')) I.gadget = true;     // gadget secundario (G)
     // habilidad del operador (X); la de PULGA (ir a su dron de choque) la lleva la vista de la partida
     if (op.ability && op.ability.id !== 'shockdrone' && input.pressed('ability')) I.ability = true;
+    I.abilityHeld = input.isDown('ability');     // (mantener X: activar el gas de TIZÓN)
     if (input.pressed('vault')) I.vault = true;
     if (input.pressed('primary')) I.switchTo = 0;
     if (input.pressed('secondary')) I.switchTo = 1;

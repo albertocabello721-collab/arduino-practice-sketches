@@ -51,10 +51,11 @@ const GradeShader = {
     uStatic: { value: 0 },    // interferencia (señal perdida)
     uSmoke: { value: 0 },     // dentro de una nube de humo (0..1)
     uBlind: { value: 0 },     // cegado por una cegadora (0..1)
+    uGas: { value: 0 },       // dentro de una nube de gas de TIZÓN (0..1)
   },
   vertexShader: `varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }`,
   fragmentShader: /* glsl */ `
-    uniform sampler2D tDiffuse; uniform float uTime, uVignette, uGrain, uSat, uDamage, uFlash, uFeed, uStatic, uSmoke, uBlind; uniform vec3 uTint; uniform vec2 uRes;
+    uniform sampler2D tDiffuse; uniform float uTime, uVignette, uGrain, uSat, uDamage, uFlash, uFeed, uStatic, uSmoke, uBlind, uGas; uniform vec3 uTint; uniform vec2 uRes;
     varying vec2 vUv;
     float h(vec2 p){ return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453); }
     void main(){
@@ -93,6 +94,11 @@ const GradeShader = {
       if (uSmoke > 0.0) {
         float sn = 0.5 + 0.5 * sin(vUv.x * 5.0 + uTime * 0.6) * sin(vUv.y * 4.0 - uTime * 0.45);
         c = mix(c, vec3(0.6, 0.61, 0.62) * (0.94 + 0.06 * sn), uSmoke * 0.94);
+      }
+      // gas: velo amarillo verdoso (se ve algo a través)
+      if (uGas > 0.0) {
+        float gn = 0.5 + 0.5 * sin(vUv.x * 6.0 - uTime * 0.5) * sin(vUv.y * 5.0 + uTime * 0.4);
+        c = mix(c, vec3(0.62, 0.66, 0.32) * (0.9 + 0.1 * gn), uGas * 0.62);
       }
       // cegadora: blanco
       c = mix(c, vec3(1.0), uBlind);

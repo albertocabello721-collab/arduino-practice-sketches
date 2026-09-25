@@ -101,9 +101,14 @@ export class HUD {
       this.cache.lean = leanState;
       for (let i = 0; i < 3; i++) this.el.lean[i].classList.toggle('on', i === leanState);
     }
-    this.set('hp', this.el.hp, `${Math.max(0, Math.round(op.hp))}<small>Salud · blindaje ${'▮'.repeat(op.armor)}${'▯'.repeat(3 - op.armor)}</small>`, 'html');
+    this.set('hp', this.el.hp, `${Math.max(0, Math.round(op.hp))}<small>Salud · blindaje ${'▮'.repeat(op.armor)}${'▯'.repeat(3 - op.armor)}${op.plate ? ' · placa' : ''}</small>`, 'html');
     const hpf = Math.max(0, op.hp) / op.maxHp;
-    if (this.cache.hpf !== hpf) { this.cache.hpf = hpf; this.el.hpbar.firstChild.style.width = `${hpf * 100}%`; this.el.hpbar.classList.toggle('low', hpf < 0.35 || op.state === 'downed'); }
+    if (this.cache.hpf !== hpf) {
+      this.cache.hpf = hpf;
+      this.el.hpbar.firstChild.style.width = `${Math.min(1, hpf) * 100}%`;
+      this.el.hpbar.classList.toggle('low', hpf < 0.35 || op.state === 'downed');
+      this.el.hpbar.classList.toggle('over', hpf > 1.001);          // vida de más (placa, estimulante)
+    }
     for (let i = 0; i < 4; i++) if (this.dirT[i] > 0) { this.dirT[i] -= dt; this.el.dirs[i].style.opacity = Math.max(0, Math.min(1, this.dirT[i] * 1.5)); }
     // cruceta: se abre con la dispersión y desaparece al apuntar
     const gap = Math.round(3 + ctx.spreadPx);

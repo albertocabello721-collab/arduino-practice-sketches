@@ -136,6 +136,21 @@ function interceptorModel() {
   b.add(Box(0.02, 0.012, 0.02), { at: [0.05, 0.056, 0.05], color: '#ffffff', glow: 1 });
   return b.build();
 }
+// Bolsa de placas de CORAZA y bote de gas de TIZÓN.
+function plateBagModel() {
+  const b = new Builder();
+  b.add(Box(0.5, 0.22, 0.3), { at: [0, 0.11, 0], color: '#3c3f36', rough: 0.9 });
+  b.add(Box(0.52, 0.04, 0.08), { at: [0, 0.2, 0], color: '#2a2b26', rough: 0.8 });
+  for (const x of [-0.12, 0.02, 0.16]) b.add(Box(0.1, 0.16, 0.03), { at: [x, 0.25, 0.04], color: '#6b6f73', rough: 0.5, metal: 0.4 });
+  return b.build();
+}
+function gasModel() {
+  const b = new Builder();
+  b.add(Cyl(0.04, 0.04, 0.12, 12), { at: [0, 0, 0], color: '#6d7a2c', rough: 0.6, metal: 0.2 });
+  b.add(Cyl(0.042, 0.042, 0.02, 12), { at: [0, 0.03, 0], color: '#e0d23a', rough: 0.5 });
+  b.add(Box(0.015, 0.012, 0.015), { at: [0, 0.066, 0.02], color: '#ff3a2a', glow: 1 });
+  return b.build();
+}
 // Escudo balístico de MURALLA (1,3 m de alto desde su borde inferior; se estira con la postura):
 // placa oscura con mirilla, asas por detrás y el foco del destello arriba.
 function shieldModel() {
@@ -329,8 +344,8 @@ export class PropRenderer {
     this.geo = {
       droneBody: [droneBody('#3d9be9'), droneBody('#f0892b')], droneWheels: droneWheels(),
       camBase: camBase(), camHead: camHead(), hatch: hatchPlate(this.steelLayer), defuser: defuserModel(),
-      taser: taserModel(), shield: shieldModel(), battery: batteryModel(), jammer: jammerModel(), lasermine: mineModel(), interceptor: interceptorModel(),
-      grenade: { frag: grenadeModel('frag'), smoke: grenadeModel('smoke'), flash: grenadeModel('flash'), impact: grenadeModel('impact'), c4: c4Model(), emp: empModel(), breachround: roundModel('breachround'), smokeround: roundModel('smokeround') },
+      taser: taserModel(), shield: shieldModel(), battery: batteryModel(), jammer: jammerModel(), lasermine: mineModel(), interceptor: interceptorModel(), platebag: plateBagModel(),
+      grenade: { frag: grenadeModel('frag'), smoke: grenadeModel('smoke'), flash: grenadeModel('flash'), impact: grenadeModel('impact'), c4: c4Model(), emp: empModel(), breachround: roundModel('breachround'), smokeround: roundModel('smokeround'), gas: gasModel(), stickycam: grenadeModel('flash') },
       breach: breachModel(), claymore: claymoreModel(), barbed: wireModel(), alarm: alarmModel(), thermal: thermalModel(), thermalHot: thermalHot(),
     };
     // láser de las claymores (línea roja fina)

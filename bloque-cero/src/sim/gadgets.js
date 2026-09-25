@@ -47,6 +47,10 @@
 //   · Interceptor (GUARDIÁN): destruye en el aire granadas, humos, cegadoras, PEM y
 //     proyectiles del ataque que entran a 6 m con línea de vista; para 2 y recupera 1 cada 20 s.
 //   Todos: la PEM los apaga 15 s; un disparo, un golpe o el dron de choque los destruyen.
+//   · Bolsa de placas (CORAZA): cada defensor que pasa a menos de 1 m coge una (una por
+//     cabeza): +20 de vida y la próxima vez que moriría sin tiro a la cabeza, queda derribado.
+//   · Bote de gas (TIZÓN): se lanza y espera en el suelo (un disparo lo destruye); activado,
+//     nube de 4 m durante 10 s: 12 por segundo a los atacantes y tapa algo la vista.
 // Las explosiones destruyen además los gadgets, drones y cámaras del otro bando que alcanzan.
 // Simulación pura (corre en Node); el cliente pinta los objetos y los efectos.
 import { SOLID, HARD, MAT, BLAST_RES, GLASS } from '../world/materials.js';
@@ -80,7 +84,10 @@ export const JAMMER = { place: 1.0, reach: 2.0, radius: 2.5 };
 // mina láser de CEPO, interceptor de GUARDIÁN (la cámara adhesiva de OJO se lanza)
 export const LMINE = { place: 1.0, reach: 2.0, damage: 60, splash: 30, splashR: 1.5, mark: 3, seen: 2, width: 0.3 };
 export const INTERCEPTOR = { place: 1.0, reach: 2.0, range: 6, charges: 2, recharge: 20 };
-const THROWABLE = { frag: true, smoke: true, flash: true, impact: true, c4: true, emp: true, stickycam: true };
+// bolsa de placas de CORAZA y botes de gas de TIZÓN
+export const PLATES = { pick: 1.0, hp: 20 };
+export const GAS = { radius: 4, time: 10, dps: 12, tick: 0.25, grow: 1.5, sight: 2.8, hold: 0.6 };
+const THROWABLE = { frag: true, smoke: true, flash: true, impact: true, c4: true, emp: true, stickycam: true, gas: true };
 const PLACEABLE = { breach: BREACH, claymore: CLAYMORE, barbed: WIRE, shield: DSHIELD, bpcam: BPCAM, alarm: ALARM, thermal: THERMAL, battery: BATTERY, jammer: JAMMER, lasermine: LMINE, interceptor: INTERCEPTOR };
 export const PLACE_LABEL = { breach: 'la carga de brecha', claymore: 'la claymore', barbed: 'el alambre', shield: 'el escudo desplegable', bpcam: 'la cámara blindada', alarm: 'la alarma', thermal: 'la carga térmica', battery: 'la batería', jammer: 'el inhibidor', lasermine: 'la mina láser', interceptor: 'el interceptor' };
 // Electrónica que la PEM apaga (las cámaras de seguridad, también las adhesivas)
@@ -101,6 +108,7 @@ export class Gadgets {
     this.game = game;
     this.items = [];        // proyectiles en vuelo o en el suelo (y el C4 pegado)
     this.smokes = [];       // nubes de humo activas {x, y, z, r, t0, until, team}
+    this.gasClouds = [];    // nubes de gas de TIZÓN {x, y, z, r, t0, until, team, owner}
     this.placed = [];       // cargas de brecha, claymores, alambres y alarmas colocadas
     this.recon = null;      // (la partida lo conecta: las cámaras blindadas se suman a las suyas)
     this.work = new Map();  // operador → colocación en curso {kind, t, total, spot, from}
@@ -110,7 +118,7 @@ export class Gadgets {
     game.on('melee', (op, info) => this._meleeZap(op, info));
   }
   reset() {
-    this.items = []; this.smokes = []; this.placed = []; this.work.clear();
+    this.items = []; this.smokes = []; this.gasClouds = []; this.placed = []; this.work.clear();
     // (las cámaras blindadas de la ronda anterior desaparecen)
     if (this.recon) this.recon.cams = this.recon.cams.filter((c) => !c.fromGadget);
     this.game.targets = this.game.targets.filter((t) => t.kind !== 'gadget' && !t.fromGadget);
@@ -179,6 +187,7 @@ export class Gadgets {
       else if (c.kind === 'battery') this._batteryTick(c, dt);
       else if (c.kind === 'lasermine') this._mineTick(c);
       else if (c.kind === 'interceptor') this._interceptTick(c, dt);
+      else if (c.kind === 'platebag') this._bagTick(c);
     }
     this.placed = this.placed.filter((c) => c.alive);
     for (const it of this.items) {
@@ -194,6 +203,7 @@ export class Gadgets {
     }
     this.items = this.items.filter((it) => it.alive);
     this.smokes = this.smokes.filter((s) => s.until > g.time);
+    this._gasTick(dt);
   }
 
   // Vuelo con rebotes: se prueba cada eje por separado para saber con qué cara choca.
@@ -224,7 +234,10 @@ export class Gadgets {
     }
     // en reposo: apoyado y casi sin velocidad
     const below = SOLID[w.getWorld(p.x, p.y - 0.08, p.z)];
-    if (below && Math.hypot(v.x, v.y, v.z) < 0.6) { it.rest = true; v.x = v.y = v.z = 0; }
+    if (below && Math.hypot(v.x, v.y, v.z) < 0.6) {
+      it.rest = true; v.x = v.y = v.z = 0;
+      if (it.kind === 'gas' && !it.target) this._target(it, 0.08);
+    }
     if (p.y < -30) it.alive = false;
   }
   _hitsOperator(it, np) {
@@ -438,23 +451,23 @@ export class Gadgets {
   }
   /** ¿El humo tapa la vista entre a y b? (más de 1,2 m de recorrido dentro de una nube) */
   smokeBlocks(a, b) {
-    if (!this.smokes.length) return false;
+    if (!this.smokes.length && !this.gasClouds.length) return false;
     const now = this.game.time;
     const dx = b.x - a.x, dy = b.y - a.y, dz = b.z - a.z;
     const L = Math.hypot(dx, dy, dz);
     if (L < 1e-3) return false;
     const ux = dx / L, uy = dy / L, uz = dz / L;
-    for (const s of this.smokes) {
-      const r = this.smokeRadius(s, now);
-      if (r <= 0.3) continue;
+    const through = (s, r, need) => {
+      if (r <= 0.3) return false;
       const cx = s.x - a.x, cy = s.y - a.y, cz = s.z - a.z;
       const t = cx * ux + cy * uy + cz * uz;
       const d2 = cx * cx + cy * cy + cz * cz - t * t;
-      if (d2 >= r * r) continue;
+      if (d2 >= r * r) return false;
       const half = Math.sqrt(r * r - d2);
-      const t0 = Math.max(0, t - half), t1 = Math.min(L, t + half);
-      if (t1 - t0 > 1.2) return true;
-    }
+      return Math.min(L, t + half) - Math.max(0, t - half) > need;
+    };
+    for (const s of this.smokes) if (through(s, this.smokeRadius(s, now), 1.2)) return true;
+    for (const s of this.gasClouds) if (through(s, this.gasRadius(s, now), GAS.sight)) return true;
     return false;
   }
   // ---------------------------------------------------------------- C4 pegado
@@ -774,6 +787,89 @@ export class Gadgets {
       if (Math.hypot(c.pos.x - p.x, c.pos.y - p.y, c.pos.z - p.z) <= JAMMER.radius) return c;
     }
     return null;
+  }
+
+  // ---------------------------------------------------------------- bolsa de placas (CORAZA)
+  /** CORAZA deja la bolsa a sus pies (una por ronda). Devuelve la bolsa o null. */
+  dropPlates(op) {
+    const a = op.ability;
+    if (!a || a.dropped || a.left <= 0 || op.state !== 'alive' || op.frozen) return null;
+    const w = this.game.world, p = op.body.pos, fx = -Math.sin(op.yaw), fz = -Math.cos(op.yaw);
+    let x = p.x + fx * 0.45, z = p.z + fz * 0.45;
+    if (SOLID[w.getWorld(x, p.y + 0.1, z)] || !SOLID[w.getWorld(x, p.y - 0.06, z)]) { x = p.x; z = p.z; }
+    const c = { id: `g${this._nextId++}`, kind: 'platebag', owner: op, team: op.team, pos: { x, y: p.y + 0.01, z }, normal: { x: 0, y: 1, z: 0 }, yaw: op.yaw, alive: true, t0: this.game.time, plates: a.left, takers: new Set() };
+    a.dropped = true;
+    op.abilityCd = ABILITY_CD;
+    this.placed.push(c);
+    this._target(c, 0.18);
+    this.game.emit('gadgetPlaced', op, c);
+    return c;
+  }
+  _bagTick(c) {
+    const g = this.game;
+    for (const op of g.operators) {
+      if (op.team !== c.team || op.state !== 'alive' || op.frozen || op.plate || c.takers.has(op)) continue;
+      const b = op.body.pos;
+      if (Math.hypot(b.x - c.pos.x, b.z - c.pos.z) > PLATES.pick || Math.abs(b.y - c.pos.y) > 1.3) continue;
+      op.plate = true;
+      op.hp = Math.min(op.hp + PLATES.hp, op.maxHp + PLATES.hp);
+      c.takers.add(op);
+      c.plates--;
+      if (c.owner.ability) c.owner.ability.left = c.plates;
+      g.emit('platePicked', op, c);
+      if (c.plates <= 0) { c.alive = false; this._untarget(c); return; }
+    }
+  }
+
+  // ---------------------------------------------------------------- botes de gas (TIZÓN)
+  /** Activa los botes de gas de `op` que ya están en el suelo. Devuelve cuántos. */
+  activateGas(op) {
+    let n = 0;
+    for (const it of this.items) if (it.alive && it.kind === 'gas' && it.owner === op && it.rest) { this._gasCloud(it); n++; }
+    return n;
+  }
+  _gasCloud(it) {
+    const g = this.game;
+    it.alive = false;
+    if (it.target) this._untarget(it);
+    const cl = { x: it.pos.x, y: it.pos.y + 0.4, z: it.pos.z, r: GAS.radius, t0: g.time, until: g.time + GAS.time, team: it.team, owner: it.owner };
+    this.gasClouds.push(cl);
+    g.emit('gas', cl, it.owner);
+  }
+  gasRadius(s, now = this.game.time) {
+    const age = now - s.t0, left = s.until - now;
+    if (left <= 0) return 0;
+    return s.r * Math.min(1, age / GAS.grow, left / 1.5 + 0.2);
+  }
+  /** ¿Está el punto dentro de una nube de gas? (velo en pantalla) Devuelve 0..1. */
+  gasAt(p) {
+    let k = 0;
+    const now = this.game.time;
+    for (const s of this.gasClouds) {
+      const r = this.gasRadius(s, now);
+      if (r <= 0) continue;
+      const d = Math.hypot(p.x - s.x, (p.y - s.y) * 1.3, p.z - s.z);
+      if (d < r) k = Math.max(k, Math.min(1, (r - d) / (r * 0.35)));
+    }
+    return k;
+  }
+  _gasTick(dt) {
+    if (!this.gasClouds.length) return;
+    const g = this.game, now = g.time;
+    for (const s of this.gasClouds) {
+      const r = this.gasRadius(s, now);
+      if (r <= 0.3) continue;
+      for (const op of g.operators) {
+        if (op.team === s.team || op.state === 'dead' || op.frozen) continue;
+        const b = op.body.pos;
+        if (Math.hypot(b.x - s.x, (b.y + 0.9 - s.y) * 1.3, b.z - s.z) > r) continue;
+        op.gasT = (op.gasT || 0) + dt;
+        if (op.gasT < GAS.tick) continue;
+        op.gasT -= GAS.tick;
+        g.damage(op, GAS.dps * GAS.tick, { by: s.owner, weapon: { name: 'Gas' }, zone: 'body', point: { x: b.x, y: b.y + 1.2, z: b.z } });
+      }
+    }
+    this.gasClouds = this.gasClouds.filter((s) => s.until > now);
   }
 
   // ---------------------------------------------------------------- mina láser (CEPO)

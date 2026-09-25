@@ -359,6 +359,7 @@ async function boot() {
     // humo alrededor de la cámara y cegadora del operador visto
     const G = s && s.game ? s.game.gadgets : null;
     post.grade.uniforms.uSmoke.value = G && !thermal ? G.smokeAt(camera.position) : 0;
+    post.grade.uniforms.uGas.value = G && G.gasAt && !thermal ? G.gasAt(camera.position) : 0;
     post.grade.uniforms.uBlind.value = v && v.blindT > 0 ? Math.min(1, v.blindT / 1.2) : 0;
     if (s) s.frame(dt, acc / TICK);
     if (v) vm.update(dt, v, lightS, v === s.player ? mouse.dx || 0 : 0, v === s.player ? mouse.dy || 0 : 0);

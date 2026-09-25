@@ -1,7 +1,7 @@
 // Prueba de humo en el navegador de las habilidades de la defensa (X): batería de VOLTIO en un
 // refuerzo (quema la carga térmica del ataque), inhibidor de SILENCIO (el dron cercano se queda
-// sin señal), mina láser de CEPO, cámara adhesiva de OJO e interceptor de GUARDIÁN, con capturas
-// y sin errores.
+// sin señal), mina láser de CEPO, cámara adhesiva de OJO, interceptor de GUARDIÁN, placas de
+// CORAZA, estimulantes de REMEDIO y gas de TIZÓN (mantener X), con capturas y sin errores.
 // Uso: node tools/smoke-defensa-habilidades.mjs <carpeta de capturas>
 import { createRequire } from 'node:module';
 import path from 'node:path';
@@ -123,7 +123,8 @@ const cams0 = await page.evaluate(() => window.__bc.match.recon.cams.length);
 await page.evaluate(() => window.__bc.place(17, 0.01, 13, 0, 0));
 await ticks(2, KEEP);
 await page.keyboard.press('KeyX');
-await ticks(100, KEEP);
+await page.waitForFunction((n0) => window.__bc.match.recon.cams.length > n0, cams0, { timeout: 30000 }).catch(() => {});
+await ticks(10, KEEP);
 const sticky = await page.evaluate((n0) => { const r = window.__bc.match.recon; const c = r.cams[r.cams.length - 1]; return { antes: n0, ahora: r.cams.length, adhesiva: !!c.sticky, nombre: c.name }; }, cams0);
 console.log('cámara adhesiva:', JSON.stringify(sticky));
 await page.evaluate(() => window.__bc.place(17.8, 0.01, 9.2, 0.35, 0.2));
@@ -158,6 +159,72 @@ await page.evaluate(() => window.__bc.place(18.5, 0.01, 13.6, 0, -0.6));
 await ticks(2, KEEP);
 await page.waitForTimeout(900);
 await page.screenshot({ path: `${out}/b5_interceptor.png` });
+
+// 6) CORAZA: bolsa de placas; el jugador coge una
+await setAb('plates', 5, 'Placas de armadura');
+await page.evaluate(() => window.__bc.place(15, 0.01, 9, 0, -0.9));
+await ticks(2, KEEP);
+await page.keyboard.press('KeyX');
+// (la X se procesa en el siguiente fotograma: se espera a la bolsa)
+await page.waitForFunction(() => window.__bc.match.gadgets.placed.some((c) => c.kind === 'platebag'), null, { timeout: 20000 }).catch(() => {});
+await ticks(20, KEEP);
+const plates = await page.evaluate(() => { const bc = window.__bc, p = bc.player, bag = bc.match.gadgets.placed.find((c) => c.kind === 'platebag'); return { bolsa: !!bag, quedan: bag ? bag.plates : null, placa: !!p.plate, vida: Math.round(p.hp) }; });
+console.log('placas:', JSON.stringify(plates));
+await page.waitForTimeout(800);
+await page.screenshot({ path: `${out}/b6_placas.png` });
+
+// 7) REMEDIO: estimulante a un compañero (un defensor bot quieto, delante)
+await setAb('stim', 3, 'Pistola de estimulantes');
+const stim = await page.evaluate((KEEP) => {
+  const bc = window.__bc, m = bc.match, p = bc.player;
+  const mate = m.game.operators.find((o) => o.team === p.team && o !== p && o.state === 'alive');
+  mate.frozen = false; bc.session.bots.brains.delete(mate);      // (quieto, pero en juego)
+  mate.body.pos.x = 17; mate.body.pos.y = 0.01; mate.body.pos.z = 9; mate.hp = 50;
+  bc.place(17, 0.01, 14.5, 0, 0);
+  const f = new Function('bc', KEEP);
+  for (let i = 0; i < 3; i++) { f(bc); bc.session.tick(1 / 60); }
+  const e = p.eyePos(), c = mate.center();
+  p.yaw = Math.atan2(-(c.x - e.x), -(c.z - e.z)); p.pitch = Math.atan2(c.y - e.y, Math.hypot(c.x - e.x, c.z - e.z));
+  bc.__mate = mate;
+  return { companero: mate.name, vida: mate.hp };
+}, KEEP);
+await ticks(2, KEEP);
+console.log('aviso REMEDIO:', (await hud()).aviso);
+await page.keyboard.press('KeyX');
+await page.waitForFunction(() => window.__bc.player.ability.left < 3, null, { timeout: 20000 }).catch(() => {});
+await ticks(10, KEEP);
+console.log('estimulante:', JSON.stringify({ ...stim, despues: await page.evaluate(() => Math.round(window.__bc.__mate.hp)), quedan: await page.evaluate(() => window.__bc.player.ability.left) }));
+
+// 8) TIZÓN: un bote de gas; mantener X lo activa; un atacante dentro pierde vida
+await setAb('gas', 3, 'Bote de gas');
+await page.evaluate(() => window.__bc.place(17, 0.01, 13, 0, -1.0));
+await ticks(2, KEEP);
+await page.keyboard.press('KeyX');
+// el bote, en el suelo, y pasado el segundo de espera entre usos
+await page.waitForFunction(() => { const bc = window.__bc; return bc.match.gadgets.items.some((i) => i.kind === 'gas' && i.rest) && (bc.player.abilityCd || 0) <= 0; }, null, { timeout: 30000 }).catch(() => {});
+console.log('aviso TIZÓN:', (await hud()).aviso);
+await page.keyboard.down('KeyX');
+await page.waitForFunction(() => window.__bc.match.gadgets.gasClouds.length > 0, null, { timeout: 30000 }).catch(() => {});
+await page.keyboard.up('KeyX');
+const gas = await page.evaluate((KEEP) => {
+  const bc = window.__bc, m = bc.match, G = m.gadgets, cl = G.gasClouds[0];
+  if (!cl) return { nube: false, botes: G.items.filter((i) => i.kind === 'gas').length, quedan: bc.player.ability.left };
+  const a = m.game.operators.find((o) => o.side === 'atk' && o.state === 'alive');
+  a.frozen = false; bc.session.bots.brains.delete(a);
+  a.body.pos.x = cl.x; a.body.pos.y = 0.01; a.body.pos.z = cl.z;
+  const f = new Function('bc', KEEP);
+  for (let i = 0; i < 90; i++) { f(bc); bc.session.tick(1 / 60); }
+  const hp = a.hp;
+  for (let i = 0; i < 60; i++) { f(bc); bc.session.tick(1 / 60); }
+  const res = { nube: true, danoPorSegundo: Math.round(hp - a.hp) };
+  a.frozen = true; a.body.pos.x = 10; a.body.pos.z = -13;
+  return res;
+}, KEEP);
+console.log('gas:', JSON.stringify(gas));
+await page.evaluate(() => { const bc = window.__bc, cl = bc.match.gadgets.gasClouds[0]; if (cl) bc.place(cl.x + 0.5, 0.01, cl.z + 0.5, 0.4, -0.1); });
+await ticks(2, KEEP);
+await page.waitForTimeout(1500);
+await page.screenshot({ path: `${out}/b7_gas.png` });
 
 // la ronda sigue: acción
 await ticks(3, "if (bc.match.phase === 'prep') bc.match.timer = Math.min(bc.match.timer, 0.02);");
