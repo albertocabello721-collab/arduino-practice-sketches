@@ -16,7 +16,7 @@ Es un único archivo HTML autónomo: no necesita servidor ni conexión.
 | F3 | Rondas 5v5, 3 ubicaciones de sitios (los defensores eligen), desactivador, HUD con reloj y 10 retratos | ✅ |
 | F4 | Preparación: refuerzos, barricadas, trampillas, drones, cámaras, cuerpo a cuerpo | ✅ |
 | F5 | Bots: navegación, percepción, combate, tácticas por bando, órdenes (H), marcas (T), chat de equipo, depuración (P) | ✅ |
-| F6 | Operadores 8 + 8 y contrajuego de gadgets | en curso: arsenal ✅ · plantilla de 16 ✅ · granadas y explosivos ✅ · gadgets defensivos ✅ · 8 habilidades de ataque ✅ · 16 habilidades ✅ · uso de gadgets y habilidades por los bots en camino |
+| F6 | Operadores 8 + 8 y contrajuego de gadgets | en curso: arsenal ✅ · plantilla de 16 ✅ · granadas y explosivos ✅ · gadgets defensivos ✅ · 8 habilidades de ataque ✅ · 16 habilidades ✅ · la defensa bot coloca gadgets y habilidades ✅ · el ataque bot, en camino |
 | F7 | Animaciones en primera y tercera persona | pendiente |
 | F8 | Recarga por partes | pendiente |
 | F9 | Audio 3D con oclusión | pendiente |
@@ -151,7 +151,8 @@ Defensa:
   destruye); **mantener X** (o pulsarla sin botes en la mano) activa todos: nube amarillenta de
   4 m durante 10 s que quita 12 por segundo a los atacantes que están dentro y tapa algo la
   vista (a jugadores y bots).
-- Con esto están las 16 habilidades; los bots aún no las usan (llega en la Fase 6.6).
+- Con esto están las 16 habilidades. La defensa bot ya las usa (ver «Bots»); el ataque bot, en la
+  Fase 6.6b.
 - La cámara blindada ya mira hacia la habitación (antes quedaba mirando a la pared).
 - Los golpes cuerpo a cuerpo ya no alcanzan objetos a través de una pared.
 
@@ -239,6 +240,16 @@ Reglas de Siege, contra bots:
   fijas (dentro y fuera); se destruyen de un disparo.
 - Los bots defensores refuerzan el sitio y ponen barricadas durante la preparación, y disparan a
   los drones que ven; los bots atacantes conducen sus drones hacia la casa y marcan defensores.
+- Después de reforzar, cada bot defensor coloca su gadget y su habilidad con lógica (lo que no
+  le dé tiempo, en los primeros 15 s de la acción): alambre en el pasillo al otro lado de las
+  puertas del sitio, escudo desplegable dentro del sitio encarando un acceso, alarma en el suelo
+  de una entrada, cámara blindada en la pared de enfrente de un acceso, baterías en los muros
+  reforzados (y si sobran, en las barricadas), inhibidores junto a esos muros, una mina láser en
+  cada puerta o ventana, cámaras adhesivas lanzadas por las puertas hasta una pared de fuera
+  (antes de atrancarlas), un interceptor en cada sala del sitio y los botes de gas en las
+  entradas. CORAZA deja la bolsa de placas al empezar y los demás pasan a coger la suya. En la
+  acción, TIZÓN activa el gas cuando sabe de un atacante junto a un bote. En Novato no usan
+  gadgets (como pide el documento).
 - Durante la preparación el ataque aún no está desplegado: no se le puede disparar.
 
 ## Bots (Fase 5)
@@ -361,7 +372,7 @@ node tools/mapslice.mjs <carpeta> # cortes cenitales del mapa por planta
 - `src/sim/` simulación sin render (corre en Node): física de personaje, operadores, armas,
   plantilla de 16 operadores (`operators.js`), partida por rondas (`match.js`), fortificación
   (`fortify.js`), drones y cámaras (`recon.js`), rejilla de navegación (`nav.js`) y bots
-  (`bots.js` con `ai/mover.js`, `ai/perception.js` y `ai/tactics.js`).
+  (`bots.js` con `ai/mover.js`, `ai/perception.js`, `ai/tactics.js` y `ai/gadgetai.js`).
 - `src/client/` sesiones de juego (campo de pruebas, partida), control del jugador y puente
   eventos → sonido/efectos/HUD.
 - `src/render/` Three.js: texturas PBR procedurales, mallado voraz por celdas de 16³, shader PBR con volumen de luz y sombra del sol, efectos, arma en primera persona, post-proceso (bloom + ACES).

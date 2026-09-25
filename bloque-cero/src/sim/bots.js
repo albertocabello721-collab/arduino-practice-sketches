@@ -24,6 +24,7 @@ import { Mover } from './ai/mover.js';
 import { Perception, TeamBoard } from './ai/perception.js';
 import { entrancesOf, holdPointFor, adjacentRooms, attackEntries } from './ai/tactics.js';
 import { Radio, callout } from './ai/radio.js';
+import { planDefenseGadgets, useCheck, visitPlateBag, gasTick } from './ai/gadgetai.js';
 import { lineOfSight, traverse } from '../world/raycast.js';
 import { SOLID, HARD, PEN_COST } from '../world/materials.js';
 import { angleDiff, clamp } from '../core/math.js';
@@ -110,6 +111,7 @@ export class BotSquad {
     on(g, 'reload', (op) => this._reloadCall(op));
     on(m, 'planted', (op) => { if (op && op.isBot) this.radio.say(op, 'planted', '¡Desactivador plantado!', { force: true }); });
     on(g, 'bullet', (op, res) => this._whiz(op, res));
+    on(g, 'gadgetPlaced', (op, c) => { if (c && c.kind === 'platebag') visitPlateBag(this, c); });
     // el desactivador se oye desde lejos; plantado y en el suelo, lo sabe todo el equipo
     on(m, 'plantStart', (op) => this._noise(op, op.body.pos, 'plant', 30));
     on(m, 'disableStart', (op) => { for (const B of this.brains.values()) if (B.side === 'atk') B.per.hear(op.body.pos, 'disable', op, 999); });
@@ -377,6 +379,8 @@ export class BotSquad {
       const p = B.op.body.pos;
       B.fort.sort((a, b) => Math.hypot(a.stand.x - p.x, a.stand.z - p.z) - Math.hypot(b.stand.x - p.x, b.stand.z - p.z));
     }
+    // y después, sus gadgets y habilidades (no en Novato)
+    planDefenseGadgets(this, defs, rooms);
   }
 
   // Ataque, preparación: cada dron va hacia un punto de plantado distinto.
@@ -565,7 +569,7 @@ class Brain {
   // ------------------------------------------------------------------ bucle
   update(dt, phase) {
     const op = this.op, I = op.intent;
-    I.fire = false; I.ads = false; I.lean = 0; I.interact = false; I.reload = false; I.vault = false;
+    I.fire = false; I.ads = false; I.lean = 0; I.interact = false; I.reload = false; I.vault = false; I.abilityHeld = false;
     if (op.state === 'dead') { this.mover.stop(); return; }
     if (op.state === 'downed') {
       I.holdWound = true; I.moveX = 0; I.moveZ = 0; I.sprint = false;
@@ -578,6 +582,7 @@ class Brain {
     this.thinkT -= dt;
     if (this.thinkT <= 0) { this.thinkT = 0.2; this._think(phase); }
     this._act(dt, phase);
+    gasTick(this, dt);
     this._trackStill(dt);
   }
 
@@ -1131,6 +1136,7 @@ class Brain {
     const op = this.op, I = op.intent;
     const T = this.fort[0];
     if (!T) { this.task = null; return; }
+    if (T.kind === 'use' || T.kind === 'visit') { this._tUse(dt, T); return; }
     if (!T.started) {
       T.walkT += dt;
       if (T.walkT > 16) { this.fort.shift(); return; }        // no llega: siguiente tarea
@@ -1150,6 +1156,45 @@ class Brain {
     T.t += dt;
     const working = op.channel && (op.channel.kind === 'reinforce' || op.channel.kind === 'barricade');
     if ((!working && T.t > 0.3) || T.t > 7) { I.interact = false; this.fort.shift(); }
+  }
+
+  // Colocar un gadget o una habilidad (G o X) desde un punto, o pasar a por una placa.
+  _tUse(dt, T) {
+    const op = this.op, I = op.intent;
+    if (T.kind === 'visit') {
+      T.walkT += dt;
+      if (op.plate || !T.bag.alive || T.walkT > 16) { this.fort.shift(); return; }
+      this._goto(T.stand, dt, { r: 0.3, sprint: true, exact: true });
+      return;
+    }
+    if (!T.started) {
+      T.walkT += dt;
+      if (T.walkT > 16 || useCheck(this, T, false) === 'skip') { this.fort.shift(); return; }
+      const p = op.body.pos;
+      // (si algo le impide clavarse en el punto, a medio metro también vale: al pulsar se comprueba)
+      const d = Math.hypot(T.stand.x - p.x, T.stand.z - p.z);
+      if (d > 0.22 && !(d < 0.5 && T.walkT > 8)) { this._goto(T.stand, dt, { r: 0.2, sprint: true, exact: true }); return; }
+      this._stand(dt);
+      I.stance = 'stand';
+      this._turn(T.face, T.pitch, 6, dt);
+      if (Math.abs(angleDiff(op.yaw, T.face)) < 0.04 && Math.abs(T.pitch - op.pitch) < 0.04) { T.started = true; T.t = 0; }
+      return;
+    }
+    this._stand(dt);
+    I.stance = 'stand';
+    op.yaw = T.face; op.pitch = T.pitch;
+    T.t += dt;
+    if (!T.pressed) {
+      const st = useCheck(this, T);
+      if (st === 'skip') { this.fort.shift(); return; }
+      if (st === 'wait') return;
+      if (T.what === 'gadget') I.gadget = true; else I.ability = true;
+      T.pressed = true; T.t = 0;
+      return;
+    }
+    // (colocar lleva ~1 s quieto; lanzar o soltar, un instante)
+    const placing = op.channel && op.channel.kind === 'gadget';
+    if ((!placing && T.t > 0.35) || T.t > 4) this.fort.shift();
   }
 
   // Ancla: un punto en la sala del sitio sosteniendo un acceso en diagonal.
