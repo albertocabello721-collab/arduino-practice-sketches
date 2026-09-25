@@ -170,12 +170,26 @@ export class Game extends Emitter {
       best = d; target = t; tp = c;
     }
     if (target) {
-      this.damage(target, MELEE_DAMAGE, { by: op, zone: 'body', dir, point: tp, melee: true });
+      // un escudo balístico de frente para el golpe
+      const dx = tp.x - eye.x, dy = tp.y - eye.y, dz = tp.z - eye.z, L = Math.hypot(dx, dy, dz) || 1;
+      const d = { x: dx / L, y: dy / L, z: dz / L };
+      for (const tg of this.targets) {
+        if (tg.kind !== 'shield' || !tg.alive || tg.team === op.team) continue;
+        const t = tg.rayTest(eye, d, L);
+        if (t >= 0) {
+          const hp = { x: eye.x + d.x * t, y: eye.y + d.y * t, z: eye.z + d.z * t };
+          this.emit('ricochet', tg, hp);
+          this.emit('melee', op, { point: hp, blocked: true });
+          return;
+        }
+      }
+      // (el golpe con escudo de MURALLA hace algo menos: op.meleeDamage)
+      this.damage(target, op.meleeDamage || MELEE_DAMAGE, { by: op, zone: 'body', dir, point: tp, melee: true });
       this.emit('melee', op, { target, point: tp });
       return;
     }
     for (const tg of this.targets) {
-      if (!tg.alive || tg.team === op.team) continue;
+      if (!tg.alive || tg.team === op.team || tg.indestructible) continue;
       const t = tg.rayTest(eye, dir, 1.4);
       if (t >= 0) { this.hitTarget(tg, MELEE_DAMAGE, op, tg.center()); this.emit('melee', op, { point: tg.center() }); return; }
     }

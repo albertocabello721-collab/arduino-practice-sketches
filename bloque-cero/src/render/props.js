@@ -4,6 +4,8 @@ import * as THREE from 'three';
 import { LIGHTING_GLSL } from './shaders.js';
 import { TEXTURE_NAMES } from './texgen.js';
 
+import { shieldUp, shieldBox } from '../sim/abilities.js';
+
 const _up = new THREE.Vector3(0, 1, 0), _dir = new THREE.Vector3();
 
 const PROP_VERT = /* glsl */ `
@@ -100,6 +102,25 @@ function droneBody(accent) {
   b.add(Box(0.03, 0.012, 0.012), { at: [0.06, 0.135, -0.1], color: accent, glow: 0.8 });
   b.add(Box(0.03, 0.012, 0.012), { at: [-0.06, 0.135, -0.1], color: accent, glow: 0.8 });
   b.add(Cyl(0.004, 0.004, 0.14, 5), { at: [0.07, 0.22, 0.07], rot: [-0.25, 0, 0], color: '#111', rough: 0.4 });
+  return b.build();
+}
+// Escudo balístico de MURALLA (1,3 m de alto desde su borde inferior; se estira con la postura):
+// placa oscura con mirilla, asas por detrás y el foco del destello arriba.
+function shieldModel() {
+  const b = new Builder();
+  b.add(Box(0.62, 1.3, 0.05), { at: [0, 0.65, 0], color: '#2c3036', rough: 0.45, metal: 0.55 });
+  b.add(Box(0.58, 1.26, 0.02), { at: [0, 0.65, -0.03], color: '#3a3f46', rough: 0.5, metal: 0.4 });
+  b.add(Box(0.3, 0.09, 0.056), { at: [0, 1.08, 0], color: '#1b2a36', rough: 0.1, metal: 0.3 });
+  for (const x of [-0.2, 0.2]) b.add(Box(0.03, 0.3, 0.04), { at: [x, 0.7, 0.05], color: '#1c1d20', rough: 0.6 });
+  b.add(Box(0.24, 0.07, 0.03), { at: [0, 0.95, -0.045], color: '#f4f6ff', glow: 1 });
+  return b.build();
+}
+// Emisor del dron de choque (PULGA): caja amarilla con punta que brilla.
+function taserModel() {
+  const b = new Builder();
+  b.add(Box(0.07, 0.04, 0.09), { at: [0, 0.18, -0.03], color: '#c9a227', rough: 0.5, metal: 0.3 });
+  b.add(Box(0.03, 0.03, 0.05), { at: [0, 0.18, -0.1], color: '#2a2a2a', rough: 0.4, metal: 0.5 });
+  b.add(Box(0.02, 0.02, 0.012), { at: [0, 0.18, -0.13], color: '#8fe3ff', glow: 1 });
   return b.build();
 }
 function droneWheels() {
@@ -276,6 +297,7 @@ export class PropRenderer {
     this.geo = {
       droneBody: [droneBody('#3d9be9'), droneBody('#f0892b')], droneWheels: droneWheels(),
       camBase: camBase(), camHead: camHead(), hatch: hatchPlate(this.steelLayer), defuser: defuserModel(),
+      taser: taserModel(), shield: shieldModel(),
       grenade: { frag: grenadeModel('frag'), smoke: grenadeModel('smoke'), flash: grenadeModel('flash'), impact: grenadeModel('impact'), c4: c4Model(), emp: empModel(), breachround: roundModel('breachround'), smokeround: roundModel('smokeround') },
       breach: breachModel(), claymore: claymoreModel(), barbed: wireModel(), alarm: alarmModel(), thermal: thermalModel(), thermalHot: thermalHot(),
     };
@@ -338,8 +360,11 @@ export class PropRenderer {
         const wheels = this._mesh(this.geo.droneWheels);
         wheels.position.y = 0.072;
         group.add(body, wheels);
-        return { group, kind: 'drone', wheels, spin: 0 };
+        const taser = d.shock ? this._mesh(this.geo.taser) : null;
+        if (taser) group.add(taser);
+        return { group, kind: 'drone', wheels, spin: 0, taser };
       });
+      if (it.taser) it.taser.material.uniforms.uGlow.value = 0.55 + 0.45 * Math.sin(this.time * 7);
       const p = d.body.pos, q = d.prev;
       it.group.position.set(q.x + (p.x - q.x) * a, q.y + (p.y - q.y) * a, q.z + (p.z - q.z) * a);
       it.group.rotation.set(0, d.yaw, 0);
@@ -484,6 +509,25 @@ export class PropRenderer {
       }
       // apagada por una PEM: sin luz
       if (c.offUntil && c.offUntil > (s.now || 0)) it.m.material.uniforms.uGlow.value = 0;
+    }
+    // ---------------- escudos balísticos (MURALLA), salvo el de quien se ve en primera persona
+    for (const op of s.ops || []) {
+      if (!op.ability || op.ability.id !== 'shield' || op.state === 'dead' || op.frozen || op === s.viewer) continue;
+      const it = this._get('s:' + op.id, () => { const group = new THREE.Group(); const m = this._mesh(this.geo.shield); group.add(m); return { group, kind: 'shield', m }; });
+      const up = shieldUp(op), b = op.body.pos;
+      if (up) {
+        const sb = shieldBox(op);
+        it.group.position.set(sb.x, sb.y0, sb.z);
+        it.group.rotation.set(0, op.yaw, 0);
+        it.m.scale.set(1, (sb.y1 - sb.y0) / 1.3, 1);
+      } else {
+        // bajado: al costado izquierdo, girado
+        const lx = -Math.cos(op.yaw), lz = Math.sin(op.yaw);
+        it.group.position.set(b.x + lx * 0.32, b.y + 0.12, b.z + lz * 0.32);
+        it.group.rotation.set(0, op.yaw + 1.25, 0);
+        it.m.scale.set(1, 0.85, 1);
+      }
+      it.m.material.uniforms.uGlow.value = op.flashT > 0 ? (Math.sin(this.time * 40) > 0 ? 1 : 0.4) : 0.15;
     }
     // borrar lo que ya no existe
     for (const [k, it] of this.items) if (!this.seen.has(k)) { this._dispose(it); this.items.delete(k); }

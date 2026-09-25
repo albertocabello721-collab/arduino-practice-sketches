@@ -302,6 +302,13 @@ export class MatchSession extends Session {
       }
       return;
     }
+    // PULGA: X a pie lleva a su dron de choque
+    if (input.pressed('ability') && p && p.state === 'alive' && live && !this.feed.active && p.ability && p.ability.id === 'shockdrone' && m.phase !== 'prep') {
+      const d = m.abilities.shockDroneOf(p);
+      if (d) this.feed.enterDrone(d, true);
+      else { audio.ping('deny'); hud.toast('Tu dron de choque está destruido'); }
+      return;
+    }
     if (input.pressed('drone') && p && p.state === 'alive' && live) {
       if (this.feed.active) {
         if (m.phase !== 'prep' || this.mySide() === 'def') this.feed.exit();
@@ -356,7 +363,7 @@ export class MatchSession extends Session {
     // objetos 3D (drones, cámaras, refuerzos, desactivador) y motores de dron
     const def = m.defuser;
     if (def && def.planted) def.urgency = 1 - m.timeLeft / m.rules.fuseTime;
-    this.syncProps(dt, alpha, { recon: m.recon, fort: m.fort, defuser: def, feed: this.feed, myTeam: 0, gadgets: m.gadgets });
+    this.syncProps(dt, alpha, { recon: m.recon, fort: m.fort, defuser: def, feed: this.feed, myTeam: 0, gadgets: m.gadgets, viewer: view });
     // vista remota
     const found = m.objectiveFound;
     this.feed.frame(dt, {
@@ -516,7 +523,7 @@ export class MatchSession extends Session {
     // abajo a la derecha, junto a la munición: gadget secundario y refuerzos (documento, sección 19)
     const g = p.gadget && GADGETS[p.gadget.id];
     const ab = p.ability && m.abilities.ready(p) && p.opDef ? p.opDef.ability : null;
-    const kit = (ab ? `<span class="${p.ability.left ? '' : 'off'}"><kbd>X</kbd>${ab.name}${p.ability.left >= 0 ? ` <b>×${p.ability.left}</b>` : ''}</span>` : '')
+    const kit = (ab ? `<span class="${p.ability.left ? '' : 'off'}"><kbd>X</kbd>${ab.short || ab.name}${p.ability.left >= 0 ? ` <b>×${p.ability.left}</b>` : ''}</span>` : '')
       + (g ? `<span class="${p.gadget.left ? '' : 'off'}"><kbd>G</kbd>${g.short} <b>×${p.gadget.left}</b></span>` : '')
       + (side === 'def' ? `<span><kbd>F</kbd>Refuerzos <b>${m.fort.remaining(p)}</b></span>` : '');
     const ke = document.getElementById('kit');

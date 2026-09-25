@@ -44,7 +44,7 @@ export const OPERATORS = [
     primaries: [], secondaries: ['pistol', 'revolver'],
     gadgets: ['frag', 'smoke'],
     ability: {
-      id: 'shield', name: 'Escudo balístico', count: 4,
+      id: 'shield', name: 'Escudo balístico', short: 'Destello', count: 4,
       desc: 'Cubre el frente. 4 destellos desde el escudo ciegan en un cono de 5 m y 90°. Golpe con escudo: 40 de daño. Correr lo baja.',
       counters: 'Flanquearlo, disparar a los pies o a la cabeza que asoma, explosivos.',
     },

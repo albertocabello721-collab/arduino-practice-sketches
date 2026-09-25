@@ -102,6 +102,22 @@ export function bindGameFx(ctx, game, view) {
     else if (my && s.team === my.team) audio.ping('mark');
   });
   on('thermalIgnite', (c) => audio.thermalBurn(c.pos, 5, occlusion(c.pos)));
+  // escudo de MURALLA: carga y destello (ciega en su cono, como una cegadora)
+  on('shieldFlashCharge', (op) => audio.shieldCharge(op.eyePos(), op === viewer()));
+  on('shieldFlash', (op, p, hitList) => {
+    effects.flash(p.x, p.y, p.z, 240, 240, 225, 9, 0.14);
+    audio.flashbang(p, op === viewer() ? 0 : occlusion(p));
+    const v = viewer();
+    if (v && hitList.includes(v)) audio.ringing(Math.min(1, v.blindT / 3.5));
+  });
+  // rayo del dron de choque: chispas azules a lo largo y en el impacto
+  on('shockZap', (d, from, to, hit) => {
+    const dx = to.x - from.x, dy = to.y - from.y, dz = to.z - from.z, L = Math.hypot(dx, dy, dz) || 1;
+    for (let k = 0.3; k < L; k += 0.35) effects.spawnSpark(from.x + dx / L * k, from.y + dy / L * k, from.z + dz / L * k, (Math.random() - 0.5) * 0.6, (Math.random() - 0.5) * 0.6, (Math.random() - 0.5) * 0.6, 1);
+    for (let i = 0; i < (hit ? 14 : 6); i++) effects.spawnSpark(to.x, to.y, to.z, (Math.random() - 0.5) * 4, Math.random() * 2.5, (Math.random() - 0.5) * 4, 1);
+    effects.flash(to.x, to.y, to.z, 20, 50, 110, 5, 0.12);
+    audio.zap(from, !!d.pilot && d.owner === me(), occlusion(from));
+  });
   on('emp', (p, hits) => {
     effects.flash(p.x, p.y + 0.2, p.z, 20, 60, 120, 9, 0.25);
     for (let i = 0; i < 30; i++) effects.spawnSpark(p.x, p.y + 0.1, p.z, (Math.random() - 0.5) * 8, Math.random() * 5, (Math.random() - 0.5) * 8, 1);

@@ -331,7 +331,7 @@ export class Gadgets {
     const g = this.game;
     // gadgets, drones y cámaras del otro bando (y el desactivador plantado, si es de la defensa)
     for (const tg of [...g.targets]) {
-      if (!tg.alive || !tg.center || (owner && tg.team === owner.team)) continue;
+      if (!tg.alive || !tg.center || tg.indestructible || (owner && tg.team === owner.team)) continue;
       const c = tg.center();
       const d = Math.hypot(c.x - p.x, c.y - p.y, c.z - p.z);
       if (d > spec.radius) continue;

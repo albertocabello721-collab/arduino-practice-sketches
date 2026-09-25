@@ -35,11 +35,13 @@ export class Drone {
     this.jumpCd = 0;
     this.markCd = 0;
     this.moveSpeed = 0;
-    this.intent = { moveX: 0, moveZ: 0, jump: false, mark: false };
+    this.intent = { moveX: 0, moveZ: 0, jump: false, mark: false, zap: false };
+    this.shock = false;      // dron de choque de PULGA (rayo contra gadgets)
+    this.zapCd = 0;
     this.prev = { x, y, z };
     this.pilot = null;       // operador que lo maneja ahora (o null)
   }
-  get name() { return `Dron de ${this.owner.name}`; }
+  get name() { return `${this.shock ? 'Dron de choque' : 'Dron'} de ${this.owner.name}`; }
   eyePos(out = { x: 0, y: 0, z: 0 }) { const p = this.body.pos; out.x = p.x; out.y = p.y + DRONE.eye; out.z = p.z; return out; }
   viewDir(out = { x: 0, y: 0, z: 0 }) {
     const cp = Math.cos(this.pitch);
@@ -155,6 +157,8 @@ export class Recon {
     const x = p.x + fx * 0.6, z = p.z + fz * 0.6;
     const y = thrown ? p.y + 0.8 : p.y + 0.05;
     const d = new Drone(`dron${this._nextId++}`, op, x, y, z, op.yaw);
+    // el primer dron de PULGA es su dron de choque
+    d.shock = !!op.ability && op.ability.id === 'shockdrone' && !this.drones.some((o) => o.owner === op);
     if (thrown) { d.body.vel.x = fx * 4.5; d.body.vel.z = fz * 4.5; d.body.vel.y = 1.5; }
     this.left.set(op, this.dronesLeft(op) - 1);
     this.drones.push(d);

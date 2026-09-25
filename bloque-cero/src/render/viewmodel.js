@@ -5,6 +5,7 @@
 import * as THREE from 'three';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { damp, clamp } from '../core/math.js';
+import { shieldUp } from '../sim/abilities.js';
 
 function std(color, rough = 0.6, metal = 0.0) {
   return new THREE.MeshStandardMaterial({ color, roughness: rough, metalness: metal });
@@ -193,7 +194,20 @@ export class ViewModel {
     this.flash.visible = false;
     this.root.add(this.flash);
     this.current = null;
-    this.state = { bob: 0, swayX: 0, swayY: 0, kick: 0, kickRot: 0, flashT: 0, reload: 0, sprint: 0, equip: 0, ads: 0, land: 0, roll: 0 };
+    this.state = { bob: 0, swayX: 0, swayY: 0, kick: 0, kickRot: 0, flashT: 0, reload: 0, sprint: 0, equip: 0, ads: 0, land: 0, roll: 0, shieldUp: 0 };
+    // escudo balístico de MURALLA: la cara de dentro, a la izquierda, con la mirilla arriba
+    this.shield = new THREE.Group();
+    const plate = std(0x2b2f35, 0.5, 0.55), inner = std(0x3a3f46, 0.6, 0.3), strap = std(0x1b1c1f, 0.8, 0.0);
+    const visor = std(0x0a1117, 0.75, 0.0);             // (mate: sin reflejos del entorno)
+    box(0.42, 0.66, 0.03, plate, 0, 0, 0, this.shield);
+    box(0.39, 0.63, 0.01, inner, 0, 0, 0.018, this.shield);
+    box(0.2, 0.05, 0.034, visor, 0.02, 0.22, 0, this.shield);        // mirilla (oscura)
+    box(0.035, 0.2, 0.035, strap, -0.1, -0.02, 0.04, this.shield);
+    box(0.035, 0.2, 0.035, strap, 0.1, -0.02, 0.04, this.shield);
+    // el foco va por fuera; por dentro, solo un piloto que se enciende al cargar el destello
+    this.shieldLamp = box(0.025, 0.012, 0.01, new THREE.MeshBasicMaterial({ color: new THREE.Color(0.02, 0.02, 0.02) }), 0.14, 0.22, 0.024, this.shield);
+    this.shield.visible = false;
+    this.scene.add(this.shield);
   }
 
   initEnvironment(renderer) {
@@ -297,7 +311,22 @@ export class ViewModel {
       fore.lerp(new THREE.Vector3(g.info.mag.position.x, g.info.mag.position.y - 0.08 * rk, g.info.mag.position.z), Math.min(1, rk * 1.5));
     }
     const wL = fore.add(new THREE.Vector3(-0.01, -0.035, 0.0));
-    aimArm(this.armL, wL, wL.clone().add(new THREE.Vector3(-0.2, -0.22, 0.28)));
+    // con escudo, la mano izquierda lo sujeta (y la pistola va a una mano)
+    const hasShield = !!op.ability && op.ability.id === 'shield' && op.state === 'alive';
+    this.shield.visible = hasShield;
+    if (hasShield) {
+      s.shieldUp = damp(s.shieldUp, shieldUp(op) ? 1 : 0, 10, dt);
+      const k = s.shieldUp;
+      // (a la izquierda: ocupa un tercio de la pantalla, girado hacia dentro)
+      this.shield.position.set(-0.38 - (1 - k) * 0.05 - s.ads * 0.03 + bx * 0.6, -0.1 - (1 - k) * 0.42 + by * 0.6, -0.52 + (1 - k) * 0.08);
+      this.shield.rotation.set((1 - k) * 0.7, 0.32 + (1 - k) * 0.5, (1 - k) * 0.3);
+      // foco del destello: se enciende al cargarlo
+      const hot = op.flashT > 0;
+      this.shieldLamp.material.color.setRGB(hot ? 6 : 0.02, hot ? 6 : 0.02, hot ? 6.5 : 0.02);
+      const grip = new THREE.Vector3(-0.1, -0.02, 0.06).applyEuler(this.shield.rotation).add(this.shield.position).sub(this.root.position);
+      grip.applyQuaternion(this.root.quaternion.clone().invert());
+      aimArm(this.armL, grip, grip.clone().add(new THREE.Vector3(-0.12, -0.24, 0.26)));
+    } else aimArm(this.armL, wL, wL.clone().add(new THREE.Vector3(-0.2, -0.22, 0.28)));
     // fogonazo
     s.flashT -= dt;
     this.flash.visible = s.flashT > 0;

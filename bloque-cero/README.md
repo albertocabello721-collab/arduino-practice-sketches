@@ -16,7 +16,7 @@ Es un único archivo HTML autónomo: no necesita servidor ni conexión.
 | F3 | Rondas 5v5, 3 ubicaciones de sitios (los defensores eligen), desactivador, HUD con reloj y 10 retratos | ✅ |
 | F4 | Preparación: refuerzos, barricadas, trampillas, drones, cámaras, cuerpo a cuerpo | ✅ |
 | F5 | Bots: navegación, percepción, combate, tácticas por bando, órdenes (H), marcas (T), chat de equipo, depuración (P) | ✅ |
-| F6 | Operadores 8 + 8 y contrajuego de gadgets | en curso: arsenal ✅ · plantilla de 16 ✅ · granadas y explosivos ✅ · gadgets defensivos ✅ · habilidades de brecha, humo, PEM, escaneo y visor térmico ✅ · resto de habilidades en camino |
+| F6 | Operadores 8 + 8 y contrajuego de gadgets | en curso: arsenal ✅ · plantilla de 16 ✅ · granadas y explosivos ✅ · gadgets defensivos ✅ · 8 habilidades de ataque ✅ · habilidades de defensa en camino |
 | F7 | Animaciones en primera y tercera persona | pendiente |
 | F8 | Recarga por partes | pendiente |
 | F9 | Audio 3D con oclusión | pendiente |
@@ -102,8 +102,20 @@ La habilidad y sus cargas salen abajo a la derecha, junto al gadget. Ya funciona
 - **LUMEN · visor térmico 3x** (sin límite, pasivo): con el arma principal, apuntando y quieto,
   la vista se enfría y los enemigos a menos de 30 m y a la vista se ven en colores de calor,
   **también dentro del humo**. El bot LUMEN, igual: con el visor ve a través del humo.
-- Entre dos usos de la habilidad hay 1 s de espera. Las de PULGA y MURALLA y las de la defensa
-  llegan en las siguientes rondas de la Fase 6; hasta entonces X no hace nada.
+- **PULGA · dron de choque** (6 cargas; recupera 1 cada 12 s): su primer dron de la ronda
+  lleva un emisor amarillo. Pilotándolo, **clic o X** dispara un rayo que destruye el primer
+  gadget de la defensa a menos de 8 m en línea recta: alambre, cámaras (también las
+  blindadas), alarmas y C4. No atraviesa paredes ni rompe el escudo desplegable; clic
+  derecho o T marca. A pie, **X** lleva directamente a ese dron. Contra: dispararle.
+- **MURALLA · escudo balístico** (4 destellos): solo lleva pistola y el escudo siempre delante;
+  para las balas y los golpes de frente desde las espinillas hasta encima de la cabeza
+  (agachado, casi entero). Correr, plantar, reanimar o tumbarse lo bajan y lo dejan expuesto.
+  **X** carga 0,4 s y lanza un destello que ciega como una cegadora a los enemigos en un cono
+  de 90° y 5 m. El golpe con escudo (V) quita 40. Los explosivos no lo rompen (a él sí le
+  llega la onda). Contras: flanquearlo, disparar a los pies o a la cabeza que asoma; los bots
+  que lo tienen de frente apuntan a los pies.
+- Entre dos usos de la habilidad hay 1 s de espera. Las habilidades de la defensa llegan en la
+  siguiente ronda de la Fase 6; hasta entonces X no hace nada en defensa.
 
 ## Gadgets secundarios (Fase 6)
 
@@ -298,7 +310,7 @@ node tools/smoke3.mjs <carpeta>  # partida completa en el navegador (selección 
 node tools/smoke-aliados.mjs <carpeta>  # depuración (P) y ayudas de equipo en el navegador
 node tools/smoke-gadgets.mjs <carpeta>  # granadas, brecha y claymore con G en el navegador
 node tools/smoke-defensa.mjs <carpeta>  # alambre, escudo, cámara blindada y alarma con G
-node tools/smoke-habilidades.mjs <carpeta>  # habilidades de ataque con X (brechas, humo, PEM, escaneo, visor)
+node tools/smoke-habilidades.mjs <carpeta>  # las 8 habilidades de ataque con X
 node tools/smoke4.mjs <carpeta>  # refuerzos, barricadas, golpes, drones y cámaras en el navegador
 node tools/smoke5.mjs <carpeta>  # partida contra bots en el navegador (rejilla, preparación, ronda)
 node tools/mapslice.mjs <carpeta> # cortes cenitales del mapa por planta

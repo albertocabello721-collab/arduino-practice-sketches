@@ -685,6 +685,24 @@ export class AudioEngine {
     this._burst(g, t, { type: 'bandpass', freq: 2400, q: 2, a: 0.01, peak: 0.3, d: 0.5 });
   }
 
+  // Destello del escudo: carga (silbido que sube) antes de disparar.
+  shieldCharge(pos, local = false) {
+    if (!this.ctx) return;
+    const t = this.ctx.currentTime;
+    const out = this._out(local ? null : pos, { gain: local ? 0.5 : 0.8, ref: 2.5, rolloff: 1.1, reverb: 0.2, direct: local });
+    this._tone(out, t, { f0: 900, f1: 3800, a: 0.02, peak: 0.35, d: 0.38, type: 'triangle' });
+  }
+
+  // Rayo del dron de choque: descarga eléctrica corta.
+  zap(pos, local = false, occl = 0) {
+    if (!this.ctx) return;
+    const t = this.ctx.currentTime;
+    const out = this._out(local ? null : pos, { gain: local ? 0.8 : 1.0, ref: 2, rolloff: 1.2, occl, reverb: 0.25, direct: local });
+    this._tone(out, t, { f0: 2400, f1: 300, a: 0.001, peak: 0.45, d: 0.22, type: 'sawtooth' });
+    this._burst(out, t, { type: 'highpass', freq: 3000, q: 0.7, a: 0.001, peak: 0.7, d: 0.16 });
+    for (let i = 0; i < 5; i++) this._burst(out, t + Math.random() * 0.18, { type: 'bandpass', freq: 3500 + Math.random() * 3500, q: 4, a: 0.001, peak: 0.3, d: 0.02 });
+  }
+
   // Granada PEM: chasquido eléctrico con zumbido que se apaga.
   empBurst(pos, occl = 0) {
     if (!this.ctx) return;

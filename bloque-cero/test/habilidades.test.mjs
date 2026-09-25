@@ -356,3 +356,194 @@ test('visor térmico: con la principal, apuntando y quieto; 3x; el bot LUMEN ve 
   pressX(c, l);
   assert.ok(/apunta/i.test(why[0] || ''), why[0]);
 });
+
+// ---------------------------------------------------------------- dron de choque (F6.4c)
+import { SHOCK } from '../src/sim/abilities.js';
+
+function aimDrone(d, p) {
+  const e = d.eyePos(), dx = p.x - e.x, dy = p.y - e.y, dz = p.z - e.z;
+  d.yaw = Math.atan2(-dx, -dz);
+  d.pitch = Math.atan2(dy, Math.hypot(dx, dz));
+}
+
+test('dron de choque: solo el primer dron de PULGA; el rayo destruye alarma y cámara blindada, no a través de paredes', () => {
+  const c = fresh();
+  const recon = new Recon(c.game, { cameras: map.cameras });
+  recon.reset({ defTeam: 1 });
+  c.gadgets.recon = recon;
+  // la defensa pone una alarma en el suelo del hall y una cámara blindada en la pared del salón (x = 12)
+  const d1 = c.game.addOperator(new Operator('d1', { team: 1, x: 17, y: 0, z: 13, yaw: 0, loadout: ['ar'] }));
+  const d2 = c.game.addOperator(new Operator('d2', { team: 1, x: 11.0, y: 0, z: 2, yaw: -Math.PI / 2, loadout: ['ar'] }));
+  d1.gadget = { id: 'alarm', left: 1 }; d2.gadget = { id: 'bpcam', left: 1 };
+  step(c, 0.3);
+  d1.pitch = -1.0; d2.pitch = 0;
+  d1.intent.gadget = true; d2.intent.gadget = true;
+  step(c, 1.2);
+  const al = c.gadgets.placed.find((p) => p.kind === 'alarm');
+  const cam = recon.cams.find((k) => k.bulletproof);
+  assert.ok(al && cam, 'alarma y cámara blindada colocadas');
+  // PULGA: su primer dron es el de choque; el segundo, normal
+  const p = withAbility(c.game.addOperator(new Operator('p', { team: 0, x: 17, y: 0, z: 8.2, yaw: Math.PI, loadout: ['ar'] })), 'shockdrone', SHOCK.charges);
+  const shock = recon.deployDrone(p, { thrown: false });
+  const other = recon.deployDrone(p, { thrown: false });
+  assert.ok(shock.shock && !other.shock, 'solo el primero es de choque');
+  assert.equal(c.abilities.shockDroneOf(p), shock);
+  // rayo contra la alarma (a unos 3 m)
+  aimDrone(shock, al.target.center());
+  const zaps = [];
+  c.game.on('shockZap', (d, from, to, hit) => zaps.push(hit));
+  shock.intent.zap = true; step(c, TICK);
+  assert.ok(!al.alive, 'alarma destruida');
+  assert.equal(p.ability.left, SHOCK.charges - 1);
+  // enfriamiento: otro disparo enseguida no sale
+  shock.intent.zap = true; step(c, TICK);
+  assert.equal(p.ability.left, SHOCK.charges - 1, 'medio segundo entre rayos');
+  // la cámara blindada, desde el recibidor y con la pared en medio: no
+  shock.body.pos.x = 13.5; shock.body.pos.y = 0; shock.body.pos.z = 2;
+  step(c, SHOCK.cooldown);
+  aimDrone(shock, cam.center());
+  shock.intent.zap = true; step(c, TICK);
+  assert.ok(cam.alive, 'la pared la protege');
+  assert.equal(zaps[zaps.length - 1], null);
+  // desde el salón, a la vista: destruida (las balas rebotan; el rayo no)
+  shock.body.pos.x = 9.0; shock.body.pos.z = 2.3;
+  step(c, SHOCK.cooldown);
+  aimDrone(shock, cam.center());
+  shock.intent.zap = true; step(c, TICK);
+  assert.ok(!cam.alive, 'cámara blindada destruida');
+  assert.equal(p.ability.left, SHOCK.charges - 3);
+  // el dron normal no tiene rayo
+  aimDrone(other, cam.center());
+  other.intent.zap = true; step(c, TICK);
+  assert.equal(p.ability.left, SHOCK.charges - 3);
+});
+
+test('dron de choque: 6 cargas; recupera 1 cada 12 s; sin cargas avisa; no rompe el escudo desplegable', () => {
+  const c = fresh();
+  const recon = new Recon(c.game, { cameras: map.cameras });
+  recon.reset({ defTeam: 1 });
+  c.gadgets.recon = recon;
+  // escudo desplegable en el hall y, detrás, una alarma en el suelo
+  const d = c.game.addOperator(new Operator('d', { team: 1, x: 18.5, y: 0, z: 13.0, yaw: Math.PI, loadout: ['ar'] }));
+  d.gadget = { id: 'shield', left: 1 };
+  step(c, 0.3);
+  d.pitch = -0.2;
+  d.intent.gadget = true; step(c, 1.2);
+  const p = withAbility(c.game.addOperator(new Operator('p', { team: 0, x: 18.5, y: 0, z: 10.5, yaw: Math.PI, loadout: ['ar'] })), 'shockdrone', 1);
+  const shock = recon.deployDrone(p, { thrown: false });
+  shock.body.pos.x = 18.5; shock.body.pos.y = 0; shock.body.pos.z = 12.0;
+  // rayo contra el escudo (vóxeles): se para en él y el escudo sigue
+  aimDrone(shock, { x: 18.5, y: 0.5, z: 14.5 });
+  const before = count(17.8, 19.2, 0.06, 1.0, 13.8, 14.0, MAT.DEPLOY_SHIELD);
+  assert.ok(before > 40, `escudo puesto (${before})`);
+  shock.intent.zap = true; step(c, TICK);
+  assert.equal(count(17.8, 19.2, 0.06, 1.0, 13.8, 14.0, MAT.DEPLOY_SHIELD), before, 'el escudo no se rompe');
+  assert.equal(p.ability.left, 0);
+  const empty = [];
+  c.game.on('abilityEmpty', (op) => empty.push(op));
+  step(c, SHOCK.cooldown);
+  shock.intent.zap = true; step(c, TICK);
+  assert.deepEqual(empty, [p], 'sin cargas');
+  step(c, SHOCK.regen - SHOCK.cooldown);
+  assert.equal(p.ability.left, 1, 'una carga más a los 12 s');
+  p.ability.left = SHOCK.charges;
+  step(c, SHOCK.regen + 1);
+  assert.equal(p.ability.left, SHOCK.charges, 'no pasa de 6');
+});
+
+// ---------------------------------------------------------------- escudo balístico (F6.4d)
+import { BSHIELD, shieldUp } from '../src/sim/abilities.js';
+import { aimPoint } from '../src/sim/bots.js';
+import { BONE } from '../src/sim/skeleton.js';
+
+function shootAt(game, from, p) {
+  const e = from.eyePos(), dx = p.x - e.x, dy = p.y - e.y, dz = p.z - e.z, L = Math.hypot(dx, dy, dz);
+  return game.fireBullet(from, e, { x: dx / L, y: dy / L, z: dz / L }, from.weapon);
+}
+
+test('escudo balístico: para las balas de frente; de lado y a los pies, no; corriendo lo baja', () => {
+  const c = fresh();
+  // MURALLA en el pasillo del sótano mirando hacia +x; un defensor a 6 m, de frente
+  const m = withAbility(c.game.addOperator(new Operator('m', { team: 0, x: 20, y: -3.5, z: 11, yaw: -Math.PI / 2, armor: 3, loadout: ['pistol'] })), 'shield', 4);
+  const d = c.game.addOperator(new Operator('d', { team: 1, x: 26, y: -3.5, z: 11, yaw: Math.PI / 2, loadout: ['ar'] }));
+  step(c, 0.3);
+  assert.ok(shieldUp(m), 'escudo arriba');
+  assert.ok(m._shieldTarget, 'el escudo para balas');
+  const rico = [];
+  c.game.on('ricochet', (tg) => rico.push(tg));
+  const chest = () => m.rig[BONE.chest].p, head = () => m.rig[BONE.head].p;
+  let r = shootAt(c.game, d, chest());
+  assert.equal(r.hitTarget && r.hitTarget.kind, 'shield');
+  r = shootAt(c.game, d, head());
+  assert.equal(r.hitTarget && r.hitTarget.kind, 'shield', 'la cabeza también');
+  assert.equal(m.hp, m.maxHp, 'sin daño');
+  assert.equal(rico.length, 2);
+  // a los pies, por debajo del escudo
+  const f = m.rig[BONE.footL].p;
+  r = shootAt(c.game, d, { x: f.x, y: f.y + 0.05, z: f.z });
+  assert.equal(r.hitOp, m, 'el pie asoma');
+  assert.ok(m.hp < m.maxHp);
+  // de lado, sin protección
+  const hp0 = m.hp;
+  d.body.pos.x = 20; d.body.pos.z = 14.5; d.yaw = 0;
+  step(c, 0.2);
+  r = shootAt(c.game, d, chest());
+  assert.equal(r.hitOp, m, 'de lado le da');
+  assert.ok(m.hp < hp0);
+  // corriendo baja el escudo: de frente le da
+  m.hp = m.maxHp;
+  d.body.pos.x = 27; d.body.pos.z = 11; d.yaw = Math.PI / 2;
+  m.intent.sprint = true; m.intent.moveZ = 1;
+  step(c, 0.2);
+  assert.ok(m.sprinting && !shieldUp(m), 'corriendo, bajado');
+  r = shootAt(c.game, d, chest());
+  assert.equal(r.hitOp, m, 'expuesto');
+  m.intent.sprint = false; m.intent.moveZ = 0;
+  step(c, 0.3);
+  assert.ok(shieldUp(m), 'arriba otra vez');
+  // los bots, de frente, apuntan a los pies
+  const tp = aimPoint(m, true, d.eyePos());
+  assert.ok(tp.y < m.body.pos.y + 0.4, `a los pies (${(tp.y - m.body.pos.y).toFixed(2)} m)`);
+  const side = aimPoint(m, true, { x: m.body.pos.x, y: -2, z: m.body.pos.z + 4 });
+  assert.ok(side.y > m.body.pos.y + 1.3, 'de lado, a la cabeza');
+});
+
+test('escudo balístico: X destella tras 0,4 s y ciega en 90° y 5 m; golpe de 40; los explosivos no lo rompen', () => {
+  const c = fresh();
+  const m = withAbility(c.game.addOperator(new Operator('m', { team: 0, x: 20, y: -3.5, z: 11, yaw: -Math.PI / 2, armor: 3, loadout: ['pistol'] })), 'shield', 4);
+  const front = c.game.addOperator(new Operator('f', { team: 1, x: 24, y: -3.5, z: 11, yaw: Math.PI / 2, loadout: ['ar'] }));
+  const far = c.game.addOperator(new Operator('l', { team: 1, x: 26.5, y: -3.5, z: 11, yaw: Math.PI / 2, loadout: ['ar'] }));
+  const off = c.game.addOperator(new Operator('o', { team: 1, x: 21.2, y: -3.5, z: 13.2, yaw: Math.PI, loadout: ['ar'] }));
+  const ally = c.game.addOperator(new Operator('a', { team: 0, x: 23, y: -3.5, z: 12, yaw: Math.PI / 2, loadout: ['ar'] }));
+  step(c, 0.3);
+  pressX(c, m);
+  assert.equal(m.ability.left, 3);
+  assert.equal(front.blindT || 0, 0, 'aún cargando');
+  step(c, BSHIELD.windup);
+  assert.ok(front.blindT >= 3, `de frente a 4 m: cegado (${(front.blindT || 0).toFixed(2)} s)`);
+  assert.equal(far.blindT || 0, 0, 'a 6,5 m, no');
+  assert.equal(off.blindT || 0, 0, 'fuera del cono, no');
+  assert.equal(ally.blindT || 0, 0, 'los compañeros, no');
+  // golpe con escudo: 40
+  front.blindT = 0;
+  front.body.pos.x = 21.3;
+  step(c, 0.2);
+  const hp0 = front.hp;
+  m.intent.melee = true; step(c, 0.1);
+  assert.equal(hp0 - front.hp, BSHIELD.bash, 'golpe con escudo');
+  // un golpe de frente contra el escudo: parado
+  const mh = m.hp;
+  front.yaw = Math.PI / 2;
+  front.intent.melee = true; step(c, 0.6);
+  assert.equal(m.hp, mh, 'el escudo para el golpe');
+  // una granada delante: el escudo sigue (a MURALLA sí le llega la onda)
+  // (a 2,5 m: la onda llega al escudo, a 2 m de ella, y MURALLA sobrevive)
+  const booms = [];
+  c.game.on('explosion', (k) => booms.push(k));
+  c.gadgets.items.push({ id: 'x', kind: 'frag', owner: front, team: 1, pos: { x: 22.5, y: -3.4, z: 11 }, vel: { x: 0, y: 0, z: 0 }, t: 2.95, rest: true, alive: true, bounces: 0 });
+  step(c, 0.2);
+  assert.deepEqual(booms, ['frag']);
+  assert.equal(m.state, 'alive');
+  assert.ok(m.hp < mh, 'la onda le llega');
+  assert.ok(m._shieldTarget && m._shieldTarget.alive, 'el escudo no se rompe');
+});

@@ -45,7 +45,8 @@ export class PlayerControl {
     if (input.pressed('melee')) I.melee = true;
     if (input.pressed('fireMode')) I.fireMode = true;
     if (op.gadget && input.pressed('gadget')) I.gadget = true;     // gadget secundario (G)
-    if (op.ability && input.pressed('ability')) I.ability = true;  // habilidad del operador (X)
+    // habilidad del operador (X); la de PULGA (ir a su dron de choque) la lleva la vista de la partida
+    if (op.ability && op.ability.id !== 'shockdrone' && input.pressed('ability')) I.ability = true;
     if (input.pressed('vault')) I.vault = true;
     if (input.pressed('primary')) I.switchTo = 0;
     if (input.pressed('secondary')) I.switchTo = 1;

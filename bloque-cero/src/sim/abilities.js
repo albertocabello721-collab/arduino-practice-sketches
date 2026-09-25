@@ -16,15 +16,74 @@
 //   · LUMEN · visor térmico 3x (sin límite, pasivo): con el arma principal, apuntando y
 //     quieto, los enemigos a menos de 30 m y a la vista se ven con colores de calor,
 //     también dentro del humo (los bots LUMEN, igual).
-// El resto llega en las siguientes rondas (6.4c-d y 6.5): hasta entonces X no hace nada.
+// Anti-gadgets (Fase 6.4c):
+//   · PULGA · dron de choque: su primer dron dispara un rayo (clic o X mientras lo pilota)
+//     que destruye los gadgets de la defensa a menos de 8 m en línea recta: alambre,
+//     cámaras (también las blindadas), alarmas y C4. No atraviesa paredes ni rompe el
+//     escudo desplegable. 6 cargas; recupera 1 cada 12 s. X a pie: pilotar ese dron.
+// Escudo (Fase 6.4d):
+//   · MURALLA · escudo balístico: siempre delante (solo lleva pistola); para las balas de
+//     frente desde las espinillas hasta encima de la cabeza (agachado, casi entero). Correr,
+//     plantar o reanimar lo bajan y lo dejan expuesto. X: destello (×4) que ciega como una
+//     cegadora en un cono de 90° y 5 m, tras 0,4 s de carga. Golpe con escudo (V): 40.
+//     Contras: flanquearlo, disparar a los pies o a la cabeza que asoma, explosivos.
+// El resto (habilidades de la defensa, 6.5) llega en la siguiente ronda: hasta entonces X no hace nada.
 // Simulación pura (corre en Node).
-import { ABILITY_CD } from './gadgets.js';
+import { ABILITY_CD, FLASH } from './gadgets.js';
+import { raycastFirst, lineOfSight } from '../world/raycast.js';
+import { SOLID } from '../world/materials.js';
+import { rayAABB } from './recon.js';
+import { BONE } from './skeleton.js';
 
 export const SCAN = { warn: 2, active: 4, speed: 0.25, linger: 0.6 };
 export const THERMAL_SCOPE = { range: 30, zoom: 3, still: 0.3, ads: 0.85 };
+export const SHOCK = { charges: 6, regen: 12, range: 8, cooldown: 0.5 };
+// escudo balístico: media anchura, distancia al pecho, borde inferior (de pie / agachado) y
+// lo que sobresale por encima de la cabeza; ángulo en el que protege; golpe y destellos
+export const BSHIELD = { hw: 0.31, front: 0.42, low: 0.45, lowCrouch: 0.18, top: 0.22, cover: 0.34, bash: 40, windup: 0.4, range: 5, cone: Math.cos(Math.PI / 4) };
 
 /** Habilidades ya programadas (las demás aún no se muestran en el HUD). */
-export const ABILITY_READY = { thermal: true, breachround: true, remotesmoke: true, emp: true, scan: true, thermalscope: true };
+export const ABILITY_READY = { thermal: true, breachround: true, remotesmoke: true, emp: true, scan: true, thermalscope: true, shockdrone: true, shield: true };
+
+/** ¿Tiene `op` el escudo balístico levantado? (correr, plantar o reanimar lo bajan) */
+export function shieldUp(op) {
+  return !!op.ability && op.ability.id === 'shield' && op.state === 'alive' && !op.frozen && !op.sprinting &&
+    !op.channel && !op.reviving && !op.vault && op.stance !== 'prone';
+}
+/** Caja del escudo: centro (x, z), alturas y orientación (la del cuerpo). */
+export function shieldBox(op) {
+  const r = op.rig, b = op.body.pos;
+  const chest = r && r[BONE.chest] ? r[BONE.chest].p : { x: b.x, y: b.y + 1.3, z: b.z };
+  const head = r && r[BONE.head] ? r[BONE.head].p : { x: b.x, y: b.y + 1.65, z: b.z };
+  const fx = -Math.sin(op.yaw), fz = -Math.cos(op.yaw);
+  return {
+    x: chest.x + fx * BSHIELD.front, z: chest.z + fz * BSHIELD.front, fx, fz,
+    y0: b.y + (op.stance === 'crouch' ? BSHIELD.lowCrouch : BSHIELD.low), y1: head.y + BSHIELD.top,
+  };
+}
+/** ¿Protege el escudo de `op` contra algo que viene de `from`? (de frente, no de lado) */
+export function shieldFaces(op, from) {
+  if (!shieldUp(op)) return false;
+  const b = op.body.pos, dx = from.x - b.x, dz = from.z - b.z, L = Math.hypot(dx, dz) || 1;
+  return (dx * -Math.sin(op.yaw) + dz * -Math.cos(op.yaw)) / L > BSHIELD.cover;
+}
+// El escudo como objeto que para las balas (blindado e indestructible) de la lista de la partida.
+function shieldTarget(op) {
+  return {
+    kind: 'shield', owner: op, team: op.team, alive: true, bulletproof: true, indestructible: true,
+    center() { const s = shieldBox(op); return { x: s.x, y: (s.y0 + s.y1) / 2, z: s.z }; },
+    rayTest(o, d, maxT) {
+      if (!shieldUp(op)) return -1;
+      const s = shieldBox(op), rx = -s.fz, rz = s.fx;          // derecha y delante (plano horizontal)
+      const ox = o.x - s.x, oz = o.z - s.z;
+      const lo = { x: ox * rx + oz * rz, y: o.y, z: ox * s.fx + oz * s.fz };
+      const ld = { x: d.x * rx + d.z * rz, y: d.y, z: d.x * s.fx + d.z * s.fz };
+      return rayAABB(lo, ld, -BSHIELD.hw, s.y0, -0.03, BSHIELD.hw, s.y1, 0.03, maxT);
+    },
+  };
+}
+// Lo que el rayo del dron de choque destruye (objetos de la defensa)
+const ZAPPABLE = { gadget: true, cam: true };
 
 /** ¿Tiene `op` el visor térmico en marcha? (arma principal, apuntando y quieto) */
 export function thermalOn(op) {
@@ -47,6 +106,7 @@ export class Abilities {
   reset() {
     this.scans = [];
     for (const op of this.game.operators) op.abilityCd = 0;
+    this.game.targets = this.game.targets.filter((t) => t.kind !== 'shield');
   }
   /** El pulso de escaneo en curso que afecta al equipo `team` (el más reciente), o null. */
   scanAgainst(team) {
@@ -75,7 +135,109 @@ export class Abilities {
       case 'remotesmoke': return G.fireRound(op, 'smokeround') ? 'fire' : null;
       case 'emp': return G.throwFrom(op, 'ability') ? 'throw' : null;
       case 'scan': return this.startScan(op) ? 'scan' : null;
+      case 'shield': return this.startFlash(op) ? 'flash' : null;
       default: return null;       // (el visor térmico es pasivo: apuntar y quedarse quieto)
+    }
+  }
+
+  // ---------------------------------------------------------------- escudo balístico (MURALLA)
+  startFlash(op) {
+    if (!this.gadgets.canUse(op, 'ability') || op.flashT > 0) return false;
+    if (!shieldUp(op)) { this.game.emit('abilityDenied', op, 'Con el escudo bajado no hay destello'); return false; }
+    op.ability.left--;
+    op.abilityCd = ABILITY_CD;
+    op.flashT = BSHIELD.windup;
+    this.game.emit('shieldFlashCharge', op);
+    return true;
+  }
+  _shieldFlash(op) {
+    const g = this.game, s = shieldBox(op), b = op.body.pos;
+    const chestY = op.rig && op.rig[BONE.chest] ? op.rig[BONE.chest].p.y : b.y + 1.3;
+    const p = { x: s.x + s.fx * 0.06, y: Math.min(s.y1 - 0.2, chestY + 0.15), z: s.z + s.fz * 0.06 };
+    const hitList = [];
+    for (const t of g.operators) {
+      if (t.team === op.team || t.state !== 'alive' || t.frozen) continue;
+      const e = t.eyePos();
+      const dx = e.x - p.x, dy = e.y - p.y, dz = e.z - p.z, d = Math.hypot(dx, dy, dz);
+      if (d > BSHIELD.range) continue;
+      const hd = Math.hypot(dx, dz) || 1;
+      if ((dx * s.fx + dz * s.fz) / hd < BSHIELD.cone) continue;          // fuera del cono de 90°
+      if (!lineOfSight(g.world, p.x, p.y, p.z, e.x, e.y, e.z)) continue;
+      // como una cegadora: entera si mira al escudo; de lado o de espaldas, menos
+      const v = t.viewDir();
+      const facing = -(dx * v.x + dy * v.y + dz * v.z) / Math.max(0.01, d);
+      const look = facing > 0.5 ? 1 : facing > -0.3 ? 0.35 + (facing + 0.3) * 0.8125 : 0.3;
+      const secs = Math.max(FLASH.min, FLASH.max * look);
+      t.blindT = Math.max(t.blindT || 0, secs);
+      t.blindMax = Math.max(t.blindT, t.blindMax || 0);
+      hitList.push(t);
+    }
+    g.emit('shieldFlash', op, p, hitList);
+  }
+  _shieldTick(dt) {
+    const g = this.game;
+    for (const op of g.operators) {
+      if (!op.ability || op.ability.id !== 'shield') continue;
+      // el escudo en la lista de objetos que paran balas (uno por operador, mientras viva)
+      if (!op._shieldTarget && op.state !== 'dead') { op._shieldTarget = shieldTarget(op); g.targets.push(op._shieldTarget); }
+      if (op.state === 'dead' && op._shieldTarget) { g.targets = g.targets.filter((t) => t !== op._shieldTarget); op._shieldTarget = null; }
+      op.meleeDamage = shieldUp(op) ? BSHIELD.bash : undefined;        // golpe con escudo
+      if (op.flashT > 0) {
+        op.flashT -= dt;
+        if (op.flashT <= 0) { op.flashT = 0; if (op.state === 'alive') this._shieldFlash(op); }
+      }
+    }
+  }
+
+  // ---------------------------------------------------------------- dron de choque (PULGA)
+  /** El dron de choque de `op` (vivo) o null. */
+  shockDroneOf(op) {
+    const R = this.gadgets.recon;
+    return R ? R.drones.find((d) => d.owner === op && d.shock && d.alive) || null : null;
+  }
+  /** Rayo del dron de choque: destruye el primer gadget de la defensa en línea recta. */
+  zap(d) {
+    const g = this.game, op = d.owner, a = op && op.ability;
+    if (!d.alive || !d.shock || !a || a.id !== 'shockdrone' || (d.zapCd || 0) > 0) return null;
+    if (a.left <= 0) { g.emit('abilityEmpty', op); return null; }
+    if (!this.canZap(d)) { g.emit('abilityDenied', op, 'Sin señal: el rayo no responde'); return null; }
+    a.left--;
+    d.zapCd = SHOCK.cooldown;
+    const e = d.eyePos(), dir = d.viewDir();
+    const wall = raycastFirst(g.world, e.x, e.y, e.z, dir.x, dir.y, dir.z, SHOCK.range, SOLID, true);
+    let best = null, bt = wall ? wall.t : SHOCK.range;
+    for (const tg of g.targets) {
+      if (!tg.alive || !ZAPPABLE[tg.kind] || tg.team === d.team || tg.indestructible) continue;
+      let t = tg.rayTest(e, dir, bt);
+      if (t < 0 && tg.center) {
+        // (el rayo es generoso: basta con apuntar cerca del centro, si se ve)
+        const c = tg.center(), vx = c.x - e.x, vy = c.y - e.y, vz = c.z - e.z;
+        const along = vx * dir.x + vy * dir.y + vz * dir.z;
+        const perp = Math.hypot(vx - dir.x * along, vy - dir.y * along, vz - dir.z * along);
+        if (along > 0 && along < bt && perp < 0.06 + along * 0.03 && lineOfSight(g.world, e.x, e.y, e.z, c.x - dir.x * 0.08, c.y - dir.y * 0.08, c.z - dir.z * 0.08)) t = along;
+      }
+      if (t >= 0 && t < bt) { bt = t; best = tg; }
+    }
+    const to = { x: e.x + dir.x * bt, y: e.y + dir.y * bt, z: e.z + dir.z * bt };
+    g.emit('shockZap', d, { ...e }, to, best);
+    if (best) g.destroyTarget(best, op, to);
+    return best;
+  }
+  // (los inhibidores de SILENCIO cortarán la señal: Fase 6.5)
+  canZap(d) { void d; return true; }
+  _shockTick(dt) {
+    const R = this.gadgets.recon;
+    if (R) for (const d of R.drones) {
+      if (d.zapCd > 0) d.zapCd -= dt;
+      if (d.intent.zap) { d.intent.zap = false; this.zap(d); }
+    }
+    // recarga: una carga cada 12 s hasta 6
+    for (const op of this.game.operators) {
+      const a = op.ability;
+      if (!a || a.id !== 'shockdrone' || op.state === 'dead') continue;
+      if (a.left >= SHOCK.charges) { op.shockT = 0; continue; }
+      op.shockT = (op.shockT || 0) + dt;
+      if (op.shockT >= SHOCK.regen) { op.shockT -= SHOCK.regen; a.left++; }
     }
   }
 
@@ -119,11 +281,15 @@ export class Abilities {
       const I = op.intent;
       if (!I.ability) continue;
       I.ability = false;
+      // (PULGA: X a pie lleva al dron de choque; eso lo resuelve la vista del jugador)
+      if (op.ability && op.ability.id === 'shockdrone') continue;
       if (this.use(op) || op.state !== 'alive' || !this.ready(op)) continue;
       if (op.ability.id === 'thermalscope') { g.emit('abilityDenied', op, 'Visor térmico: apunta con el arma principal y quédate quieto'); continue; }
       // sin cargas (y nada que encender): aviso
       if (op.ability.left === 0 && !this.gadgets.thermalOf(op)) g.emit('abilityEmpty', op);
     }
     this._scanTick();
+    this._shockTick(dt);
+    this._shieldTick(dt);
   }
 }

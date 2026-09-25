@@ -1,7 +1,8 @@
 // Prueba de humo en el navegador de las habilidades de ataque (X): carga térmica contra un
 // refuerzo, proyectil de brecha, humo remoto, granada PEM (la cámara se queda sin señal),
-// pulso de escaneo (el defensor que anda queda marcado) y visor térmico a través del humo,
-// con capturas y sin errores.
+// pulso de escaneo (el defensor que anda queda marcado), visor térmico a través del humo y
+// dron de choque (X lo toma; su rayo destruye una alarma) y escudo balístico (destello y balas
+// que rebotan), con capturas y sin errores.
 // Uso: node tools/smoke-habilidades.mjs <carpeta de capturas>
 import { createRequire } from 'node:module';
 import path from 'node:path';
@@ -145,5 +146,76 @@ console.log('visor térmico:', JSON.stringify(th2));
 await page.screenshot({ path: `${out}/h11_visor_termico.png` });
 await page.evaluate(() => { window.__bc.ctx.input.mouse.right = false; });
 await ticks(30, KEEP);
+
+// 7) PULGA: dron de choque contra una alarma de la defensa en el hall
+await page.evaluate(() => {
+  const bc = window.__bc, m = bc.match, G = m.gadgets, d = bc.__d, p = bc.player;
+  // una alarma de la defensa, puesta por el defensor en el suelo del hall
+  d.body.pos.x = 17; d.body.pos.y = 0.01; d.body.pos.z = 13; d.yaw = 0; d.pitch = -1.0; d.gadget = { id: 'alarm', left: 1 }; d.gadgetCd = 0;
+  const spot = G.placeSpot(d); G._place(d, spot);
+  // el jugador pasa a ser PULGA con su dron de choque en el hall
+  p.ability = { id: 'shockdrone', left: 6 }; p.opDef = { ...p.opDef, ability: { ...p.opDef.ability, id: 'shockdrone', name: 'Dron de choque' } };
+  // (como si fuera su primer dron de la ronda)
+  for (const o of m.recon.drones) if (o.owner === p) o.alive = false;
+  m.recon.drones = m.recon.drones.filter((o) => o.owner !== p);
+  m.recon.left.set(p, 2);
+  const dr = m.recon.deployDrone(p, { thrown: false }) || null;
+  bc.__dr = dr;
+  bc.place(17, 0.01, 9, Math.PI, 0);
+});
+const dr0 = await page.evaluate(() => { const bc = window.__bc, dr = bc.__dr; return dr ? { choque: dr.shock, nombre: dr.name } : null; });
+console.log('dron de PULGA:', JSON.stringify(dr0));
+await ticks(2, KEEP);
+await page.keyboard.press('KeyX');            // X a pie: al dron de choque
+await ticks(3, KEEP);
+await page.evaluate(() => {
+  const bc = window.__bc, dr = bc.__dr, al = bc.match.gadgets.placed.find((c) => c.kind === 'alarm' && c.alive);
+  if (!dr || !al) return;
+  dr.body.pos.x = 17; dr.body.pos.y = 0.02; dr.body.pos.z = 9.5;
+  const e = dr.eyePos(), c = al.target.center();
+  dr.yaw = Math.atan2(-(c.x - e.x), -(c.z - e.z)); dr.pitch = Math.atan2(c.y - e.y, Math.hypot(c.x - e.x, c.z - e.z));
+});
+await ticks(2, KEEP);
+await page.waitForTimeout(600);
+console.log('en el dron de choque:', await page.evaluate(() => new Promise((res) => requestAnimationFrame(() => requestAnimationFrame(() => res({ vista: window.__bc.session.feed.mode, titulo: document.getElementById('fd-title').textContent, teclas: document.getElementById('fd-keys').textContent }))))));
+await page.screenshot({ path: `${out}/h12_dron_choque.png` });
+await page.keyboard.press('KeyX');            // X en el dron: rayo
+await ticks(3, KEEP);
+await page.waitForTimeout(250);
+await page.screenshot({ path: `${out}/h13_rayo.png` });
+console.log('rayo:', JSON.stringify(await page.evaluate(() => { const bc = window.__bc; const al = bc.match.gadgets.placed.find((c) => c.kind === 'alarm'); return { alarmaViva: !!al && al.alive, cargas: bc.player.ability.left }; })));
+await page.evaluate(() => window.__bc.session.feed.exit());
+await ticks(2, KEEP);
+
+// 8) MURALLA: escudo en primera persona, destello que ciega y escudo enemigo que para las balas
+await page.evaluate(() => {
+  const bc = window.__bc, p = bc.player, d = bc.__d;
+  p.ability = { id: 'shield', left: 4 }; p.abilityCd = 0;
+  p.opDef = { ...p.opDef, ability: { ...p.opDef.ability, id: 'shield', name: 'Escudo balístico', short: 'Destello' } };
+  p.intent.switchTo = 1;                              // pistola
+  d.body.pos.x = 17; d.body.pos.y = 0.01; d.body.pos.z = 9.5; d.yaw = 0; d.blindT = 0; d.hp = d.maxHp;
+  bc.place(17, 0.01, 13.5, 0, -0.08);                // en el hall, mirándolo a 4 m
+});
+await ticks(60, KEEP);
+await page.waitForTimeout(900);
+console.log('escudo:', JSON.stringify(await page.evaluate(() => new Promise((res) => requestAnimationFrame(() => requestAnimationFrame(() => res({ kit: document.getElementById('kit').textContent.trim(), arma: window.__bc.player.weapon.def.name })))))));
+await page.screenshot({ path: `${out}/h14_escudo_primera_persona.png` });
+await page.keyboard.press('KeyX');
+await page.waitForFunction(() => window.__bc.player.flashT > 0, null, { timeout: 20000 }).catch(() => {});
+await ticks(30, KEEP);
+console.log('destello:', JSON.stringify(await page.evaluate(() => { const bc = window.__bc; return { cegado: +(bc.__d.blindT || 0).toFixed(2), quedan: bc.player.ability.left }; })));
+// el defensor con escudo, de cara al jugador: las balas rebotan
+await page.evaluate(() => {
+  const bc = window.__bc, d = bc.__d;
+  d.ability = { id: 'shield', left: 4 }; d.yaw = Math.PI; d.blindT = 0;
+  bc.player.ability = { id: 'thermal', left: 0 };
+  bc.player.opDef = { ...bc.player.opDef, ability: { ...bc.player.opDef.ability, id: 'thermal', name: 'Carga térmica', short: undefined } };
+});
+await ticks(10, KEEP);
+const shot = await page.evaluate(() => { const bc = window.__bc, d = bc.__d, g = bc.match.game; let rico = 0; const off = g.on('ricochet', () => rico++); const hp = d.hp; bc.place(17, 0.01, 13.5, 0, -0.14); bc.session.tick(1 / 60); bc.fire(3); off(); return { rebotes: rico, vidaAntes: hp, vidaDespues: d.hp }; });
+console.log('disparos al escudo:', JSON.stringify(shot));
+await ticks(2, KEEP);
+await page.waitForTimeout(900);
+await page.screenshot({ path: `${out}/h15_escudo_enemigo.png` });
 console.log('errores:', errors.length); for (const e of errors.slice(0, 10)) console.log('  ', e.slice(0, 300));
 await browser.close();

@@ -28,6 +28,7 @@ import { lineOfSight, traverse } from '../world/raycast.js';
 import { SOLID, HARD, PEN_COST } from '../world/materials.js';
 import { angleDiff, clamp } from '../core/math.js';
 import { BONE } from './skeleton.js';
+import { shieldFaces } from './abilities.js';
 
 // Dificultad (tabla de IA del documento): reacción, error inicial de puntería (grados) que
 // se corrige mientras sigue al blanco, y lo que sabe hacer cada nivel.
@@ -1016,7 +1017,7 @@ class Brain {
     A.vx += (wn * wn * (A.gx - A.x) - 2 * zeta * wn * A.vx) * dt;
     A.vy += (wn * wn * (A.gy - A.y) - 2 * zeta * wn * A.vy) * dt;
     A.x += A.vx * dt; A.y += A.vy * dt;
-    const tp = aimPoint(t, A.head && t.state === 'alive');
+    const tp = aimPoint(t, A.head && t.state === 'alive', e);
     const dx = tp.x - e.x, dy = tp.y - e.y, dz = tp.z - e.z;
     const dist = Math.hypot(dx, dz);
     const wantYaw = Math.atan2(-dx, -dz) + A.x;
@@ -1565,8 +1566,13 @@ class Brain {
 }
 
 // ====================================================================== utilidades
-function aimPoint(t, head) {
+export function aimPoint(t, head, from = null) {
   const r = t.rig;
+  // escudo balístico de frente: a los pies, que asoman por debajo
+  if (from && shieldFaces(t, from) && r[BONE.footL] && r[BONE.footR]) {
+    const a = r[BONE.footL].p, b = r[BONE.footR].p;
+    return { x: (a.x + b.x) / 2, y: Math.min(a.y, b.y) + 0.14, z: (a.z + b.z) / 2 };
+  }
   if (head && r[BONE.head]) { const h = r[BONE.head].p; return { x: h.x, y: h.y + 0.08, z: h.z }; }
   if (r[BONE.chest]) { const c = r[BONE.chest].p; return { x: c.x, y: c.y + 0.08, z: c.z }; }
   const b = t.body.pos;

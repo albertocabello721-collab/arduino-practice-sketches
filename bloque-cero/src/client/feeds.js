@@ -67,7 +67,11 @@ export class FeedController {
       I.moveZ = (input.isDown('forward') ? 1 : 0) - (input.isDown('back') ? 1 : 0);
       I.moveX = (input.isDown('right') ? 1 : 0) - (input.isDown('left') ? 1 : 0);
       if (input.pressed('vault')) I.jump = true;
-      if (input.mouseClicked(0) || input.mouseClicked(1) || input.pressed('mark')) I.mark = true;
+      if (d.shock) {
+        // dron de choque: clic (o X) dispara el rayo; clic derecho o T marca
+        if (input.mouseClicked(0) || input.pressed('ability')) I.zap = true;
+        if (input.mouseClicked(1) || input.pressed('mark')) I.mark = true;
+      } else if (input.mouseClicked(0) || input.mouseClicked(1) || input.pressed('mark')) I.mark = true;
       d.yaw -= m.dx * sens;
       d.pitch = clamp(d.pitch - m.dy * sens * inv, -0.75, 0.6);
     } else if (this.mode === 'cams' && this.cam && this.lostT <= 0) {
@@ -106,9 +110,11 @@ export class FeedController {
     this.el.root.classList.toggle('cam', cams);
     let title = '', sub = '', status = '', keys = '';
     if (this.mode === 'drone' && this.drone) {
-      title = this.piloting ? 'Dron' : `Dron de ${this.drone.owner.name}`;
+      const shock = this.drone.shock, ab = this.drone.owner.ability;
+      title = this.piloting ? (shock ? 'Dron de choque' : 'Dron') : this.drone.name;
       sub = `<i class="rec"></i>${info.dronesLeft !== undefined ? `En directo · ${info.dronesLeft} de reserva` : 'En directo'}`;
-      keys = this.piloting ? `WASD mover · Espacio saltar · Clic/T marcar${info.dead ? ' · Q/E otro dron' : ''}${info.canExit ? (info.dead ? ' · 5 observar' : ' · 5 volver') : ''}` : 'Clic para cambiar de dron';
+      const act = shock ? `Clic/X rayo <b>${ab ? ab.left : 0}</b> · Clic derecho/T marcar` : 'Clic/T marcar';
+      keys = this.piloting ? `WASD mover · Espacio saltar · ${act}${info.dead ? ' · Q/E otro dron' : ''}${info.canExit ? (info.dead ? ' · 5 observar' : ' · 5 volver') : ''}` : 'Clic para cambiar de dron';
     } else if (cams && this.cam) {
       const recon = this.getRecon();
       const list = recon ? recon.cams : [];
