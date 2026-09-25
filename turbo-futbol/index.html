@@ -528,12 +528,13 @@ const CONFIG = {
     minTime: 0.1,
   },
   jump: {
-    impulse: 292,           // uu/s hacia el techo del auto
-    holdAccel: 1460,        // uu/s² extra mientras se mantiene
-    maxHold: 0.2,
-    minHold: 0.025,
+    impulse: 875 / 3,       // uu/s hacia el techo del auto (JUMP_IMMEDIATE_FORCE = 291.67)
+    holdAccel: 4375 / 3,    // uu/s² extra mientras se mantiene (JUMP_ACCEL = 1458.33)
+    preMinAccelScale: 0.62, // la fuerza sostenida antes de minHold se multiplica por esto (JUMP_PRE_MIN_ACCEL_SCALE)
+    maxHold: 0.2,           // (JUMP_MAX_TIME)
+    minHold: 0.025,         // (JUMP_MIN_TIME)
     secondWindow: 1.25,     // s desde que termina el primer salto (DOUBLEJUMP_MAX_DELAY); sin salto previo: hasta aterrizar
-    resetPad: 0.1,          // s mínimos tras saltar antes de recuperar saltos al tocar
+    resetPad: 1 / 40,       // tras un salto mínimo, espera extra antes de recuperarlo al tocar (JUMP_RESET_TIME_PAD)
   },
   // Valores de RocketSim (RLConst.h / CarConfig.h, MIT © ZealanL); nombres originales entre paréntesis
   dodge: {
@@ -952,7 +953,7 @@ class Car {
     this.jumpHeld = false; this.isJumping = false; this.jumpTime = 0;
     this.hasJumped = false; this.hasDoubleJumped = false; this.hasFlipped = false;
     this.isFlipping = false; this.flipTime = 0; this.flipRelX = 0; this.flipRelY = 0;
-    this.airTime = 0; this.airTimeSinceJump = 0; this.timeSinceJumpStart = 10;
+    this.airTime = 0; this.airTimeSinceJump = 0;
     this.autoFlipTimer = 0; this.autoFlipDir = 1;
     this.supersonic = false; this.supersonicTime = 0;
     this.worldContactTimer = 0; this.worldContactN.set(0, 0, 1);
@@ -1054,23 +1055,15 @@ class Car {
     // ---------------- Saltos ----------------
     const jumpPressed = ctl.jump && !this.jumpHeld;
     this.jumpHeld = ctl.jump;
-    this.timeSinceJumpStart += dt;
-    if (onGround && !this.isJumping && this.timeSinceJumpStart > J.resetPad) {
-      // Tocar una superficie con las ruedas recupera el salto
-      this.hasJumped = false;
-    }
     _acc.set(0, 0, -g);
     _ang.set(0, 0, 0);
     // Control aéreo y torque del dodge con menos de 3 ruedas (RocketSim: _UpdateAirTorque); en el suelo termina el dodge
     if (nc < 3) this.updateAirTorque(ctl, nc === 0);
     else this.isFlipping = false;
+    this.updateJump(ctl, dt, jumpPressed);
     if (jumpPressed) {
       const onRoof = nc === 0 && this.worldContactTimer > 0 && this.worldContactN.dot(u) < -0.7;
-      if (onGround && !this.isJumping) {
-        this.isJumping = true; this.jumpTime = 0; this.hasJumped = true; this.timeSinceJumpStart = 0;
-        this.vel.addScaled(u, J.impulse);
-        this.events.push({ type: 'salto' });
-      } else if (onRoof) {
+      if (onRoof) {
         // Recuperación automática al quedar sobre el techo del auto
         this.autoFlipTimer = C.autoFlipTime;
         _ca.crossVectors(u, this.worldContactN);
@@ -1080,12 +1073,7 @@ class Car {
         this.events.push({ type: 'salto' });
       }
     }
-    if (this.isJumping) {
-      this.jumpTime += dt;
-      if (this.jumpTime <= J.maxHold + 1e-9 && (ctl.jump || this.jumpTime <= J.minHold + 1e-9)) _acc.addScaled(u, J.holdAccel);
-      else this.isJumping = false;
-    }
-    this.updateDoubleJumpOrFlip(ctl, dt, jumpPressed && !onGround, this.vel.dot(f));
+    this.updateDoubleJumpOrFlip(ctl, dt, jumpPressed, this.vel.dot(f));
 
     // ---------------- Fuerzas con contacto ----------------
     if (nc > 0) {
@@ -1159,6 +1147,33 @@ class Car {
    * Sus fórmulas se copian con right := u × f (en este mundo diestro ese vector es this.rot.l) y las
    * entradas quirales (steer, yaw, roll) se invierten al entrar, para que +1 siga siendo "a la derecha" en pantalla.
    */
+
+  /**
+   * Salto (RocketSim: Car::_UpdateJump). Los tiempos se comparan con un margen de 1e-6 s para reproducir
+   * los mismos ticks que RocketSim con float: 3 ticks con la fuerza ×0.62 y 24 ticks de fuerza en total.
+   */
+  updateJump(ctl, dt, jumpPressed) {
+    const J = CONFIG.jump, u = this.rot.u, eps = 1e-6;
+    if (this.onGround && !this.isJumping) {
+      if (this.hasJumped && this.jumpTime < J.minHold + J.resetPad - eps) {
+        // tras un salto mínimo quizá todavía no despegó: no se recupera aún
+      } else {
+        this.hasJumped = false; this.jumpTime = 0;
+      }
+    }
+    if (this.isJumping) {
+      this.isJumping = this.jumpTime < J.minHold - eps || (ctl.jump && this.jumpTime < J.maxHold - eps);
+    } else if (this.onGround && jumpPressed) {
+      this.isJumping = true; this.jumpTime = 0;
+      this.vel.addScaled(u, J.impulse);
+      this.events.push({ type: 'salto' });
+    }
+    if (this.isJumping) {
+      this.hasJumped = true;
+      _acc.addScaled(u, J.holdAccel * (this.jumpTime < J.minHold - eps ? J.preMinAccelScale : 1));
+    }
+    if (this.isJumping || this.hasJumped) this.jumpTime += dt;
+  }
 
   /** Control aéreo y torque del dodge (RocketSim: Car::_UpdateAirTorque). Se llama con menos de 3 ruedas. */
   updateAirTorque(ctl, updateAirControl) {
@@ -3544,23 +3559,29 @@ Tests.add('2. Con turbo llega a 2300 uu/s', () => {
   return { pass, detail: 'máxima ' + maxSpeed.toFixed(2) + ' uu/s, 2300 a los ' + t2300.toFixed(2) + ' s, supersónico a los ' + ss.toFixed(2) + ' s' };
 });
 
-Tests.add('3. Salto con botón completo alcanza la altura calculada ±5%', () => {
-  const { w, car } = testCar(0, 0, 0);
-  settle(w, 1.0);
-  const z0 = car.pos.z;
+Tests.add('3. Salto con botón completo alcanza la altura de referencia ±5% (RocketSim: 214.8 uu; mínimo 72.1 uu)', () => {
+  // Referencia medida con RocketSim (Octane en reposo sobre el piso, botón mantenido 0.3 s / 1 tick)
+  const REF = { full: 214.764, fullApex: 0.867, min: 72.122, minApex: 0.475 };
   const J = CONFIG.jump, g = CONFIG.physics.gravity;
   const vT = J.impulse + (J.holdAccel - g) * J.maxHold;
-  const expected = J.impulse * J.maxHold + 0.5 * (J.holdAccel - g) * J.maxHold * J.maxHold + vT * vT / (2 * g);
-  car.controls.jump = true;
-  let maxZ = z0, tApex = 0;
-  for (let i = 0; i < 2 * TICK_RATE; i++) {
-    if (i === Math.round(0.3 * TICK_RATE)) car.controls.jump = false;
-    w.step();
-    if (car.pos.z > maxZ) { maxZ = car.pos.z; tApex = (i + 1) * DT; }
-  }
-  const rise = maxZ - z0;
-  const err = (rise - expected) / expected;
-  return { pass: Math.abs(err) <= 0.05, detail: 'subida ' + rise.toFixed(1) + ' uu vs fórmula ' + expected.toFixed(1) + ' uu (' + (err * 100).toFixed(2) + '%), ápice a los ' + tApex.toFixed(3) + ' s' };
+  const formula = J.impulse * J.maxHold + 0.5 * (J.holdAccel - g) * J.maxHold * J.maxHold + vT * vT / (2 * g);
+  const measure = (holdTicks) => {
+    const { w, car } = testCar(0, 0, 0);
+    settle(w, 1.0);
+    const z0 = car.pos.z;
+    let maxZ = z0, tApex = 0;
+    for (let i = 0; i < 2 * TICK_RATE; i++) {
+      car.controls.jump = i < holdTicks;
+      w.step();
+      if (car.pos.z > maxZ) { maxZ = car.pos.z; tApex = (i + 1) * DT; }
+    }
+    return { rise: maxZ - z0, tApex };
+  };
+  const full = measure(Math.round(0.3 * TICK_RATE)), min = measure(1);
+  const eFull = (full.rise - REF.full) / REF.full, eMin = (min.rise - REF.min) / REF.min;
+  return { pass: Math.abs(eFull) <= 0.05 && Math.abs(eMin) <= 0.05,
+    detail: 'completo: ' + full.rise.toFixed(1) + ' uu vs RocketSim ' + REF.full + ' (' + (eFull * 100).toFixed(2) + '%), ápice ' + full.tApex.toFixed(3) + ' s vs ' + REF.fullApex +
+      '; mínimo: ' + min.rise.toFixed(1) + ' uu vs ' + REF.min + ' (' + (eMin * 100).toFixed(2) + '%); fórmula sin suspensión ni pegado: ' + formula.toFixed(1) + ' uu' };
 });
 
 Tests.add('5. Auto a 1400 uu/s sube por la pared sin caerse ni atravesarla', () => {
