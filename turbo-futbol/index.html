@@ -427,10 +427,7 @@ const CONFIG = {
     powerslideLatFactor: 0.1,             // agarre lateral durante el derrape
     powerslideRise: 5,
     powerslideFall: 2,
-    stickyBase: 0.5,                      // fuerza de pegado = g·(base + extra·(1 − n.z))
-    stickyWallExtra: 1.0,
-    wallMinSpeed: 350,                    // bajo esta velocidad en pared/techo se despega
-    wallSteepNz: 0.7,                     // n.z bajo el cual se considera pared
+    stickyBase: 0.5,                      // pegado = g·(0.5 + (1 − |n.z|) con acelerador o |v adelante| > 25) (Car::_UpdateWheels)
     wheels: [
       { x: 51.25, y: 25.9, r: 12.5, front: true },
       { x: 51.25, y: -25.9, r: 12.5, front: true },
@@ -1084,12 +1081,12 @@ class Car {
         this.invInertia(_cb, _cc);
         _ang.add(_cc);
       }
-      if (onGround && !this.isJumping) {
-        // Pegado a la superficie (más fuerte en paredes y techo); se pierde si va muy lento en pared
-        let sticky = C.stickyBase + C.stickyWallExtra * (1 - N.z);
-        if (N.z < C.wallSteepNz) sticky *= smoothstep(C.wallMinSpeed * 0.6, C.wallMinSpeed, this.vel.length());
-        _acc.addScaled(N, -g * sticky);
-      }
+      // Pegado a la superficie con cualquier rueda tocando la cancha (RocketSim: Car::_UpdateWheels).
+      // Con acelerador (o turbo) o avanzando a más de 25 uu/s se suma 1 − |n.z|: el auto no se cae de la pared a ninguna velocidad.
+      const realThrottle = (ctl.boost && (this.boost > 0 || this.unlimitedBoost)) ? 1 : ctl.throttle;
+      const fullStick = realThrottle !== 0 || Math.abs(this.vel.dot(f)) > C.stoppingSpeed;
+      const sticky = C.stickyBase + (fullStick ? 1 - Math.abs(N.z) : 0);
+      _acc.addScaled(N, -g * sticky);
     }
 
     // ---------------- Turbo ----------------
@@ -3607,20 +3604,30 @@ Tests.add('5. Auto a 1400 uu/s sube por la pared sin caerse ni atravesarla', () 
   settle(w, 0.3);
   car.vel.set(1400, 0, 0);
   car.controls.throttle = 1;
-  let maxWallZ = 0, minSdf = Infinity, maxX = -Infinity, wallTicks = 0, ceilingTicks = 0, airAfterWall = 0, fell = false, finite = true;
+  let maxWallZ = 0, minSdf = Infinity, maxX = -Infinity, wallTicks = 0, ceilingTicks = 0, airTicks = 0, fell = false, finite = true;
+  let last = '', ceilLeave = -1;
   for (let i = 0; i < 5 * TICK_RATE; i++) {
     w.step();
     finite = finite && car.isFinite();
     minSdf = Math.min(minSdf, hitboxMinSDF(car));
     maxX = Math.max(maxX, car.pos.x);
     const n = car.groundNormal;
-    if (car.onGround && n.z < 0.3 && n.z > -0.3) { wallTicks++; maxWallZ = Math.max(maxWallZ, car.pos.z); }
+    if (car.numContacts > 0) {
+      last = n.z < -0.7 ? 'techo' : (Math.abs(n.z) < 0.3 ? 'pared' : 'curva');
+      airTicks = 0;
+    } else {
+      airTicks++;
+      // caerse de la PARED es un fallo; soltarse del techo plano es lo que hace RocketSim (pegado 0.5 g < g)
+      if (last === 'pared' && airTicks > 0.25 * TICK_RATE) fell = true;
+      if (last === 'techo' && ceilLeave < 0) ceilLeave = i;
+    }
+    if (car.onGround && Math.abs(n.z) < 0.3) { wallTicks++; maxWallZ = Math.max(maxWallZ, car.pos.z); }
     if (car.onGround && n.z < -0.7) ceilingTicks++;
-    if (wallTicks > 0 && !car.onGround) { airAfterWall++; if (airAfterWall > 0.25 * TICK_RATE) fell = true; } else airAfterWall = 0;
   }
   const pass = finite && maxWallZ > 1000 && minSdf > -3 && maxX < 4096 && !fell;
   return { pass, detail: 'altura máx. en pared ' + maxWallZ.toFixed(0) + ' uu, ' + (wallTicks * DT).toFixed(2) + ' s en pared, ' +
-    (ceilingTicks * DT).toFixed(2) + ' s en techo, SDF mín. de la caja ' + minSdf.toFixed(2) + ' uu, x máx. ' + maxX.toFixed(0) + (fell ? ', SE CAYÓ' : '') };
+    (ceilingTicks * DT).toFixed(2) + ' s en techo' + (ceilLeave >= 0 ? ' (luego se suelta del techo, como en RocketSim)' : '') +
+    ', SDF mín. de la caja ' + minSdf.toFixed(2) + ' uu, x máx. ' + maxX.toFixed(0) + (fell ? ', SE CAYÓ DE LA PARED' : '') };
 });
 
 // Referencias medidas con RocketSim (arena de planos, Octane, 120 Hz); ver el resumen de la entrega.
@@ -3676,25 +3683,30 @@ Tests.add('Extra D. Flip cancel como RocketSim: quita el torque del dodge y el g
     '; decrece sin torque: ' + monotone + '; máx ' + maxRate.toFixed(3) };
 });
 
-Tests.add('Extra E. Pegado: se mantiene en el techo rápido y se despega lento en la pared', () => {
-  // En el techo, boca abajo, a 1000 uu/s
+Tests.add('Extra E. Pegado como RocketSim: en el techo plano se suelta (0.5 g < g); en la pared lenta y sin acelerador sigue pegado', () => {
+  // Techo plano, boca abajo, a 1000 uu/s con acelerador. RocketSim: pierde las ruedas en el tick 28 y a los 0.43 s está a 60 uu
   let { w, car } = testCar(0, 0, 0);
   car.pos.set(0, 0, AR.H - CONFIG.car.restZ);
   car.rot.f.set(1, 0, 0); car.rot.u.set(0, 0, -1); car.rot.orthonormalize();
   car.prevPos.copy(car.pos); car.prevRot.copy(car.rot);
   car.vel.set(1000, 0, 0); car.controls.throttle = 1;
-  let ceilTicks = 0;
-  for (let i = 0; i < 1.2 * TICK_RATE; i++) { w.step(); if (car.onGround && car.groundNormal.z < -0.9) ceilTicks++; }
-  const okCeil = ceilTicks > 1.1 * TICK_RATE;
-  // En la pared lateral, despacio, sin acelerar
+  let lost = -1, away = -1;
+  for (let i = 0; i < 2 * TICK_RATE; i++) {
+    w.step();
+    if (lost < 0 && car.numContacts === 0) lost = i;
+    if (away < 0 && car.pos.z < AR.H - 60) away = i;
+  }
+  const okCeil = away > 0 && Math.abs(away - 51) <= 10;
+  // Pared lateral, casi quieto y sin acelerador: se desliza pero no se despega (RocketSim: 360/360 ticks en contacto)
   ({ w, car } = testCar(0, 0, 0));
   car.pos.set(AR.Xq + AR.r - CONFIG.car.restZ, 0, 1000);
   car.rot.f.set(0, 1, 0); car.rot.u.set(-1, 0, 0); car.rot.orthonormalize();
   car.prevPos.copy(car.pos); car.prevRot.copy(car.rot);
   car.vel.set(0, 150, 0);
-  let detached = false;
-  for (let i = 0; i < 1.5 * TICK_RATE; i++) { w.step(); if (car.numContacts === 0) detached = true; }
-  return { pass: okCeil && detached, detail: 'techo: ' + (ceilTicks * DT).toFixed(2) + ' s pegado; pared lenta: ' + (detached ? 'se despegó' : 'NO se despegó') };
+  let minContacts = 4;
+  for (let i = 0; i < 1.5 * TICK_RATE; i++) { w.step(); minContacts = Math.min(minContacts, car.numContacts); }
+  return { pass: okCeil && minContacts >= 3, detail: 'techo: pierde las ruedas en el tick ' + lost + ' (RocketSim 28), a 60 uu en el tick ' + away +
+    ' (RocketSim 51); pared lenta sin acelerador: ruedas en contacto mín. ' + minContacts + ' de 4 (sigue pegado)' };
 });
 
 // ---- Pruebas de la pelota y colisiones ----
