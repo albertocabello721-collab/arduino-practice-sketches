@@ -431,8 +431,6 @@ const CONFIG = {
     stickyWallExtra: 1.0,
     wallMinSpeed: 350,                    // bajo esta velocidad en pared/techo se despega
     wallSteepNz: 0.7,                     // n.z bajo el cual se considera pared
-    alignStiffness: 45,                   // alineación al caer sobre 1-3 ruedas (rad/s² por rad)
-    alignDamping: 7,
     wheels: [
       { x: 51.25, y: 25.9, r: 12.5, front: true },
       { x: 51.25, y: -25.9, r: 12.5, front: true },
@@ -447,8 +445,13 @@ const CONFIG = {
     },
     worldRestitution: 0.3,
     worldFriction: 0.3,
-    autoFlipImpulse: 200,
-    autoFlipTime: 0.4,
+    autoFlipImpulse: 200,                 // uu/s (CAR_AUTOFLIP_IMPULSE)
+    autoFlipTorque: 50,                   // rad/s² (CAR_AUTOFLIP_TORQUE)
+    autoFlipTime: 0.4,                    // s para un giro de 180° (CAR_AUTOFLIP_TIME)
+    autoFlipNormZ: Math.SQRT1_2,          // contacto con el piso: normal.z mínima (CAR_AUTOFLIP_NORMZ_THRESH)
+    autoFlipRollThresh: 2.8,              // |roll| mínimo en rad (CAR_AUTOFLIP_ROLL_THRESH)
+    autoRollForce: 100,                   // uu/s² hacia la superficie (CAR_AUTOROLL_FORCE)
+    autoRollTorque: 80,                   // rad/s² (CAR_AUTOROLL_TORQUE)
   },
   ball: {
     radius: 91.25,
@@ -954,9 +957,9 @@ class Car {
     this.hasJumped = false; this.hasDoubleJumped = false; this.hasFlipped = false;
     this.isFlipping = false; this.flipTime = 0; this.flipRelX = 0; this.flipRelY = 0;
     this.airTime = 0; this.airTimeSinceJump = 0;
-    this.autoFlipTimer = 0; this.autoFlipDir = 1;
+    this.isAutoFlipping = false; this.autoFlipTimer = 0; this.autoFlipTorqueScale = 0;
     this.supersonic = false; this.supersonicTime = 0;
-    this.worldContactTimer = 0; this.worldContactN.set(0, 0, 1);
+    this.worldContact = false; this.worldContactN.set(0, 0, 1);   // contacto de la caja con la cancha en el tick anterior
     this.demolished = false; this.respawnTimer = 0;
     this.lastBallTouchTick = -1000;
     this.bumpCooldown = 0;
@@ -1061,19 +1064,11 @@ class Car {
     if (nc < 3) this.updateAirTorque(ctl, nc === 0);
     else this.isFlipping = false;
     this.updateJump(ctl, dt, jumpPressed);
-    if (jumpPressed) {
-      const onRoof = nc === 0 && this.worldContactTimer > 0 && this.worldContactN.dot(u) < -0.7;
-      if (onRoof) {
-        // Recuperación automática al quedar sobre el techo del auto
-        this.autoFlipTimer = C.autoFlipTime;
-        _ca.crossVectors(u, this.worldContactN);
-        const s = _ca.dot(f);
-        this.autoFlipDir = Math.abs(s) > 0.05 ? Math.sign(s) : 1;
-        this.vel.addScaled(this.worldContactN, C.autoFlipImpulse);
-        this.events.push({ type: 'salto' });
-      }
-    }
+    this.updateAutoFlip(dt, jumpPressed);
     this.updateDoubleJumpOrFlip(ctl, dt, jumpPressed, this.vel.dot(f));
+    // Auto-roll: con acelerador y 1-3 ruedas (o la caja tocando la cancha) el auto se acuesta sobre la superficie
+    if (ctl.throttle !== 0 && ((nc > 0 && nc < 4) || this.worldContact)) this.updateAutoRoll(nc);
+    this.worldContact = false;
 
     // ---------------- Fuerzas con contacto ----------------
     if (nc > 0) {
@@ -1095,20 +1090,6 @@ class Car {
         if (N.z < C.wallSteepNz) sticky *= smoothstep(C.wallMinSpeed * 0.6, C.wallMinSpeed, this.vel.length());
         _acc.addScaled(N, -g * sticky);
       }
-      if (nc < 4 && !this.isJumping && this.autoFlipTimer <= 0) {
-        // Alineación suave con la superficie al caer sobre algunas ruedas
-        _cb.crossVectors(u, N);
-        const wn = this.angVel.dot(N);
-        _cc.copy(this.angVel).addScaled(N, -wn);
-        _ang.addScaled(_cb, C.alignStiffness).addScaled(_cc, -C.alignDamping);
-      }
-    }
-
-    if (this.autoFlipTimer > 0) {
-      this.autoFlipTimer -= dt;
-      const wf = this.angVel.dot(f);
-      const target = this.autoFlipDir * Math.PI / C.autoFlipTime * 1.15;
-      _ang.addScaled(f, (target - wf) * 30);
     }
 
     // ---------------- Turbo ----------------
@@ -1137,7 +1118,6 @@ class Car {
     if (speed >= C.supersonicSpeed) { this.supersonic = true; this.supersonicTime = 0; }
     else if (this.supersonic && speed >= C.supersonicMaintainSpeed && this.supersonicTime < C.supersonicMaintainTime) this.supersonicTime += dt;
     else this.supersonic = false;
-    if (this.worldContactTimer > 0) this.worldContactTimer -= dt;
     if (this.bumpCooldown > 0) this.bumpCooldown -= dt;
     this.updateWheelVisuals(ctl, dt);
   }
@@ -1173,6 +1153,44 @@ class Car {
       _acc.addScaled(u, J.holdAccel * (this.jumpTime < J.minHold - eps ? J.preMinAccelScale : 1));
     }
     if (this.isJumping || this.hasJumped) this.jumpTime += dt;
+  }
+
+  /** Recuperación automática boca abajo (RocketSim: Car::_UpdateAutoFlip). */
+  updateAutoFlip(dt, jumpPressed) {
+    const C = CONFIG.car, b = this.rot;
+    if (jumpPressed && this.worldContact && this.worldContactN.z > C.autoFlipNormZ) {
+      // roll del auto (0 = derecho, ±π = boca abajo); positivo = girado hacia su derecha
+      const roll = Math.atan2(b.l.z, b.u.z);
+      if (Math.abs(roll) > C.autoFlipRollThresh) {
+        this.autoFlipTimer = C.autoFlipTime * (Math.abs(roll) / Math.PI);
+        this.autoFlipTorqueScale = roll > 0 ? -1 : 1;   // vuelve por el camino más corto
+        this.isAutoFlipping = true;
+        this.vel.addScaled(b.u, -C.autoFlipImpulse);
+        this.events.push({ type: 'salto' });
+      }
+    }
+    if (this.isAutoFlipping) {
+      if (this.autoFlipTimer <= 0) { this.isAutoFlipping = false; this.autoFlipTimer = 0; }
+      else {
+        this.angVel.addScaled(b.f, C.autoFlipTorque * this.autoFlipTorqueScale * dt);
+        this.autoFlipTimer -= dt;
+      }
+    }
+  }
+
+  /** Auto-roll con acelerador sobre 1-3 ruedas o con la caja tocando (RocketSim: Car::_UpdateAutoRoll). */
+  updateAutoRoll(nc) {
+    const C = CONFIG.car, b = this.rot, f = b.f, r = b.l, u = b.u;   // r: "derecha" de RocketSim (u × f)
+    const gu = _cd;
+    if (nc > 0) gu.copy(this.groundNormal); else gu.copy(this.worldContactN);   // normal media de las ruedas que tocan
+    // crossRight = gu × f ; crossForward = −gu × crossRight
+    _ce.crossVectors(gu, f);
+    _cf.crossVectors(_ce, gu);                 // (−gu) × crossRight = crossRight × gu
+    const rightFactor = 1 - clamp(r.dot(_ce), 0, 1);
+    const forwardFactor = 1 - clamp(f.dot(_cf), 0, 1);
+    const sR = r.dot(gu) >= 0 ? -1 : 1, sF = f.dot(gu) >= 0 ? 1 : -1;
+    _ang.addScaled(f, sR * rightFactor * C.autoRollTorque).addScaled(r, sF * forwardFactor * C.autoRollTorque);
+    _acc.addScaled(gu, -C.autoRollForce);
   }
 
   /** Control aéreo y torque del dodge (RocketSim: Car::_UpdateAirTorque). Se llama con menos de 3 ruedas. */
@@ -1354,7 +1372,7 @@ class Car {
         }
         if (vn < -300) this.events.push({ type: 'golpe-pared', speed: -vn });
       }
-      this.worldContactTimer = 0.1;
+      this.worldContact = true;
       this.worldContactN.copy(_ce);
     }
   }
