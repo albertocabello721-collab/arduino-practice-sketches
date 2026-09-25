@@ -532,27 +532,29 @@ const CONFIG = {
     holdAccel: 1460,        // uu/s² extra mientras se mantiene
     maxHold: 0.2,
     minHold: 0.025,
-    secondWindow: 1.25,     // s tras terminar el primer salto (1.45 s si se mantuvo completo)
+    secondWindow: 1.25,     // s desde que termina el primer salto (DOUBLEJUMP_MAX_DELAY); sin salto previo: hasta aterrizar
     resetPad: 0.1,          // s mínimos tras saltar antes de recuperar saltos al tocar
   },
+  // Valores de RocketSim (RLConst.h / CarConfig.h, MIT © ZealanL); nombres originales entre paréntesis
   dodge: {
-    deadzone: 0.5,          // |dir| mínima para dodge (si no, doble salto)
-    impulse: 500,
-    forwardSpeedScale: 1.0, // escala del impulso según velocidad (RL-like)
-    sideSpeedScale: 1.9,
-    backSpeedScale: 2.5,
-    backScaleX: 16 / 15,
-    torqueTime: 0.65,       // duración de la rotación del dodge
-    flipAccel: 60,          // rad/s² de la rotación (limitada a maxAngSpeed)
-    cancelDamping: 14,      // frenado de la rotación con flip cancel
-    lockTime: 1.2,          // s sin amortiguar el eje del dodge (completa el giro)
-    zDampStart: 0.15,
-    zDampEnd: 0.21,
-    zDamp120: 0.35,         // amortiguación vertical por tick (120 Hz) durante el dodge
+    deadzone: 0.5,          // |yaw| + |pitch| + |roll| mínimo para dodge; si no, doble salto (dodgeDeadzone)
+    impulse: 500,           // (FLIP_INITIAL_VEL_SCALE)
+    forwardSpeedScale: 1.0, // (FLIP_FORWARD_IMPULSE_MAX_SPEED_SCALE)
+    sideSpeedScale: 1.9,    // (FLIP_SIDE_IMPULSE_MAX_SPEED_SCALE)
+    backSpeedScale: 2.5,    // (FLIP_BACKWARD_IMPULSE_MAX_SPEED_SCALE)
+    backScaleX: 16 / 15,    // (FLIP_BACKWARD_IMPULSE_SCALE_X)
+    torqueTime: 0.65,       // duración del torque del dodge (FLIP_TORQUE_TIME)
+    torqueX: 260,           // rad/s², giro lateral / roll (FLIP_TORQUE_X)
+    torqueY: 224,           // rad/s², giro adelante-atrás / pitch (FLIP_TORQUE_Y)
+    pitchLockExtraTime: 0.3,// pitch bloqueado 0.3 s más tras el torque (FLIP_PITCHLOCK_EXTRA_TIME)
+    zDampStart: 0.15,       // (FLIP_Z_DAMP_START)
+    zDampEnd: 0.21,         // (FLIP_Z_DAMP_END)
+    zDamp120: 0.35,         // amortiguación de vz por tick a 120 Hz (FLIP_Z_DAMP_120)
   },
   air: {
-    torque: { roll: 38.34, pitch: 12.46, yaw: 9.11 },   // rad/s²
-    damping: { roll: 4.79, pitch: 2.88, yaw: 1.92 },    // 1/s
+    torque: [130, 95, 400],        // pitch, yaw, roll (CAR_AIR_CONTROL_TORQUE)
+    damping: [30, 20, 50],         // pitch, yaw, roll (CAR_AIR_CONTROL_DAMPING)
+    torqueScale: 2 * Math.PI / 65536 * 1000,   // (CAR_TORQUE_SCALE) → 12.46 / 9.11 / 38.35 rad/s²
   },
 };
 
@@ -949,7 +951,7 @@ class Car {
     this.handbrakeAmt = 0;
     this.jumpHeld = false; this.isJumping = false; this.jumpTime = 0;
     this.hasJumped = false; this.hasDoubleJumped = false; this.hasFlipped = false;
-    this.isFlipping = false; this.flipTime = 0; this.flipPitch = 0; this.flipRoll = 0;
+    this.isFlipping = false; this.flipTime = 0; this.flipRelX = 0; this.flipRelY = 0;
     this.airTime = 0; this.airTimeSinceJump = 0; this.timeSinceJumpStart = 10;
     this.autoFlipTimer = 0; this.autoFlipDir = 1;
     this.supersonic = false; this.supersonicTime = 0;
@@ -1054,13 +1056,14 @@ class Car {
     this.jumpHeld = ctl.jump;
     this.timeSinceJumpStart += dt;
     if (onGround && !this.isJumping && this.timeSinceJumpStart > J.resetPad) {
-      // Tocar una superficie con las ruedas recupera los saltos
-      this.hasJumped = false; this.hasDoubleJumped = false; this.hasFlipped = false; this.isFlipping = false;
-      this.airTime = 0; this.airTimeSinceJump = 0;
+      // Tocar una superficie con las ruedas recupera el salto
+      this.hasJumped = false;
     }
-    if (!onGround) this.airTime += dt;
     _acc.set(0, 0, -g);
     _ang.set(0, 0, 0);
+    // Control aéreo y torque del dodge con menos de 3 ruedas (RocketSim: _UpdateAirTorque); en el suelo termina el dodge
+    if (nc < 3) this.updateAirTorque(ctl, nc === 0);
+    else this.isFlipping = false;
     if (jumpPressed) {
       const onRoof = nc === 0 && this.worldContactTimer > 0 && this.worldContactN.dot(u) < -0.7;
       if (onGround && !this.isJumping) {
@@ -1075,17 +1078,6 @@ class Car {
         this.autoFlipDir = Math.abs(s) > 0.05 ? Math.sign(s) : 1;
         this.vel.addScaled(this.worldContactN, C.autoFlipImpulse);
         this.events.push({ type: 'salto' });
-      } else if (!onGround && !this.isJumping && !this.hasDoubleJumped && !this.hasFlipped &&
-                 (this.hasJumped ? this.airTimeSinceJump < J.secondWindow : this.airTime < J.secondWindow)) {
-        const dx = -ctl.pitch, dy = clamp(ctl.yaw + ctl.roll, -1, 1);
-        if (Math.abs(dx) + Math.abs(dy) >= D.deadzone) {
-          this.startDodge(dx, dy);
-          this.events.push({ type: 'dodge' });
-        } else {
-          this.vel.addScaled(u, J.impulse);
-          this.hasDoubleJumped = true;
-          this.events.push({ type: 'doble' });
-        }
       }
     }
     if (this.isJumping) {
@@ -1093,8 +1085,7 @@ class Car {
       if (this.jumpTime <= J.maxHold + 1e-9 && (ctl.jump || this.jumpTime <= J.minHold + 1e-9)) _acc.addScaled(u, J.holdAccel);
       else this.isJumping = false;
     }
-    if (this.hasJumped && !this.isJumping && !onGround) this.airTimeSinceJump += dt;
-    if (this.isFlipping) this.flipTime += dt;
+    this.updateDoubleJumpOrFlip(ctl, dt, jumpPressed && !onGround, this.vel.dot(f));
 
     // ---------------- Fuerzas con contacto ----------------
     if (nc > 0) {
@@ -1125,38 +1116,12 @@ class Car {
       }
     }
 
-    // ---------------- Rotación: dodge y control aéreo ----------------
-    const wf = this.angVel.dot(f), wl = this.angVel.dot(l), wu = this.angVel.dot(u);
-    let af = 0, al = 0, au = 0;
-    let rollLocked = false, pitchLocked = false;
-    if (this.isFlipping) {
-      const inLock = this.flipTime < D.lockTime;
-      rollLocked = inLock && this.flipRoll !== 0;
-      pitchLocked = inLock && this.flipPitch !== 0;
-      if (this.flipTime <= D.torqueTime) {
-        let pitchScale = 1;
-        if (this.flipPitch !== 0 && ctl.pitch !== 0 && Math.sign(ctl.pitch) === Math.sign(this.flipPitch)) {
-          // Flip cancel: dirección contraria detiene la rotación
-          pitchScale = 1 - Math.min(1, Math.abs(ctl.pitch));
-          al -= wl * D.cancelDamping * Math.abs(ctl.pitch);
-        }
-        af += this.flipRoll * D.flipAccel;
-        al += this.flipPitch * D.flipAccel * pitchScale;
-      }
-    }
-    if (nc === 0) {
-      const T = CONFIG.air.torque, Dm = CONFIG.air.damping;
-      if (!rollLocked) af += ctl.roll * T.roll - wf * Dm.roll;
-      if (!pitchLocked) al += -ctl.pitch * T.pitch - wl * Dm.pitch * (1 - Math.abs(ctl.pitch));
-      au += -ctl.yaw * T.yaw - wu * Dm.yaw * (1 - Math.abs(ctl.yaw));
-      _acc.addScaled(f, ctl.throttle * C.airThrottleAccel);
-    }
     if (this.autoFlipTimer > 0) {
       this.autoFlipTimer -= dt;
+      const wf = this.angVel.dot(f);
       const target = this.autoFlipDir * Math.PI / C.autoFlipTime * 1.15;
-      af += (target - wf) * 30;
+      _ang.addScaled(f, (target - wf) * 30);
     }
-    _ang.addScaled(f, af).addScaled(l, al).addScaled(u, au);
 
     // ---------------- Turbo ----------------
     if (this.boostTime > 0) this.boostTime -= dt;
@@ -1174,10 +1139,6 @@ class Car {
     this.vel.addScaled(_acc, dt);
     this.angVel.addScaled(_ang, dt);
     if (nc > 0) this.driveGround(ctl, dt);
-    if (this.isFlipping && this.flipTime <= D.torqueTime && this.flipTime >= D.zDampStart &&
-        (this.vel.z < 0 || this.flipTime < D.zDampEnd)) {
-      this.vel.z *= Math.pow(1 - D.zDamp120, dt * 120);
-    }
     this.vel.clampLength(C.maxSpeed);
     this.angVel.clampLength(C.maxAngSpeed);
     this.pos.addScaled(this.vel, dt);
@@ -1193,27 +1154,108 @@ class Car {
     this.updateWheelVisuals(ctl, dt);
   }
 
-  /** Dodge: impulso horizontal + rotación rápida; anula la velocidad vertical al empezar. */
-  startDodge(dx, dy) {
-    const C = CONFIG.car, D = CONFIG.dodge, b = this.rot;
-    const mag = Math.hypot(dx, dy);
-    const nx = dx / mag, ny = dy / mag;
-    this.isFlipping = true; this.hasFlipped = true; this.flipTime = 0;
-    this.flipPitch = Math.abs(nx) < 0.1 ? 0 : nx;
-    this.flipRoll = Math.abs(ny) < 0.1 ? 0 : ny;
-    // Ejes horizontales (adelante y derecha aplanados)
-    _ca.set(b.f.x, b.f.y, 0);
-    if (_ca.lengthSq() < 0.01) _ca.set(b.l.y, -b.l.x, 0);
-    _ca.normalize();
-    _cb.set(_ca.y, -_ca.x, 0);
-    const fwdSpeed = this.vel.dot(b.f);
-    const ratio = Math.min(1, Math.abs(fwdSpeed) / C.maxSpeed);
-    const back = Math.abs(fwdSpeed) < 100 ? nx < 0 : (nx >= 0) !== (fwdSpeed > 0);
-    let ix = nx * D.impulse, iy = ny * D.impulse;
-    ix *= back ? (1 + (D.backSpeedScale - 1) * ratio) * D.backScaleX : (1 + (D.forwardSpeedScale - 1) * ratio);
-    iy *= 1 + (D.sideSpeedScale - 1) * ratio;
-    this.vel.z = 0;
-    this.vel.addScaled(_ca, ix).addScaled(_cb, iy);
+  /*
+   * Lateralidad: RocketSim usa las coordenadas de RL (X adelante, Y derecha, Z arriba: sistema zurdo).
+   * Sus fórmulas se copian con right := u × f (en este mundo diestro ese vector es this.rot.l) y las
+   * entradas quirales (steer, yaw, roll) se invierten al entrar, para que +1 siga siendo "a la derecha" en pantalla.
+   */
+
+  /** Control aéreo y torque del dodge (RocketSim: Car::_UpdateAirTorque). Se llama con menos de 3 ruedas. */
+  updateAirTorque(ctl, updateAirControl) {
+    const A = CONFIG.air, D = CONFIG.dodge, b = this.rot;
+    let doAirControl = false;
+    if (this.isFlipping) this.isFlipping = this.hasFlipped && this.flipTime < D.torqueTime;
+    if (this.isFlipping) {
+      if (this.flipRelX !== 0 || this.flipRelY !== 0) {
+        // Flip cancel: pitch en el mismo sentido que el torque de pitch del dodge lo anula (y habilita el control aéreo)
+        let relY = this.flipRelY, pitchScale = 1;
+        if (relY !== 0 && ctl.pitch !== 0 && Math.sign(relY) === Math.sign(ctl.pitch)) {
+          pitchScale = 1 - Math.min(Math.abs(ctl.pitch), 1);
+          doAirControl = true;
+        }
+        relY *= pitchScale;
+        // torque relativo (x: eje adelante, y: eje "derecha" de RocketSim) como aceleración angular
+        _ang.addScaled(b.f, this.flipRelX * D.torqueX).addScaled(b.l, relY * D.torqueY);
+      } else {
+        doAirControl = true;       // "stall": dodge sin dirección neta, se permite el control aéreo
+      }
+    } else {
+      doAirControl = true;
+    }
+    doAirControl = doAirControl && !this.isAutoFlipping && updateAirControl;
+    if (doAirControl) {
+      const pitch = ctl.pitch, yaw = -ctl.yaw, roll = -ctl.roll;   // convención de RocketSim
+      let pitchTorqueScale = 1, tp = 0, ty = 0, tr = 0;
+      if (pitch || yaw || roll) {
+        if (this.isFlipping) pitchTorqueScale = 0;
+        else if (this.hasFlipped && this.flipTime < D.torqueTime + D.pitchLockExtraTime) pitchTorqueScale = 0;
+        tp = pitch * pitchTorqueScale * A.torque[0]; ty = yaw * A.torque[1]; tr = roll * A.torque[2];
+      }
+      // ejes: pitch = −right (−l), yaw = up (u), roll = −forward (−f)
+      const w = this.angVel;
+      const dp = -w.dot(b.l) * A.damping[0] * (1 - Math.abs(pitch * pitchTorqueScale));
+      const dy = w.dot(b.u) * A.damping[1] * (1 - Math.abs(yaw));
+      const dr = -w.dot(b.f) * A.damping[2];
+      const S = A.torqueScale;
+      _ang.addScaled(b.l, -(tp - dp) * S).addScaled(b.u, (ty - dy) * S).addScaled(b.f, -(tr - dr) * S);
+    }
+    if (ctl.throttle !== 0) _acc.addScaled(b.f, ctl.throttle * CONFIG.car.airThrottleAccel);
+  }
+
+  /** Doble salto o dodge (RocketSim: Car::_UpdateDoubleJumpOrFlip). */
+  updateDoubleJumpOrFlip(ctl, dt, jumpPressed, forwardSpeed) {
+    const J = CONFIG.jump, D = CONFIG.dodge, b = this.rot;
+    if (this.onGround) {
+      this.hasDoubleJumped = false; this.hasFlipped = false;
+      this.airTime = 0; this.airTimeSinceJump = 0; this.flipTime = 0;
+    } else {
+      this.airTime += dt;
+      // Solo corre después de un salto: si el auto dejó el suelo sin saltar, el flip queda disponible hasta aterrizar
+      if (this.hasJumped && !this.isJumping) this.airTimeSinceJump += dt;
+      else this.airTimeSinceJump = 0;
+      if (jumpPressed && this.airTimeSinceJump < J.secondWindow) {
+        const pitch = ctl.pitch, yaw = -ctl.yaw, roll = -ctl.roll;
+        const isFlipInput = Math.abs(yaw) + Math.abs(pitch) + Math.abs(roll) >= D.deadzone;
+        const canUse = !this.hasDoubleJumped && !this.hasFlipped && !this.isAutoFlipping;
+        if (canUse && isFlipInput) {
+          this.flipTime = 0; this.hasFlipped = true; this.isFlipping = true;
+          const ratio = Math.abs(forwardSpeed) / CONFIG.car.maxSpeed;
+          let dx = -pitch, dy = yaw + roll;
+          if (Math.abs(dy) < 0.1 && Math.abs(dx) < 0.1) { dx = 0; dy = 0; }
+          else { const m = Math.hypot(dx, dy); dx /= m; dy /= m; }
+          this.flipRelX = -dy; this.flipRelY = dx;
+          if (Math.abs(dx) < 0.1) dx = 0;
+          if (Math.abs(dy) < 0.1) dy = 0;
+          if (dx !== 0 || dy !== 0) {
+            const back = Math.abs(forwardSpeed) < 100 ? dx < 0 : (dx >= 0) !== (forwardSpeed >= 0);
+            let ix = dx * D.impulse, iy = dy * D.impulse;
+            ix *= ((back ? D.backSpeedScale : D.forwardSpeedScale) - 1) * ratio + 1;
+            iy *= (D.sideSpeedScale - 1) * ratio + 1;
+            if (back) ix *= D.backScaleX;
+            const fl = Math.hypot(b.f.x, b.f.y);
+            if (fl > 1e-6) {
+              const fx = b.f.x / fl, fy = b.f.y / fl;
+              // "derecha" horizontal de RocketSim: (−f.y, f.x)
+              this.vel.x += ix * fx - iy * fy;
+              this.vel.y += ix * fy + iy * fx;
+            }
+          }
+          this.events.push({ type: 'dodge' });
+        } else if (canUse) {
+          this.vel.addScaled(b.u, J.impulse);
+          this.hasDoubleJumped = true;
+          this.events.push({ type: 'doble' });
+        }
+      }
+    }
+    if (this.isFlipping) {
+      this.flipTime += dt;
+      if (this.flipTime <= D.torqueTime && this.flipTime >= D.zDampStart && (this.vel.z < 0 || this.flipTime < D.zDampEnd)) {
+        this.vel.z *= Math.pow(1 - D.zDamp120, dt * TICK_RATE);
+      }
+    } else if (this.hasFlipped) {
+      this.flipTime += dt;         // sigue contando para el bloqueo extra del pitch
+    }
   }
 
   /** Aceleración, freno, dirección y agarre lateral sobre la superficie de contacto. */
@@ -1655,6 +1697,12 @@ class World {
     }
     // Colisión contra la cancha al final: los empujones entre autos y la pelota no dejan autos dentro de paredes
     for (const car of this.cars) car.collideWorld();
+    // Límites de velocidad al terminar el tick, después de todas las colisiones (RocketSim: Car::_FinishPhysicsTick)
+    for (const car of this.cars) {
+      if (car.demolished) continue;
+      car.vel.clampLength(CONFIG.car.maxSpeed);
+      car.angVel.clampLength(CONFIG.car.maxAngSpeed);
+    }
     if (this.ballEnabled) this.ball.collideArena();
     this.updatePads();
     for (const car of this.cars) {
@@ -3010,10 +3058,33 @@ const Input = {
     return false;
   },
   /** Lee el primer gamepad conectado (distribución estándar Xbox / PlayStation). */
+  /**
+   * Acceso seguro al mando: dentro de un iframe sin permiso "gamepad", navigator.getGamepads() lanza
+   * SecurityError. Se consulta la política de permisos y, si falla, se desactiva el mando y se sigue con teclado.
+   */
+  padAllowed: null,
+  gamepads() {
+    if (this.padAllowed === null) {
+      let ok = typeof navigator.getGamepads === 'function';
+      try {
+        const pol = document.permissionsPolicy || document.featurePolicy;
+        if (ok && pol && typeof pol.allowsFeature === 'function' && !pol.allowsFeature('gamepad')) ok = false;
+      } catch (e) { /* sin API de políticas: se intenta la llamada protegida */ }
+      this.padAllowed = ok;
+    }
+    if (!this.padAllowed) return [];
+    try {
+      return navigator.getGamepads() || [];
+    } catch (e) {
+      this.padAllowed = false;
+      console.warn('Mando desactivado (' + (e && e.name ? e.name : 'error') + '): se sigue con teclado y ratón.');
+      return [];
+    }
+  },
   pollPad() {
     const P = this.pad;
     let gp = null;
-    const list = navigator.getGamepads ? navigator.getGamepads() : [];
+    const list = this.gamepads();
     for (const g of list) if (g && g.connected) { gp = g; break; }
     if (!gp) { if (P.index !== -1) { P.index = -1; P.buttons.fill(0); } return false; }
     P.index = gp.index; P.id = gp.id;
@@ -3513,18 +3584,26 @@ Tests.add('5. Auto a 1400 uu/s sube por la pared sin caerse ni atravesarla', () 
     (ceilingTicks * DT).toFixed(2) + ' s en techo, SDF mín. de la caja ' + minSdf.toFixed(2) + ' uu, x máx. ' + maxX.toFixed(0) + (fell ? ', SE CAYÓ' : '') };
 });
 
-Tests.add('Extra C. Dodge: impulso ~500 uu/s, anula vz; doble salto sin dirección', () => {
+// Referencias medidas con RocketSim (arena de planos, Octane, 120 Hz); ver el resumen de la entrega.
+const RS_REF = {
+  dodgePitchRate: [0.104, 1.971, 3.837, 5.5],   // rad/s tras 1, 2, 3 y 4 ticks del dodge adelante
+  cancelRate: { 52: 5.114, 56: 4.641, 88: 2.135, 120: 0.982 },   // backflip en tick 40, cancelación desde el 50
+};
+Tests.add('Extra C. Dodge (RocketSim): +500 uu/s sin anular vz, torque 224 rad/s² hasta 5.5 rad/s; doble salto', () => {
   let { w, car } = testCar(0, 0, 0);
   settle(w, 0.5);
   car.controls.jump = true; w.step(); w.step(); w.step(); car.controls.jump = false;
   for (let i = 0; i < 12; i++) w.step();
   const vzBefore = car.vel.z, vxBefore = car.vel.x;
   car.controls.pitch = -1; car.controls.jump = true; w.step();
-  const dvx = car.vel.x - vxBefore, vzAfter = car.vel.z;
+  const dvx = car.vel.x - vxBefore, vzAfter = car.vel.z, flipped = car.hasFlipped && car.isFlipping;
+  const rates = [car.angVel.dot(car.rot.l)];
   car.controls.jump = false; car.controls.pitch = 0;
   let maxPitchRate = 0;
-  for (let i = 0; i < 60; i++) { w.step(); maxPitchRate = Math.max(maxPitchRate, car.angVel.dot(car.rot.l)); }
-  const okDodge = Math.abs(dvx - 500) < 30 && Math.abs(vzAfter) < 20 && vzBefore > 50 && maxPitchRate > 5.0 && car.hasFlipped;
+  for (let i = 0; i < 60; i++) { w.step(); const r = car.angVel.dot(car.rot.l); if (rates.length < 4) rates.push(r); maxPitchRate = Math.max(maxPitchRate, r); }
+  const gdt = CONFIG.physics.gravity * DT;
+  const okRates = RS_REF.dodgePitchRate.every((ref, i) => Math.abs(rates[i] - ref) < 0.02);
+  const okDodge = Math.abs(dvx - 500) < 1 && vzBefore > 50 && Math.abs(vzAfter - (vzBefore - gdt)) < 1 && okRates && maxPitchRate <= 5.5001 && flipped;
   ({ w, car } = testCar(0, 0, 0));
   settle(w, 0.5);
   car.controls.jump = true; w.step(); w.step(); w.step(); car.controls.jump = false;
@@ -3532,26 +3611,30 @@ Tests.add('Extra C. Dodge: impulso ~500 uu/s, anula vz; doble salto sin direcci�
   const vz1 = car.vel.z;
   car.controls.jump = true; w.step();
   const dvz = car.vel.z - vz1;
-  const okDouble = car.hasDoubleJumped && Math.abs(dvz - (CONFIG.jump.impulse - CONFIG.physics.gravity * DT)) < 5;
-  return { pass: okDodge && okDouble, detail: 'dodge: Δvx=' + dvx.toFixed(1) + ' vz antes=' + vzBefore.toFixed(0) + ' después=' + vzAfter.toFixed(1) +
-    ' giro máx=' + maxPitchRate.toFixed(2) + ' rad/s; doble salto Δvz=' + dvz.toFixed(1) };
+  const okDouble = car.hasDoubleJumped && Math.abs(dvz - (CONFIG.jump.impulse - gdt)) < 1;
+  return { pass: okDodge && okDouble, detail: 'dodge: Δvx=' + dvx.toFixed(2) + '; vz ' + vzBefore.toFixed(1) + ' → ' + vzAfter.toFixed(1) +
+    ' (solo gravedad: ' + (vzBefore - gdt).toFixed(1) + '); pitch ' + rates.map((r) => r.toFixed(3)).join(' → ') + ' rad/s (RocketSim ' + RS_REF.dodgePitchRate.join(' → ') +
+    '); doble salto Δvz=' + dvz.toFixed(2) };
 });
 
-Tests.add('Extra D. Flip cancel detiene la rotación (half-flip) y el giro no supera 5.5 rad/s', () => {
-  const { w, car } = testCar(0, 0, 0);
+Tests.add('Extra D. Flip cancel como RocketSim: quita el torque del dodge y el giro decae con la amortiguación', () => {
+  const { w, car } = testCar(0, 0, Math.PI / 2);
   settle(w, 0.5);
-  car.controls.jump = true;
-  for (let i = 0; i < 24; i++) w.step();
-  car.controls.jump = false;
-  for (let i = 0; i < 12; i++) w.step();
-  car.controls.pitch = 1; car.controls.jump = true; w.step(); car.controls.jump = false; // backflip
-  for (let i = 0; i < 14; i++) w.step();
-  const rateBefore = Math.abs(car.angVel.dot(car.rot.l));
-  car.controls.pitch = -1; // empujar hacia adelante = cancelar
-  let maxRate = 0;
-  for (let i = 0; i < 30; i++) { w.step(); maxRate = Math.max(maxRate, car.angVel.length()); }
-  const rateAfter = Math.abs(car.angVel.dot(car.rot.l));
-  return { pass: rateBefore > 4 && rateAfter < 1.0 && maxRate <= 5.5001, detail: 'giro antes ' + rateBefore.toFixed(2) + ' rad/s, después del cancel ' + rateAfter.toFixed(2) + ' rad/s, máx ' + maxRate.toFixed(3) };
+  const got = {};
+  let maxRate = 0, monotone = true, prev = Infinity;
+  for (let i = 0; i < 124; i++) {
+    car.controls.jump = i < 24 || i === 40 || i === 41;
+    car.controls.pitch = (i >= 40 && i < 44) ? 1 : (i >= 50 && i < 120 ? -1 : 0);   // backflip y luego cancelar
+    w.step();
+    const rate = Math.abs(car.angVel.dot(car.rot.l));
+    maxRate = Math.max(maxRate, car.angVel.length());
+    if (RS_REF.cancelRate[i] !== undefined) got[i] = rate;
+    if (i >= 51 && i < 120) { if (rate > prev + 1e-6) monotone = false; prev = rate; }
+  }
+  const errs = Object.keys(RS_REF.cancelRate).map((k) => Math.abs(got[k] - RS_REF.cancelRate[k]) / RS_REF.cancelRate[k]);
+  const pass = errs.every((e) => e < 0.05) && monotone && maxRate <= 5.5001;
+  return { pass, detail: 'giro (rad/s) en ticks ' + Object.keys(RS_REF.cancelRate).map((k) => k + ': ' + got[k].toFixed(3) + ' vs ' + RS_REF.cancelRate[k]).join(', ') +
+    '; decrece sin torque: ' + monotone + '; máx ' + maxRate.toFixed(3) };
 });
 
 Tests.add('Extra E. Pegado: se mantiene en el techo rápido y se despega lento en la pared', () => {
@@ -3814,6 +3897,42 @@ Tests.add('7. Partido bot contra bot de 5 minutos simulado termina sin errores n
     ' uu; distancia mín. del centro de la pelota a la superficie ' + minBall.toFixed(1) + ' uu; NaN: ' + nan + '\nPuntos: ' + pts };
 });
 
+Tests.add('Extra M. Mando en un iframe sin permiso: getGamepads() con SecurityError no detiene el juego', () => {
+  const hadOwn = Object.prototype.hasOwnProperty.call(navigator, 'getGamepads');
+  const savedAllowed = Input.padAllowed;
+  const res = {};
+  const probe = () => {
+    Input.padAllowed = null;
+    let threw = false, list = null, polled = null, ctlOk = false;
+    try {
+      list = Input.gamepads(); polled = Input.pollPad();
+      const c = new Controls(); Input.sample(c); ctlOk = Number.isFinite(c.throttle) && Number.isFinite(c.steer);
+    } catch (e) { threw = true; }
+    return { threw, empty: Array.isArray(list) && list.length === 0, polled, ctlOk, allowed: Input.padAllowed };
+  };
+  // 1) la llamada lanza SecurityError (lo que hace el navegador dentro de un iframe sin allow="gamepad")
+  let calls = 0;
+  Object.defineProperty(navigator, 'getGamepads', { configurable: true, writable: true,
+    value: () => { calls++; const e = new Error('gamepad bloqueado por la política de permisos'); e.name = 'SecurityError'; throw e; } });
+  const origWarn = console.warn; console.warn = () => {};
+  try { res.lanza = probe(); } finally { console.warn = origWarn; }
+  const callsAfterFirst = calls;
+  Input.gamepads(); Input.gamepads();                 // ya desactivado: no se vuelve a llamar
+  res.sinReintentos = calls === callsAfterFirst;
+  // 2) la política de permisos declara que "gamepad" no está permitido: no se llama a la API
+  const hadPol = Object.prototype.hasOwnProperty.call(document, 'permissionsPolicy');
+  Object.defineProperty(document, 'permissionsPolicy', { configurable: true, value: { allowsFeature: (f) => f !== 'gamepad' } });
+  calls = 0;
+  try { res.politica = probe(); res.politicaSinLlamar = calls === 0; }
+  finally { if (!hadPol) delete document.permissionsPolicy; }
+  if (!hadOwn) delete navigator.getGamepads;
+  Input.padAllowed = savedAllowed;
+  const okCase = (r) => r && !r.threw && r.empty && r.polled === false && r.ctlOk && r.allowed === false;
+  const pass = okCase(res.lanza) && okCase(res.politica) && res.sinReintentos && res.politicaSinLlamar;
+  return { pass, detail: 'SecurityError: sin excepción ' + (res.lanza && !res.lanza.threw) + ', mando desactivado ' + (res.lanza && res.lanza.allowed === false) +
+    ', teclado sigue ' + (res.lanza && res.lanza.ctlOk) + ', sin reintentos ' + res.sinReintentos +
+    '; política "gamepad" denegada: no llama a la API ' + res.politicaSinLlamar + ', teclado sigue ' + (res.politica && res.politica.ctlOk) };
+});
 Tests.add('Extra L. Los bots rotan: dos compañeros no van a la misma pelota', () => {
   const m = new Match({ mode: '3v3', difficulty: 'normal', seed: 77, headless: true, humanPlayer: false, botFactory: makeBot });
   let ticks = 0, overlap = 0, playing = 0, backTicks = 0;
