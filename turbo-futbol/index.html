@@ -14,9 +14,10 @@
     --panel: rgba(8, 14, 30, 0.86);
     --borde: rgba(140, 180, 255, 0.28);
     --acento: #ffd24a;
+    color-scheme: dark;     /* controles nativos (listas, barras de desplazamiento) en oscuro */
   }
   * { box-sizing: border-box; }
-  html, body { margin: 0; height: 100%; background: #04060c; color: var(--tinta); overflow: hidden;
+  html, body { margin: 0; height: 100%; background: #04060c; color: var(--tinta); overflow: hidden; font-size: 16px;
     font-family: "Segoe UI", "Helvetica Neue", Arial, system-ui, sans-serif; -webkit-font-smoothing: antialiased; }
   #juego { position: fixed; inset: 0; }
   #juego canvas { display: block; width: 100%; height: 100%; outline: none; }
@@ -244,7 +245,7 @@
     mostrar('Error inesperado (promesa)', (r && r.message) || String(r), (r && r.stack) || '');
   });
   setTimeout(function () {
-    if (!window.__tfArrancado && !/[?&]test/.test(location.search)) {
+    if (!window.__tfArrancado && !/[?&]test/.test(location.search) && location.hash !== '#test') {
       mostrar('El juego no terminó de cargar',
         'La inicialización tardó demasiado. Se necesita acceso a cdn.jsdelivr.net para descargar Three.js ' +
         'y un navegador con soporte de módulos ES, import maps y WebGL2 (Chrome o Safari recientes).', '');
@@ -338,7 +339,7 @@
       <div class="fila-botones"><button class="boton" data-ir="principal">Volver</button></div>
     </div>
   </div>
-  <div class="pie-menu">Turbo Fútbol · juego original · Three.js · física propia a 120 Hz</div>
+  <div class="pie-menu">Turbo Fútbol · juego original · Three.js · física propia a 120 Hz con el modelo de RocketSim (MIT)</div>
 </div>
 <div id="pausa" class="oculto">
   <div class="velo"></div>
@@ -363,6 +364,35 @@
    Física propia determinista a 120 Hz (Z vertical, unidades uu = cm).
    El render (Three.js, Y vertical, 1 unidad = 100 uu) convierte con un único helper.
    ===================================================================== */
+
+/* ---------------------------------------------------------------------
+   La física del auto (suspensión, ruedas, salto, dodge, control aéreo,
+   pegado, auto-flip y auto-roll) y el rebote de la pelota se portaron de la
+   lógica y las constantes de RocketSim (https://github.com/ZealanL/RocketSim),
+   que se distribuye con esta licencia:
+
+   MIT License
+
+   Copyright (c) 2022 ZealanL
+
+   Permission is hereby granted, free of charge, to any person obtaining a copy
+   of this software and associated documentation files (the "Software"), to deal
+   in the Software without restriction, including without limitation the rights
+   to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+   copies of the Software, and to permit persons to whom the Software is
+   furnished to do so, subject to the following conditions:
+
+   The above copyright notice and this permission notice shall be included in all
+   copies or substantial portions of the Software.
+
+   THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+   IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+   FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+   AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+   LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+   OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+   SOFTWARE.
+   --------------------------------------------------------------------- */
 
 // =====================================================================
 // CONFIG — todos los valores afinables del juego
@@ -404,9 +434,9 @@ const CONFIG = {
     master: 0.8, sfx: 0.9, engine: 0.55, crowd: 0.6,
   },
   car: {
-    // Modelo de vehículo de RocketSim (btVehicleRL + Car::_UpdateWheels; Octane de CarConfig.cpp)
+    // Modelo de vehículo de RocketSim (btVehicleRL + Car::_UpdateWheels; preset de auto por defecto de CarConfig.cpp)
     mass: 180,                            // (CAR_MASS_BT)
-    hitboxHalf: [60.2535, 43.3497, 19.32955],   // caja 120.507 × 86.6994 × 38.6591 (HITBOX_SIZES, Octane)
+    hitboxHalf: [60.2535, 43.3497, 19.32955],   // caja 120.507 × 86.6994 × 38.6591 (HITBOX_SIZES, preset por defecto)
     hitboxOffset: [13.8757, 0, 20.755],   // centro de la caja respecto al centro de masa (HITBOX_OFFSETS)
     restZ: 17,                            // altura del centro de masa en reposo (CAR_SPAWN_REST_Z)
     maxSpeed: 2300,                       // (CAR_MAX_SPEED)
@@ -437,7 +467,7 @@ const CONFIG = {
     powerslideRise: 5,                    // (POWERSLIDE_RISE_RATE)
     powerslideFall: 2,                    // (POWERSLIDE_FALL_RATE)
     stickyBase: 0.5,                      // pegado = g·(0.5 + (1 − |n.z|) con acelerador o |v adelante| > 25) (Car::_UpdateWheels)
-    // anclaje de la suspensión (local: adelante, lado, arriba), radio y largo de reposo (CarConfig.cpp, Octane)
+    // anclaje de la suspensión (local: adelante, lado, arriba), radio y largo de reposo (CarConfig.cpp, preset por defecto)
     wheels: [
       { x: 51.25, y: 25.90, z: 20.755, r: 12.5, rest: 38.755, front: true },
       { x: 51.25, y: -25.90, z: 20.755, r: 12.5, rest: 38.755, front: true },
@@ -1167,7 +1197,7 @@ class Car {
       if (!w.contact) { w.force = 0; continue; }
       const damp = w.relVel < 0 ? S.dampingCompression : S.dampingRelaxation;
       let F = ((w.rest - w.susLen) * S.stiffness * w.clippedInv - damp * w.relVel) * w.forceScale;
-      if (F < 0) F = 0;                                  // RL no usa fuerzas de suspensión hacia abajo
+      if (F < 0) F = 0;                                  // RocketSim no usa fuerzas de suspensión hacia abajo
       w.force = F;
     }
     for (const w of this.wheels) {
@@ -1250,7 +1280,7 @@ class Car {
   }
 
   /*
-   * Lateralidad: RocketSim usa las coordenadas de RL (X adelante, Y derecha, Z arriba: sistema zurdo).
+   * Lateralidad: RocketSim usa las coordenadas del juego de referencia (X adelante, Y derecha, Z arriba: sistema zurdo).
    * Sus fórmulas se copian con right := u × f (en este mundo diestro ese vector es this.rot.l) y las
    * entradas quirales (steer, yaw, roll) se invierten al entrar, para que +1 siga siendo "a la derecha" en pantalla.
    */
@@ -3080,7 +3110,8 @@ const ACTIONS = [
 ];
 const DEFAULT_BINDINGS = {
   acelerar: ['KeyW', 'ArrowUp'], reversa: ['KeyS', 'ArrowDown'], izquierda: ['KeyA', 'ArrowLeft'], derecha: ['KeyD', 'ArrowRight'],
-  saltar: ['Space', 'Mouse2'], turbo: ['ShiftLeft', 'Mouse0'], derrape: ['ControlLeft', ''], rollIzq: ['KeyQ', ''], rollDer: ['KeyE', ''],
+  // X alternativa al derrape: en macOS, Ctrl + flechas cambia de escritorio
+  saltar: ['Space', 'Mouse2'], turbo: ['ShiftLeft', 'Mouse0'], derrape: ['ControlLeft', 'KeyX'], rollIzq: ['KeyQ', ''], rollDer: ['KeyE', ''],
   camPelota: ['KeyC', ''], reiniciar: ['KeyR', ''], marcador: ['Tab', ''], pausa: ['Escape', 'KeyP'],
 };
 const Settings = {
@@ -3088,6 +3119,7 @@ const Settings = {
   data: null,
   defaults() {
     return {
+      version: 2,
       bindings: JSON.parse(JSON.stringify(DEFAULT_BINDINGS)),
       deadzone: CONFIG.input.deadzone,
       camera: Object.assign({}, CONFIG.camera),
@@ -3097,17 +3129,26 @@ const Settings = {
     };
   },
   load() {
-    const d = this.defaults();
+    let saved = null;
     try {
       const raw = window.localStorage && window.localStorage.getItem(this.KEY);
-      if (raw) {
-        const saved = JSON.parse(raw);
-        for (const k of ['deadzone', 'playerName']) if (saved[k] !== undefined) d[k] = saved[k];
-        for (const k of ['camera', 'audio', 'quality']) if (saved[k]) Object.assign(d[k], saved[k]);
-        if (saved.bindings) for (const a of Object.keys(d.bindings)) if (Array.isArray(saved.bindings[a])) d.bindings[a] = saved.bindings[a].slice(0, 2);
-      }
-    } catch (e) { /* almacenamiento no disponible: usar valores por defecto */ }
-    this.data = d;
+      if (raw) saved = JSON.parse(raw);
+    } catch (e) { /* almacenamiento no disponible o dañado: usar valores por defecto */ }
+    try { this.data = this.merge(saved); } catch (e) { this.data = this.defaults(); }
+    return this.data;
+  },
+  /** Valores por defecto con los ajustes guardados encima (y la migración de versiones anteriores). */
+  merge(saved) {
+    const d = this.defaults();
+    if (!saved || typeof saved !== 'object') return d;
+    for (const k of ['deadzone', 'playerName']) if (saved[k] !== undefined) d[k] = saved[k];
+    for (const k of ['camera', 'audio', 'quality']) if (saved[k]) Object.assign(d[k], saved[k]);
+    if (saved.bindings) for (const a of Object.keys(d.bindings)) if (Array.isArray(saved.bindings[a])) d.bindings[a] = saved.bindings[a].slice(0, 2);
+    // Ajustes guardados antes de la versión 2: se agrega X como derrape alternativo si ese hueco está libre y X no se usa
+    if (!(saved.version >= 2)) {
+      const b = d.bindings, used = Object.values(b).some((codes) => codes.includes('KeyX'));
+      if (!used && !b.derrape[1]) b.derrape[1] = 'KeyX';
+    }
     return d;
   },
   save() {
@@ -3684,7 +3725,7 @@ Tests.add('2. Con turbo llega a 2300 uu/s', () => {
 });
 
 Tests.add('3. Salto con botón completo alcanza la altura de referencia ±5% (RocketSim: 214.8 uu; mínimo 72.1 uu)', () => {
-  // Referencia medida con RocketSim (Octane en reposo sobre el piso, botón mantenido 0.3 s / 1 tick)
+  // Referencia medida con RocketSim (preset por defecto en reposo sobre el piso, botón mantenido 0.3 s / 1 tick)
   const REF = { full: 214.764, fullApex: 0.867, min: 72.122, minApex: 0.475 };
   const J = CONFIG.jump, g = CONFIG.physics.gravity;
   const vT = J.impulse + (J.holdAccel - g) * J.maxHold;
@@ -3739,7 +3780,7 @@ Tests.add('5. Auto a 1400 uu/s sube por la pared sin caerse ni atravesarla', () 
     ', SDF mín. de la caja ' + minSdf.toFixed(2) + ' uu, x máx. ' + maxX.toFixed(0) + (fell ? ', SE CAYÓ DE LA PARED' : '') };
 });
 
-// Referencias medidas con RocketSim (arena de planos, Octane, 120 Hz); ver el resumen de la entrega.
+// Referencias medidas con RocketSim (arena de planos, preset por defecto, 120 Hz); ver el resumen de la entrega.
 const RS_REF = {
   dodgePitchRate: [0.104, 1.971, 3.837, 5.5],   // rad/s tras 1, 2, 3 y 4 ticks del dodge adelante
   cancelRate: { 52: 5.114, 56: 4.641, 88: 2.135, 120: 0.982 },   // backflip en tick 40, cancelación desde el 50
@@ -4249,6 +4290,31 @@ Tests.add('Extra M. Mando en un iframe sin permiso: getGamepads() con SecurityEr
     ', teclado sigue ' + (res.lanza && res.lanza.ctlOk) + ', sin reintentos ' + res.sinReintentos +
     '; política "gamepad" denegada: no llama a la API ' + res.politicaSinLlamar + ', teclado sigue ' + (res.politica && res.politica.ctlOk) };
 });
+Tests.add('Extra N. Derrape con X (en macOS Ctrl + flechas cambia de escritorio) y migración de ajustes guardados', () => {
+  const ev = (code) => ({ code, repeat: false, preventDefault() {} });
+  const c = new Controls();
+  // en ?test los ajustes no se cargan: se usan los valores por defecto (sin tocar el almacenamiento)
+  const prevData = Settings.data;
+  if (!Settings.data) Settings.data = Settings.defaults();
+  Input.down.clear(); Input.latch.clear();
+  Input.onKeyDown(ev('KeyX')); Input.onKeyDown(ev('ArrowRight'));
+  Input.sample(c);
+  const withX = c.handbrake && c.steer === 1;
+  Input.onKeyUp(ev('KeyX')); Input.onKeyUp(ev('ArrowRight'));
+  Input.sample(c);
+  const released = !c.handbrake;
+  Settings.data = prevData;
+  // migración (sin tocar el almacenamiento): ajustes sin versión reciben X si el hueco está libre y X no se usa en otra acción
+  const migrated = Settings.merge({ bindings: { derrape: ['ControlLeft', ''] } }).bindings.derrape[1] === 'KeyX';
+  const respected = Settings.merge({ bindings: { derrape: ['ControlLeft', ''], camPelota: ['KeyC', 'KeyX'] } }).bindings.derrape[1] === '';
+  const kept = Settings.merge({ version: 2, bindings: { derrape: ['ControlLeft', ''] } }).bindings.derrape[1] === '';
+  const def = DEFAULT_BINDINGS.derrape.includes('KeyX');
+  return { pass: withX && released && migrated && respected && kept && def,
+    detail: 'X + → derrapa y gira: ' + withX + '; al soltar deja de derrapar: ' + released + '; X por defecto: ' + def +
+      '; ajustes viejos reciben X: ' + migrated + '; si X ya se usa en otra acción no se toca: ' + respected +
+      '; si ya se guardó con la versión nueva no se vuelve a agregar: ' + kept };
+});
+
 Tests.add('Extra L. Los bots rotan: dos compañeros no van a la misma pelota', () => {
   const m = new Match({ mode: '3v3', difficulty: 'normal', seed: 77, headless: true, humanPlayer: false, botFactory: makeBot });
   let ticks = 0, overlap = 0, playing = 0, backTicks = 0;
@@ -4297,6 +4363,7 @@ function initRenderer() {
   if (!gl) throw new Error('Este navegador no soporta WebGL2. Usa Chrome o Safari actualizados con aceleración por hardware.');
   R.renderer = new THREE.WebGLRenderer({ canvas, context: gl, antialias: true, powerPreference: 'high-performance', stencil: false });
   R.renderer.toneMapping = THREE.ACESFilmicToneMapping;
+  R.renderer.info.autoReset = false;      // se reinicia una vez por frame: el overlay F3 suma todos los pases (bloom incluido)
   R.renderer.toneMappingExposure = 1.0;
   R.renderer.outputColorSpace = THREE.SRGBColorSpace;
   R.scene = new THREE.Scene();
@@ -6619,6 +6686,7 @@ const Main = {
       Effects.update(vdt);
       DebugViz.update(G.world, G.match && G.match.predTick === G.world.tick ? G.match.predictor : null);
       Quality.monitor(dt);
+      R.renderer.info.reset();
       Quality.render();
       if (Debug.on) Debug.update(debugLines());
       requestAnimationFrame((t) => this.frame(t));
@@ -6658,7 +6726,8 @@ async function boot() {
   const params = new URLSearchParams(location.search);
   window.__TFT = { CONFIG, World, Car, Ball, BallPredictor, Controls, Match, BotBrain, makeBot, V3, Basis, arenaSDF, arenaRaycast, hitboxMinSDF, AR, DT, TICK_RATE };
   if (params.has('sim')) { window.__tfArrancado = true; document.getElementById('carga').classList.add('oculto'); return; }
-  if (params.has('test')) {
+  // ?test o #test (algunos visores embebidos solo pasan el #ancla a la página)
+  if (params.has('test') || location.hash === '#test') {
     window.__tfArrancado = true;
     await Tests.run();
     return;
