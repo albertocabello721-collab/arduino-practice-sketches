@@ -359,6 +359,8 @@ test('cámara blindada: se suma a las cámaras; las balas no la rompen, un golpe
   assert.ok(cam.bulletproof && cam.team === 1);
   const a = game.addOperator(new Operator('a', { team: 0, x: 8, y: 0, z: 2, yaw: -Math.PI / 2, loadout: ['ar'] }));
   step(game, gadgets, 0.2);
+  // mira hacia el salón (no hacia la pared): ve y marca al atacante
+  assert.equal(recon.mark(cam, 1), a, 'la cámara ve la habitación');
   const e = a.eyePos(), c = cam.center();
   const L = Math.hypot(c.x - e.x, c.y - e.y, c.z - e.z);
   for (let i = 0; i < 5; i++) game.fireBullet(a, e, { x: (c.x - e.x) / L, y: (c.y - e.y) / L, z: (c.z - e.z) / L }, a.weapon);

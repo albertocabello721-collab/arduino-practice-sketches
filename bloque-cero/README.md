@@ -16,7 +16,7 @@ Es un único archivo HTML autónomo: no necesita servidor ni conexión.
 | F3 | Rondas 5v5, 3 ubicaciones de sitios (los defensores eligen), desactivador, HUD con reloj y 10 retratos | ✅ |
 | F4 | Preparación: refuerzos, barricadas, trampillas, drones, cámaras, cuerpo a cuerpo | ✅ |
 | F5 | Bots: navegación, percepción, combate, tácticas por bando, órdenes (H), marcas (T), chat de equipo, depuración (P) | ✅ |
-| F6 | Operadores 8 + 8 y contrajuego de gadgets | en curso: arsenal ✅ · plantilla de 16 ✅ · granadas y explosivos ✅ · gadgets defensivos ✅ · 8 habilidades de ataque ✅ · baterías e inhibidores ✅ · resto de la defensa en camino |
+| F6 | Operadores 8 + 8 y contrajuego de gadgets | en curso: arsenal ✅ · plantilla de 16 ✅ · granadas y explosivos ✅ · gadgets defensivos ✅ · 8 habilidades de ataque ✅ · baterías, inhibidores, minas, cámaras adhesivas e interceptores ✅ · placas, estimulantes y gas en camino |
 | F7 | Animaciones en primera y tercera persona | pendiente |
 | F8 | Recarga por partes | pendiente |
 | F9 | Audio 3D con oclusión | pendiente |
@@ -128,8 +128,21 @@ Defensa:
   A 2,5 m, los drones enemigos pierden la señal (no se mueven, ni marcan, ni disparan el rayo;
   su vista dice «Señal inhibida») y las cargas remotas no detonan (carga de brecha, encender
   la térmica). Contras: un disparo, un golpe, el dron de choque o la PEM.
-- Las del resto de la defensa llegan en las siguientes rondas de la Fase 6; hasta entonces X
-  no hace nada con ellos.
+- **CEPO · mina láser** (×5): mirando el marco (o el hueco) de una puerta o ventana a menos de
+  2 m, **X** la pone en 1 s; el láser cruza el hueco a 0,35 m del suelo en las puertas y a media
+  altura en las ventanas. El atacante que lo cruza recibe 60 (30 los que estén a 1,5 m) y la
+  defensa recibe el aviso con el lugar y lo ve marcado 3 s. El láser solo se ve a menos de 2 m
+  o desde un dron; los drones no la activan. Contras: drones para verla, un disparo, la PEM.
+- **OJO · cámara adhesiva** (×3): **X** la lanza; se pega donde toca (en una pared mira hacia
+  fuera; en el suelo, algo hacia arriba) y se suma a las cámaras de la defensa (**5**).
+  Contras: un disparo, un golpe, el dron de choque; la PEM la deja sin señal.
+- **GUARDIÁN · interceptor** (×2): **X** lo pone en 1 s en una superficie a menos de 2 m. Destruye
+  en el aire las granadas de fragmentación, humo y cegadoras, las PEM y los proyectiles de ROMPE
+  y NUBE que entran a 6 m con línea de vista: para 2 y recupera 1 cada 20 s. Contras: la PEM,
+  saturarlo con más proyectiles de los que puede parar, un disparo.
+- Las de CORAZA, REMEDIO y TIZÓN llegan en la siguiente ronda de la Fase 6; hasta entonces X no
+  hace nada con ellos.
+- La cámara blindada ya mira hacia la habitación (antes quedaba mirando a la pared).
 - Los golpes cuerpo a cuerpo ya no alcanzan objetos a través de una pared.
 
 ## Gadgets secundarios (Fase 6)

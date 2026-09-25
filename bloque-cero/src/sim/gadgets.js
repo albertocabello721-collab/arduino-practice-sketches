@@ -40,7 +40,13 @@
 //     toca (o lo golpea) le quita 10 por segundo.
 //   · Inhibidor (SILENCIO): a 2,5 m, los drones enemigos pierden la señal y las cargas
 //     remotas (brecha, térmica) no detonan.
-//   Los dos: la PEM los apaga 15 s; un disparo, un golpe o el dron de choque los destruyen.
+//   · Mina láser (CEPO): en el marco de una puerta o ventana; el láser cruza el hueco. El
+//     atacante que lo cruza recibe 60 (30 los que estén a 1,5 m) y la defensa lo ve marcado
+//     3 s. El láser solo se ve a menos de 2 m o desde un dron; los drones no la activan.
+//   · Cámara adhesiva (OJO): se lanza, se pega donde toca y se suma a las cámaras.
+//   · Interceptor (GUARDIÁN): destruye en el aire granadas, humos, cegadoras, PEM y
+//     proyectiles del ataque que entran a 6 m con línea de vista; para 2 y recupera 1 cada 20 s.
+//   Todos: la PEM los apaga 15 s; un disparo, un golpe o el dron de choque los destruyen.
 // Las explosiones destruyen además los gadgets, drones y cámaras del otro bando que alcanzan.
 // Simulación pura (corre en Node); el cliente pinta los objetos y los efectos.
 import { SOLID, HARD, MAT, BLAST_RES, GLASS } from '../world/materials.js';
@@ -71,11 +77,16 @@ export const ABILITY_CD = 1.0;
 // habilidades de la defensa: batería de VOLTIO e inhibidor de SILENCIO
 export const BATTERY = { place: 1.0, reach: 2.0, margin: 0.3, touch: 0.33, dps: 10, tick: 0.25 };
 export const JAMMER = { place: 1.0, reach: 2.0, radius: 2.5 };
-const THROWABLE = { frag: true, smoke: true, flash: true, impact: true, c4: true, emp: true };
-const PLACEABLE = { breach: BREACH, claymore: CLAYMORE, barbed: WIRE, shield: DSHIELD, bpcam: BPCAM, alarm: ALARM, thermal: THERMAL, battery: BATTERY, jammer: JAMMER };
-export const PLACE_LABEL = { breach: 'la carga de brecha', claymore: 'la claymore', barbed: 'el alambre', shield: 'el escudo desplegable', bpcam: 'la cámara blindada', alarm: 'la alarma', thermal: 'la carga térmica', battery: 'la batería', jammer: 'el inhibidor' };
-// Electrónica que la PEM apaga (las cámaras de seguridad también)
-const ELECTRONIC = { alarm: true, battery: true, jammer: true };
+// mina láser de CEPO, interceptor de GUARDIÁN (la cámara adhesiva de OJO se lanza)
+export const LMINE = { place: 1.0, reach: 2.0, damage: 60, splash: 30, splashR: 1.5, mark: 3, seen: 2, width: 0.3 };
+export const INTERCEPTOR = { place: 1.0, reach: 2.0, range: 6, charges: 2, recharge: 20 };
+const THROWABLE = { frag: true, smoke: true, flash: true, impact: true, c4: true, emp: true, stickycam: true };
+const PLACEABLE = { breach: BREACH, claymore: CLAYMORE, barbed: WIRE, shield: DSHIELD, bpcam: BPCAM, alarm: ALARM, thermal: THERMAL, battery: BATTERY, jammer: JAMMER, lasermine: LMINE, interceptor: INTERCEPTOR };
+export const PLACE_LABEL = { breach: 'la carga de brecha', claymore: 'la claymore', barbed: 'el alambre', shield: 'el escudo desplegable', bpcam: 'la cámara blindada', alarm: 'la alarma', thermal: 'la carga térmica', battery: 'la batería', jammer: 'el inhibidor', lasermine: 'la mina láser', interceptor: 'el interceptor' };
+// Electrónica que la PEM apaga (las cámaras de seguridad, también las adhesivas)
+const ELECTRONIC = { alarm: true, battery: true, jammer: true, lasermine: true, interceptor: true };
+// Lo que un interceptor destruye en el aire (proyectiles del ataque)
+const INTERCEPTABLE = { frag: true, smoke: true, flash: true, emp: true, breachround: true, smokeround: true };
 // Qué ranura gasta cada uso: el gadget secundario (G) o la habilidad (X)
 const slotOf = (op, src) => (src === 'ability' ? op.ability : op.gadget);
 const hasCharge = (slot) => !!slot && slot.left !== 0;          // (-1 = sin límite)
@@ -138,7 +149,7 @@ export class Gadgets {
       id: `g${this._nextId++}`, kind, owner: op, team: op.team,
       pos: { x: e.x + d.x * 0.35, y: e.y + d.y * 0.35 - 0.05, z: e.z + d.z * 0.35 },
       vel: { x: d.x * THROW.speed + v.x * 0.6, y: d.y * THROW.speed + THROW.up + Math.max(0, v.y) * 0.4, z: d.z * THROW.speed + v.z * 0.6 },
-      t: 0, rest: false, alive: true, bounces: 0,
+      t: 0, rest: false, alive: true, bounces: 0, yaw0: op.yaw,
     };
     // si nada más salir choca (pegado a una pared), se suelta a los pies
     if (SOLID[this.game.world.getWorld(it.pos.x, it.pos.y, it.pos.z)]) { it.pos = { x: e.x, y: e.y - 0.2, z: e.z }; }
@@ -166,6 +177,8 @@ export class Gadgets {
       else if (c.kind === 'alarm') this._alarmTick(c, dt);
       else if (c.kind === 'thermal' && c.burning) this._thermalTick(c, dt);
       else if (c.kind === 'battery') this._batteryTick(c, dt);
+      else if (c.kind === 'lasermine') this._mineTick(c);
+      else if (c.kind === 'interceptor') this._interceptTick(c, dt);
     }
     this.placed = this.placed.filter((c) => c.alive);
     for (const it of this.items) {
@@ -197,7 +210,7 @@ export class Gadgets {
         if (SOLID[w.getWorld(np.x, np.y, np.z)] || this._hitsOperator(it, np)) {
           hit = true;
           if (it.kind === 'impact') { this._explode(it, IMPACT); return; }
-          if (it.kind === 'c4') { this._stick(it, ax, v[ax]); return; }
+          if (it.kind === 'c4' || it.kind === 'stickycam') { this._stick(it, ax, v[ax]); return; }
           v[ax] = -v[ax] * THROW.bounce;
           // rozamiento al tocar el suelo o una pared
           const f = ax === 'y' ? 0.7 : 0.85;
@@ -449,8 +462,23 @@ export class Gadgets {
     it.stuck = true; it.rest = true;
     it.vel.x = it.vel.y = it.vel.z = 0;
     it.normal = { x: 0, y: 0, z: 0 }; it.normal[ax] = vAx > 0 ? -1 : 1;
+    if (it.kind === 'stickycam') { this._stickyCam(it); return; }
     this._target(it, 0.07);
     this.game.emit('gadgetStuck', it);
+  }
+  // La cámara adhesiva pegada pasa a ser una cámara más de la defensa.
+  _stickyCam(it) {
+    it.alive = false;
+    const n = it.normal, g = this.game;
+    // en una pared mira hacia fuera; en el suelo, algo hacia arriba; en el techo, hacia abajo
+    const floor = n.y > 0.5, ceil = n.y < -0.5;
+    const yaw = floor || ceil ? it.yaw0 : Math.atan2(-n.x, -n.z);
+    const pitch = floor ? 0.25 : ceil ? -0.9 : -0.1;
+    const cam = new SecurityCam({ id: it.id, name: 'Cámara adhesiva', x: it.pos.x + n.x * 0.04, y: it.pos.y + n.y * 0.04, z: it.pos.z + n.z * 0.04, yaw, pitch });
+    cam.team = it.team; cam.fromGadget = true; cam.sticky = true;
+    if (this.recon) this.recon.cams.push(cam);
+    g.targets.push(cam);
+    g.emit('gadgetPlaced', it.owner, cam);
   }
 
   // ---------------------------------------------------------------- colocar (brecha, claymore)
@@ -530,7 +558,13 @@ export class Gadgets {
       const t = hit.t - 0.03;
       return { ok: true, kind: 'battery', pos: { x: e.x + d.x * t, y: e.y + d.y * t, z: e.z + d.z * t }, normal: n, axis, host: { kind: hit.mat === MAT.BARRICADE ? 'barricade' : 'reinforced', box, voxel: { x: hit.x, y: hit.y, z: hit.z, mat: hit.mat } } };
     }
-    if (id === 'bpcam' || id === 'alarm' || id === 'jammer') {
+    if (id === 'lasermine') {
+      const hit = raycastFirst(w, e.x, e.y, e.z, d.x, d.y, d.z, LMINE.reach + 0.4, SOLID, true);
+      const o = this._openingAhead(e, d, hit);
+      if (!o) return { why: 'Mira el marco de una puerta o una ventana' };
+      return { ok: true, kind: 'lasermine', ...o };
+    }
+    if (id === 'bpcam' || id === 'alarm' || id === 'jammer' || id === 'interceptor') {
       const hit = raycastFirst(w, e.x, e.y, e.z, d.x, d.y, d.z, BPCAM.reach, SOLID, true);
       if (!hit) return { why: 'Acércate a una pared' };
       const axis = hit.face >> 1;
@@ -540,7 +574,8 @@ export class Gadgets {
       if (n.x * d.x + n.y * d.y + n.z * d.z > 0) { n.x = -n.x; n.y = -n.y; n.z = -n.z; }
       const t = hit.t - 0.03;
       const pos = { x: e.x + d.x * t, y: e.y + d.y * t, z: e.z + d.z * t };
-      return { ok: true, kind: id, pos, normal: n, yaw: Math.atan2(-n.x, -n.z) + Math.PI, axis };
+      // (la cámara mira hacia fuera de la pared: a lo largo de la normal, hacia quien la pone)
+      return { ok: true, kind: id, pos, normal: n, yaw: Math.atan2(-n.x, -n.z), axis };
     }
     return null;
   }
@@ -602,6 +637,8 @@ export class Gadgets {
       return cam;
     }
     this.placed.push(c);
+    if (spot.kind === 'lasermine') { c.a = spot.a; c.b = spot.b; }
+    if (spot.kind === 'interceptor') { c.charges = INTERCEPTOR.charges; c.rechargeT = 0; }
     // (la carga térmica abre desde el suelo de la planta de quien la pone)
     if (spot.kind === 'thermal') c.floorY = Math.floor((op.body.pos.y + 0.3) / 3.5) * 3.5;
     if (spot.kind === 'barbed') {
@@ -618,7 +655,7 @@ export class Gadgets {
         const ld = { x: d.x * cy - d.z * sy, y: d.y, z: d.x * sy + d.z * cy };
         return rayAABB(lo, ld, -WIRE.w / 2, 0, -WIRE.d / 2, WIRE.w / 2, 0.6, WIRE.d / 2, maxT);
       };
-    } else this._target(c, spot.kind === 'claymore' ? 0.12 : spot.kind === 'alarm' || spot.kind === 'battery' ? 0.1 : spot.kind === 'jammer' ? 0.12 : 0.2);
+    } else this._target(c, spot.kind === 'claymore' ? 0.12 : spot.kind === 'alarm' || spot.kind === 'battery' || spot.kind === 'lasermine' ? 0.1 : spot.kind === 'jammer' || spot.kind === 'interceptor' ? 0.12 : 0.2);
     g.emit('gadgetPlaced', op, c);
     return c;
   }
@@ -737,6 +774,87 @@ export class Gadgets {
       if (Math.hypot(c.pos.x - p.x, c.pos.y - p.y, c.pos.z - p.z) <= JAMMER.radius) return c;
     }
     return null;
+  }
+
+  // ---------------------------------------------------------------- mina láser (CEPO)
+  // La puerta o ventana que hay delante (el marco o el hueco a menos de 2 m): extremos del láser.
+  _openingAhead(e, d, hit) {
+    const map = this.game.map;
+    let best = null;
+    for (const o of [...(map.doors || []), ...(map.windows || [])]) {
+      // plano de la pared del hueco ('x': pared a z = line, a lo largo de x; 'z': a x = line)
+      const alongX = o.axis === 'x';
+      const dn = alongX ? d.z : d.x, en = alongX ? e.z : e.x;
+      if (Math.abs(dn) < 1e-4) continue;
+      const t = (o.line - en) / dn;
+      if (t <= 0 || t > LMINE.reach + 0.4) continue;
+      if (hit && hit.t < t - 0.4) continue;                    // hay algo antes
+      const q = { x: e.x + d.x * t, y: e.y + d.y * t, z: e.z + d.z * t };
+      const u = alongX ? q.x : q.z, u0 = o.center - o.width / 2, u1 = o.center + o.width / 2;
+      if (u < u0 - 0.3 || u > u1 + 0.3 || q.y < o.y0 - 0.2 || q.y > o.y1 + 0.3) continue;
+      if (best && best.t <= t) continue;
+      // del lado de quien la pone, a ras del marco; a 0,35 m del suelo en puertas, a media altura en ventanas
+      const side = Math.sign(en - o.line) || 1, off = o.line + side * 0.14;
+      const door = o.y0 <= Math.floor((o.y0 + 0.1) / 3.5) * 3.5 + 0.05;
+      const y = door ? o.y0 + 0.35 : (o.y0 + o.y1) / 2;
+      const nearU = Math.abs(u - u0) < Math.abs(u - u1) ? u0 : u1, farU = nearU === u0 ? u1 : u0;
+      const P = (uu) => (alongX ? { x: uu, y, z: off } : { x: off, y, z: uu });
+      const a = P(nearU + (nearU === u0 ? 0.03 : -0.03)), b = P(farU + (farU === u0 ? 0.03 : -0.03));
+      const n = alongX ? { x: 0, y: 0, z: side } : { x: side, y: 0, z: 0 };
+      best = { t, pos: { ...a }, a, b, normal: n, axis: alongX ? 2 : 0 };
+    }
+    return best;
+  }
+  _mineTick(c) {
+    if (this.isOff(c) || this.game.time - c.t0 < 0.3) return;
+    const g = this.game, a = c.a, b = c.b;
+    const sx = b.x - a.x, sz = b.z - a.z, L2 = sx * sx + sz * sz || 1;
+    for (const op of g.operators) {
+      if (op.team === c.team || op.state === 'dead' || op.frozen) continue;
+      const p = op.body.pos;
+      if (a.y < p.y || a.y > p.y + op.body.height) continue;
+      const k = Math.max(0, Math.min(1, ((p.x - a.x) * sx + (p.z - a.z) * sz) / L2));
+      if (Math.hypot(a.x + sx * k - p.x, a.z + sz * k - p.z) > LMINE.width) continue;
+      this._mineBlast(c, op);
+      return;
+    }
+  }
+  _mineBlast(c, op) {
+    const g = this.game;
+    c.alive = false;
+    this._untarget(c);
+    const p = op.body.pos, hit = { x: p.x, y: c.a.y, z: p.z };
+    g.damage(op, LMINE.damage, { by: c.owner, weapon: { name: 'Mina láser', explosive: true }, zone: 'body', point: hit, explosive: true });
+    for (const o of g.operators) {
+      if (o === op || o.team === c.team || o.state === 'dead' || o.frozen) continue;
+      if (Math.hypot(o.body.pos.x - hit.x, o.body.pos.z - hit.z) > LMINE.splashR) continue;
+      g.damage(o, LMINE.splash, { by: c.owner, weapon: { name: 'Mina láser', explosive: true }, zone: 'body', point: hit, explosive: true });
+    }
+    // aviso a la defensa: el que la ha pisado queda marcado
+    if (this.recon && op.state !== 'dead') this.recon.spotted.set(op, { until: g.time + LMINE.mark, team: c.team, by: c.owner });
+    g.emit('explosion', 'lasermine', { ...c.pos }, { radius: LMINE.splashR, lethal: 0, damage: LMINE.damage }, c.owner);
+    g.emit('mineAlert', c, op);
+  }
+
+  // ---------------------------------------------------------------- interceptor (GUARDIÁN)
+  _interceptTick(c, dt) {
+    if (c.charges < INTERCEPTOR.charges) {
+      c.rechargeT += dt;
+      if (c.rechargeT >= INTERCEPTOR.recharge) { c.rechargeT = 0; c.charges++; }
+    } else c.rechargeT = 0;
+    if (this.isOff(c) || c.charges <= 0) return;
+    const w = this.game.world, n = c.normal || { x: 0, y: 1, z: 0 };
+    const o = { x: c.pos.x + n.x * 0.1, y: c.pos.y + n.y * 0.1 + 0.05, z: c.pos.z + n.z * 0.1 };
+    for (const it of this.items) {
+      if (!it.alive || it.team === c.team || !INTERCEPTABLE[it.kind] || (it.kind === 'breachround' && it.stuck)) continue;
+      const p = it.pos;
+      if (Math.hypot(p.x - o.x, p.y - o.y, p.z - o.z) > INTERCEPTOR.range) continue;
+      if (!lineOfSight(w, o.x, o.y, o.z, p.x, p.y, p.z)) continue;
+      it.alive = false;
+      c.charges--;
+      this.game.emit('intercepted', c, { ...o }, { ...p }, it.kind);
+      return;
+    }
   }
 
   // ---------------------------------------------------------------- batería (VOLTIO)

@@ -459,7 +459,7 @@ export class MatchSession extends Session {
       const spot = G.placeSpot(p, 'thermal');
       return spot && spot.ok ? 'X para colocar la carga térmica' : '';
     }
-    if (a.id === 'battery' || a.id === 'jammer') {
+    if (a.id === 'battery' || a.id === 'jammer' || a.id === 'lasermine' || a.id === 'interceptor') {
       if (!a.left) return '';
       const spot = G.placeSpot(p, a.id);
       return spot && spot.ok ? `X para poner ${PLACE_LABEL[a.id]}` : '';

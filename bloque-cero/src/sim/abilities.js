@@ -32,7 +32,11 @@
 //     menos de 2 m y los electrifica (ver gadgets.js).
 //   · SILENCIO · inhibidor ×4: X lo pone en 1 s en el suelo o una pared a menos de 2 m; a
 //     2,5 m los drones enemigos pierden la señal y las cargas remotas no detonan.
-// El resto (6.5b-c) llega en las siguientes rondas: hasta entonces X no hace nada.
+// Defensa (Fase 6.5b):
+//   · CEPO · mina láser ×5: X en el marco de una puerta o ventana (1 s); el láser cruza el hueco.
+//   · OJO · cámara adhesiva ×3: X la lanza; se pega y se suma a las cámaras.
+//   · GUARDIÁN · interceptor ×2: X lo pone (1 s); destruye proyectiles del ataque a 6 m.
+// El resto (6.5c) llega en la siguiente ronda: hasta entonces X no hace nada.
 // Simulación pura (corre en Node).
 import { ABILITY_CD, FLASH } from './gadgets.js';
 import { raycastFirst, lineOfSight } from '../world/raycast.js';
@@ -48,7 +52,7 @@ export const SHOCK = { charges: 6, regen: 12, range: 8, cooldown: 0.5 };
 export const BSHIELD = { hw: 0.31, front: 0.42, low: 0.45, lowCrouch: 0.18, top: 0.22, cover: 0.34, bash: 40, windup: 0.4, range: 5, cone: Math.cos(Math.PI / 4) };
 
 /** Habilidades ya programadas (las demás aún no se muestran en el HUD). */
-export const ABILITY_READY = { thermal: true, breachround: true, remotesmoke: true, emp: true, scan: true, thermalscope: true, shockdrone: true, shield: true, battery: true, jammer: true };
+export const ABILITY_READY = { thermal: true, breachround: true, remotesmoke: true, emp: true, scan: true, thermalscope: true, shockdrone: true, shield: true, battery: true, jammer: true, lasermine: true, stickycam: true, interceptor: true };
 
 /** ¿Tiene `op` el escudo balístico levantado? (correr, plantar o reanimar lo bajan) */
 export function shieldUp(op) {
@@ -141,7 +145,8 @@ export class Abilities {
       case 'emp': return G.throwFrom(op, 'ability') ? 'throw' : null;
       case 'scan': return this.startScan(op) ? 'scan' : null;
       case 'shield': return this.startFlash(op) ? 'flash' : null;
-      case 'battery': case 'jammer': return G.startPlace(op, 'ability') ? 'place' : null;
+      case 'battery': case 'jammer': case 'lasermine': case 'interceptor': return G.startPlace(op, 'ability') ? 'place' : null;
+      case 'stickycam': return G.throwFrom(op, 'ability') ? 'throw' : null;
       default: return null;       // (el visor térmico es pasivo: apuntar y quedarse quieto)
     }
   }

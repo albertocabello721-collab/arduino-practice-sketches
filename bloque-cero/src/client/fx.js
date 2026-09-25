@@ -109,6 +109,23 @@ export function bindGameFx(ctx, game, view) {
     audio.zap(p, false, occlusion(p));
   });
   on('electrified', (o) => { if (o.owner === me()) hud.toast('¡Electrificado! La batería ha quemado la carga', 1.8); });
+  // mina láser: aviso a la defensa (dónde ha saltado)
+  on('mineAlert', (c, op) => {
+    const my = me();
+    if (!my || my.team !== c.team) return;
+    const p = op.body.pos;
+    const where = ctx.map && ctx.map.locationAt ? ctx.map.locationAt(p.x, p.y + 0.2, p.z) : '';
+    audio.ping('mark');
+    hud.toast(`Mina láser${where ? ' · ' + where : ''}`, 2.2);
+  });
+  // interceptor: rayo hasta el proyectil y chasquido
+  on('intercepted', (c, from, to) => {
+    const dx = to.x - from.x, dy = to.y - from.y, dz = to.z - from.z, L = Math.hypot(dx, dy, dz) || 1;
+    for (let k = 0.2; k < L; k += 0.3) effects.spawnSpark(from.x + dx / L * k, from.y + dy / L * k, from.z + dz / L * k, 0, 0.3, 0, 1);
+    for (let i = 0; i < 8; i++) effects.spawnSpark(to.x, to.y, to.z, (Math.random() - 0.5) * 3, Math.random() * 2, (Math.random() - 0.5) * 3, 1);
+    effects.flash(to.x, to.y, to.z, 30, 50, 90, 4, 0.1);
+    audio.zap(to, false, occlusion(to));
+  });
   // escudo de MURALLA: carga y destello (ciega en su cono, como una cegadora)
   on('shieldFlashCharge', (op) => audio.shieldCharge(op.eyePos(), op === viewer()));
   on('shieldFlash', (op, p, hitList) => {
@@ -136,7 +153,7 @@ export function bindGameFx(ctx, game, view) {
     }
   });
   on('explosion', (kind, p, spec) => {
-    const big = { frag: 1, impact: 0.7, breach: 1.2, c4: 1.3, claymore: 0.9, thermal: 1.1, breachround: 0.8 }[kind] || 1;
+    const big = { frag: 1, impact: 0.7, breach: 1.2, c4: 1.3, claymore: 0.9, thermal: 1.1, breachround: 0.8, lasermine: 0.6 }[kind] || 1;
     effects.flash(p.x, p.y + 0.2, p.z, 60 * big, 34 * big, 14 * big, 10, 0.3);
     for (let i = 0; i < 40 * big; i++) effects.spawnSpark(p.x, p.y + 0.1, p.z, (Math.random() - 0.5) * 12, Math.random() * 7, (Math.random() - 0.5) * 12, 1);
     for (let i = 0; i < 14; i++) effects.spawnDust(p.x + (Math.random() - 0.5) * 0.8, p.y + 0.2 + Math.random() * 0.6, p.z + (Math.random() - 0.5) * 0.8, (Math.random() - 0.5) * 2.5, Math.random() * 1.6, (Math.random() - 0.5) * 2.5, 0.5 + Math.random() * 0.6, [0.42, 0.4, 0.37], 2.5 + Math.random() * 1.5, 0.55);

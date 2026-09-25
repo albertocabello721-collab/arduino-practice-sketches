@@ -250,3 +250,109 @@ test('inhibidor: el dron de choque no dispara dentro; la PEM apaga el inhibidor 
   dr.intent.zap = true; step(c, TICK);
   assert.ok(!al.alive, 'con el inhibidor apagado, el rayo funciona');
 });
+
+// ---------------------------------------------------------------- F6.5b: mina láser, cámara adhesiva, interceptor
+import { LMINE, INTERCEPTOR, FRAG } from '../src/sim/gadgets.js';
+
+test('mina láser: en la puerta hall ↔ cocina; el atacante que la cruza recibe 60 y la defensa lo ve marcado', () => {
+  const c = fresh();
+  // CEPO en el hall mirando la puerta (x de 15,5 a 16,5, pared z = 16)
+  const k = withAbility(c.game.addOperator(new Operator('k', { team: 1, x: 16, y: 0, z: 14.6, yaw: Math.PI, loadout: ['ar'] })), 'lasermine', 5);
+  step(c, 0.2);
+  aim(k, { x: 15.6, y: 0.6, z: 16 });
+  pressX(c, k);
+  assert.equal(k.channel && k.channel.what, 'lasermine');
+  step(c, LMINE.place + 0.1);
+  const mine = c.gadgets.placed.find((p) => p.kind === 'lasermine');
+  assert.ok(mine, 'mina puesta');
+  assert.ok(Math.abs(mine.a.y - 0.35) < 0.01 && Math.abs(mine.b.x - mine.a.x) > 0.8, 'el láser cruza la puerta a 0,35 m');
+  k.body.pos.x = 20; k.body.pos.z = 10;
+  // un atacante viene de la cocina hacia el hall
+  const a = c.game.addOperator(new Operator('a', { team: 0, x: 16, y: 0, z: 17.6, yaw: 0, loadout: ['ar'] }));
+  const alerts = [];
+  c.game.on('mineAlert', (m, op) => alerts.push(op));
+  step(c, 0.2);
+  const hp0 = a.hp;
+  for (let i = 0; i < 90 && mine.alive; i++) { a.intent.moveZ = 1; step(c, TICK); }
+  a.intent.moveZ = 0;
+  assert.ok(!mine.alive, 'saltó');
+  assert.equal(hp0 - a.hp, LMINE.damage, '60 de daño');
+  assert.deepEqual(alerts, [a], 'aviso a la defensa');
+  assert.ok(c.recon.isSpottedFor(a, 1), 'marcado');
+});
+
+test('mina láser: apagada por la PEM no salta; un disparo la quita', () => {
+  const c = fresh();
+  const k = withAbility(c.game.addOperator(new Operator('k', { team: 1, x: 16, y: 0, z: 14.6, yaw: Math.PI, loadout: ['ar'] })), 'lasermine', 5);
+  step(c, 0.2);
+  aim(k, { x: 16.4, y: 0.6, z: 16 });
+  pressX(c, k);
+  step(c, LMINE.place + 0.1);
+  const mine = c.gadgets.placed.find((p) => p.kind === 'lasermine');
+  k.body.pos.x = 20; k.body.pos.z = 10;
+  const a = c.game.addOperator(new Operator('a', { team: 0, x: 16, y: 0, z: 17.6, yaw: 0, loadout: ['ar'] }));
+  c.gadgets.items.push({ id: 'e', kind: 'emp', owner: a, team: 0, pos: { x: 16, y: 0.1, z: 17 }, vel: { x: 0, y: 0, z: 0 }, t: EMP.fuse - 0.05, rest: true, alive: true, bounces: 0 });
+  step(c, 0.1);
+  assert.ok(c.gadgets.isOff(mine), 'apagada');
+  const hp0 = a.hp;
+  for (let i = 0; i < 70; i++) { a.intent.moveZ = 1; step(c, TICK); }
+  a.intent.moveZ = 0;
+  assert.ok(a.body.pos.z < 15.5, 'la cruzó');
+  assert.ok(mine.alive && a.hp === hp0, 'no saltó');
+  c.game.destroyTarget(mine.target, a);
+  step(c, TICK);
+  assert.ok(!mine.alive, 'un disparo la quita');
+});
+
+test('cámara adhesiva: se lanza, se pega en la pared y se suma a las cámaras de la defensa', () => {
+  const c = fresh();
+  const n0 = c.recon.cams.length;
+  const o = withAbility(c.game.addOperator(new Operator('o', { team: 1, x: 17, y: 0, z: 13, yaw: 0, loadout: ['ar'] })), 'stickycam', 3);
+  step(c, 0.2);
+  o.pitch = 0;
+  pressX(c, o);
+  assert.equal(o.ability.left, 2);
+  step(c, 1.5);
+  assert.equal(c.recon.cams.length, n0 + 1, 'una cámara más');
+  const cam = c.recon.cams[c.recon.cams.length - 1];
+  assert.ok(cam.sticky && cam.team === 1, 'adhesiva, de la defensa');
+  assert.ok(Math.abs(cam.pos.z - 7.1) < 0.2, `en la pared norte del hall (${cam.pos.z.toFixed(2)})`);
+  // ve el hall: marca a un atacante delante
+  const v = cam.viewDir();
+  const a = c.game.addOperator(new Operator('a', { team: 0, x: cam.pos.x + v.x * 3, y: 0, z: cam.pos.z + v.z * 3, yaw: 0, loadout: ['ar'] }));
+  step(c, 0.2);
+  assert.equal(c.recon.mark(cam, 1), a, 'lo marca');
+  // un disparo la destruye
+  const e = a.eyePos(), q = cam.center(), L = Math.hypot(q.x - e.x, q.y - e.y, q.z - e.z);
+  c.game.fireBullet(a, e, { x: (q.x - e.x) / L, y: (q.y - e.y) / L, z: (q.z - e.z) / L }, a.weapon);
+  assert.ok(!cam.alive, 'destruida de un disparo');
+});
+
+test('interceptor: destruye 2 granadas en el aire; la tercera explota; recupera 1 a los 20 s', () => {
+  const c = fresh();
+  const gu = withAbility(c.game.addOperator(new Operator('g', { team: 1, x: 17, y: 0, z: 13, yaw: 0, loadout: ['ar'] })), 'interceptor', 2);
+  step(c, 0.2);
+  gu.pitch = -1.0;
+  pressX(c, gu);
+  step(c, INTERCEPTOR.place + 0.1);
+  const ic = c.gadgets.placed.find((p) => p.kind === 'interceptor');
+  assert.ok(ic && ic.charges === 2, 'interceptor con 2 cargas');
+  gu.body.pos.x = 21; gu.body.pos.z = 9;
+  // un atacante al fondo del hall lanza granadas hacia él
+  const a = c.game.addOperator(new Operator('a', { team: 0, x: 17, y: 0, z: 15.6, yaw: 0, loadout: ['ar'] }));
+  a.gadget = { id: 'frag', left: 3 };
+  const cut = [], booms = [];
+  c.game.on('intercepted', (x, from, p, kind) => cut.push(kind));
+  c.game.on('explosion', (k) => booms.push(k));
+  step(c, 0.2);
+  a.pitch = 0.1;
+  for (let i = 0; i < 3; i++) { a.gadgetCd = 0; a.intent.gadget = true; step(c, 0.4); }
+  step(c, FRAG.fuse + 0.2);
+  assert.deepEqual(cut, ['frag', 'frag'], 'dos interceptadas');
+  assert.ok(booms.includes('frag'), 'la tercera explota');
+  if (ic.alive) {
+    assert.equal(ic.charges, 0);
+    step(c, INTERCEPTOR.recharge + 0.1);
+    assert.equal(ic.charges, 1, 'recarga una a los 20 s');
+  }
+});

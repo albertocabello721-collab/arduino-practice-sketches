@@ -120,6 +120,22 @@ function jammerModel() {
   b.add(Box(0.02, 0.012, 0.02), { at: [-0.035, 0.066, 0.025], color: '#ff3a2a', glow: 1 });
   return b.build();
 }
+// Mina láser de CEPO (caja con lente en el marco) e interceptor de GUARDIÁN (base con torreta
+// y piloto: fijo con cargas, parpadeando sin ellas).
+function mineModel() {
+  const b = new Builder();
+  b.add(Box(0.07, 0.09, 0.05), { at: [0, 0.045, 0], color: '#3b4148', rough: 0.5, metal: 0.4 });
+  b.add(Cyl(0.016, 0.016, 0.02, 8), { at: [0, 0.06, 0.03], rot: [Math.PI / 2, 0, 0], color: '#ff3a1a', glow: 1 });
+  return b.build();
+}
+function interceptorModel() {
+  const b = new Builder();
+  b.add(Box(0.16, 0.05, 0.16), { at: [0, 0.025, 0], color: '#2e3136', rough: 0.5, metal: 0.4 });
+  b.add(Cyl(0.035, 0.05, 0.06, 10), { at: [0, 0.08, 0], color: '#4a4f57', rough: 0.4, metal: 0.6 });
+  b.add(Box(0.02, 0.02, 0.09), { at: [0, 0.11, -0.03], color: '#1a1b1e', rough: 0.4 });
+  b.add(Box(0.02, 0.012, 0.02), { at: [0.05, 0.056, 0.05], color: '#ffffff', glow: 1 });
+  return b.build();
+}
 // Escudo balístico de MURALLA (1,3 m de alto desde su borde inferior; se estira con la postura):
 // placa oscura con mirilla, asas por detrás y el foco del destello arriba.
 function shieldModel() {
@@ -313,7 +329,7 @@ export class PropRenderer {
     this.geo = {
       droneBody: [droneBody('#3d9be9'), droneBody('#f0892b')], droneWheels: droneWheels(),
       camBase: camBase(), camHead: camHead(), hatch: hatchPlate(this.steelLayer), defuser: defuserModel(),
-      taser: taserModel(), shield: shieldModel(), battery: batteryModel(), jammer: jammerModel(),
+      taser: taserModel(), shield: shieldModel(), battery: batteryModel(), jammer: jammerModel(), lasermine: mineModel(), interceptor: interceptorModel(),
       grenade: { frag: grenadeModel('frag'), smoke: grenadeModel('smoke'), flash: grenadeModel('flash'), impact: grenadeModel('impact'), c4: c4Model(), emp: empModel(), breachround: roundModel('breachround'), smokeround: roundModel('smokeround') },
       breach: breachModel(), claymore: claymoreModel(), barbed: wireModel(), alarm: alarmModel(), thermal: thermalModel(), thermalHot: thermalHot(),
     };
@@ -357,6 +373,7 @@ export class PropRenderer {
   }
   _dispose(it) {
     this.scene.remove(it.group);
+    if (it.worldLaser && it.laser) { this.scene.remove(it.laser); it.laser.geometry.dispose(); }
     it.group.traverse((o) => { if (o.material && o.material !== this.laserMat) o.material.dispose(); if (o.isLine && o.geometry) o.geometry.dispose(); });
   }
 
@@ -399,6 +416,7 @@ export class PropRenderer {
       });
       it.group.position.set(c.pos.x, c.pos.y, c.pos.z);
       if (c.bulletproof && !it.armored) { it.armored = true; it.head.scale.set(1.3, 1.3, 1.3); it.base.scale.set(1.3, 1.3, 1.3); }
+      if (c.sticky && !it.small) { it.small = true; it.head.scale.set(0.55, 0.55, 0.55); it.base.visible = false; }
       // la base mira hacia la pared (detrás de la cámara, en su orientación de montaje)
       it.base.rotation.set(0, c.baseYaw, 0);
       if (c.alive) it.head.rotation.set(c.pitch, c.yaw, 0, 'YXZ');
@@ -501,12 +519,19 @@ export class PropRenderer {
           group.add(laser);
         }
         if (c.kind === 'thermal') { hot = this._mesh(this.geo.thermalHot); hot.visible = false; group.add(hot); }
-        return { group, kind: c.kind, m, laser, hot };
+        if (c.kind === 'lasermine') {
+          // el láser, en coordenadas del mundo (fuera del grupo, que gira con la mina)
+          const lg = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(c.a.x, c.a.y, c.a.z), new THREE.Vector3(c.b.x, c.b.y, c.b.z)]);
+          laser = new THREE.Line(lg, this.laserMat);
+          laser.frustumCulled = false;
+          this.scene.add(laser);
+        }
+        return { group, kind: c.kind, m, laser, hot, worldLaser: c.kind === 'lasermine' };
       });
-      if (c.kind === 'breach' || c.kind === 'alarm' || c.kind === 'thermal' || c.kind === 'battery' || c.kind === 'jammer') {
+      if (c.kind === 'breach' || c.kind === 'alarm' || c.kind === 'thermal' || c.kind === 'battery' || c.kind === 'jammer' || c.kind === 'interceptor' || c.kind === 'lasermine') {
         const n = c.normal;
         it.group.position.set(c.pos.x, c.pos.y, c.pos.z);
-        if (c.kind === 'alarm' || c.kind === 'battery' || c.kind === 'jammer') {
+        if (c.kind === 'alarm' || c.kind === 'battery' || c.kind === 'jammer' || c.kind === 'interceptor' || c.kind === 'lasermine') {
           // la base contra la superficie (y local hacia fuera)
           it.m.rotation.set(n.z ? Math.sign(n.z) * Math.PI / 2 : n.y < 0 ? Math.PI : 0, 0, n.x ? -Math.sign(n.x) * Math.PI / 2 : 0);
         } else {
@@ -523,8 +548,17 @@ export class PropRenderer {
         it.hot.visible = !!c.burning;
         if (c.burning) it.hot.material.uniforms.uGlow.value = 0.75 + 0.25 * Math.sin(this.time * 37) * Math.sin(this.time * 23);
       }
+      const off = c.offUntil && c.offUntil > (s.now || 0);
+      // láser de la mina: solo se ve de cerca (2 m) o desde un dron, y no si está apagada
+      if (it.worldLaser && it.laser) {
+        const cam = s.cam;
+        const near = cam && Math.hypot(cam.x - c.pos.x, cam.y - c.pos.y, cam.z - c.pos.z) <= 2;
+        it.laser.visible = !off && (near || !!s.droneView);
+      }
+      // interceptor: piloto fijo con cargas, parpadeando sin ellas
+      if (c.kind === 'interceptor') it.m.material.uniforms.uGlow.value = c.charges > 0 ? 1 : (Math.sin(this.time * 3) > 0 ? 0.6 : 0.1);
       // apagada por una PEM: sin luz
-      if (c.offUntil && c.offUntil > (s.now || 0)) it.m.material.uniforms.uGlow.value = 0;
+      if (off) it.m.material.uniforms.uGlow.value = 0;
     }
     // ---------------- escudos balísticos (MURALLA), salvo el de quien se ve en primera persona
     for (const op of s.ops || []) {
