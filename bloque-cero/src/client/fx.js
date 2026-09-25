@@ -102,6 +102,13 @@ export function bindGameFx(ctx, game, view) {
     else if (my && s.team === my.team) audio.ping('mark');
   });
   on('thermalIgnite', (c) => audio.thermalBurn(c.pos, 5, occlusion(c.pos)));
+  // batería de VOLTIO: descarga (chispas azules) y aviso a quien pierde su carga
+  on('zapped', (c, p) => {
+    for (let i = 0; i < 10; i++) effects.spawnSpark(p.x, p.y, p.z, (Math.random() - 0.5) * 3, Math.random() * 2.5, (Math.random() - 0.5) * 3, 1);
+    effects.flash(p.x, p.y, p.z, 20, 45, 110, 4, 0.1);
+    audio.zap(p, false, occlusion(p));
+  });
+  on('electrified', (o) => { if (o.owner === me()) hud.toast('¡Electrificado! La batería ha quemado la carga', 1.8); });
   // escudo de MURALLA: carga y destello (ciega en su cono, como una cegadora)
   on('shieldFlashCharge', (op) => audio.shieldCharge(op.eyePos(), op === viewer()));
   on('shieldFlash', (op, p, hitList) => {

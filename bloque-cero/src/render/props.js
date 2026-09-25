@@ -104,6 +104,22 @@ function droneBody(accent) {
   b.add(Cyl(0.004, 0.004, 0.14, 5), { at: [0.07, 0.22, 0.07], rot: [-0.25, 0, 0], color: '#111', rough: 0.4 });
   return b.build();
 }
+// Batería de VOLTIO (caja amarilla con piloto verde) e inhibidor de SILENCIO (caja oscura
+// con antena y piloto rojo); la base contra la superficie, como la alarma.
+function batteryModel() {
+  const b = new Builder();
+  b.add(Box(0.12, 0.07, 0.1), { at: [0, 0.035, 0], color: '#d9b233', rough: 0.5, metal: 0.2 });
+  b.add(Box(0.124, 0.02, 0.04), { at: [0, 0.05, 0], color: '#1f2022', rough: 0.6 });
+  b.add(Box(0.02, 0.012, 0.02), { at: [0.035, 0.076, 0.025], color: '#4dff7a', glow: 1 });
+  return b.build();
+}
+function jammerModel() {
+  const b = new Builder();
+  b.add(Box(0.14, 0.06, 0.1), { at: [0, 0.03, 0], color: '#26292e', rough: 0.5, metal: 0.4 });
+  b.add(Cyl(0.006, 0.006, 0.16, 6), { at: [0.045, 0.14, -0.03], color: '#111', rough: 0.4 });
+  b.add(Box(0.02, 0.012, 0.02), { at: [-0.035, 0.066, 0.025], color: '#ff3a2a', glow: 1 });
+  return b.build();
+}
 // Escudo balístico de MURALLA (1,3 m de alto desde su borde inferior; se estira con la postura):
 // placa oscura con mirilla, asas por detrás y el foco del destello arriba.
 function shieldModel() {
@@ -297,7 +313,7 @@ export class PropRenderer {
     this.geo = {
       droneBody: [droneBody('#3d9be9'), droneBody('#f0892b')], droneWheels: droneWheels(),
       camBase: camBase(), camHead: camHead(), hatch: hatchPlate(this.steelLayer), defuser: defuserModel(),
-      taser: taserModel(), shield: shieldModel(),
+      taser: taserModel(), shield: shieldModel(), battery: batteryModel(), jammer: jammerModel(),
       grenade: { frag: grenadeModel('frag'), smoke: grenadeModel('smoke'), flash: grenadeModel('flash'), impact: grenadeModel('impact'), c4: c4Model(), emp: empModel(), breachround: roundModel('breachround'), smokeround: roundModel('smokeround') },
       breach: breachModel(), claymore: claymoreModel(), barbed: wireModel(), alarm: alarmModel(), thermal: thermalModel(), thermalHot: thermalHot(),
     };
@@ -487,10 +503,10 @@ export class PropRenderer {
         if (c.kind === 'thermal') { hot = this._mesh(this.geo.thermalHot); hot.visible = false; group.add(hot); }
         return { group, kind: c.kind, m, laser, hot };
       });
-      if (c.kind === 'breach' || c.kind === 'alarm' || c.kind === 'thermal') {
+      if (c.kind === 'breach' || c.kind === 'alarm' || c.kind === 'thermal' || c.kind === 'battery' || c.kind === 'jammer') {
         const n = c.normal;
         it.group.position.set(c.pos.x, c.pos.y, c.pos.z);
-        if (c.kind === 'alarm') {
+        if (c.kind === 'alarm' || c.kind === 'battery' || c.kind === 'jammer') {
           // la base contra la superficie (y local hacia fuera)
           it.m.rotation.set(n.z ? Math.sign(n.z) * Math.PI / 2 : n.y < 0 ? Math.PI : 0, 0, n.x ? -Math.sign(n.x) * Math.PI / 2 : 0);
         } else {

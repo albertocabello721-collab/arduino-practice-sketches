@@ -100,6 +100,7 @@ export class Match extends Emitter {
     this.recon = new Recon(this.game, { cameras: map.cameras || [] });
     this.gadgets = new Gadgets(this.game);
     this.gadgets.recon = this.recon;
+    this.gadgets.fort = this.fort;
     this.abilities = new Abilities(this.game, this.gadgets);
     this._bindGame();
   }

@@ -89,7 +89,7 @@ export class FeedController {
       const d = this.drone, p = d.body.pos, q = d.prev;
       return {
         x: q.x + (p.x - q.x) * alpha, y: q.y + (p.y - q.y) * alpha + DRONE.eye, z: q.z + (p.z - q.z) * alpha,
-        yaw: d.yaw, pitch: d.pitch, roll: 0, fov: 88, feed: 1, staticK: this.lostT > 0 ? 1 : 0,
+        yaw: d.yaw, pitch: d.pitch, roll: 0, fov: 88, feed: 1, staticK: this.lostT > 0 ? 1 : d.jammed ? 0.6 : 0,
       };
     }
     if (this.mode === 'cams' && this.cam) {
@@ -128,7 +128,9 @@ export class FeedController {
     this._set('k', this.el.keys, keys, true);
     this._set('st', this.el.status, status, true);
     this.el.status.classList.toggle('ok', !!info.objectiveOk);
-    const lost = this.lostT > 0 || (cams && this.cam && (!this.cam.alive || this._camOff(this.cam)));
+    const jammed = this.mode === 'drone' && this.drone && this.drone.jammed && this.lostT <= 0;
+    const lost = this.lostT > 0 || jammed || (cams && this.cam && (!this.cam.alive || this._camOff(this.cam)));
+    this._set('l', this.el.lost, jammed ? 'Señal inhibida' : 'Señal perdida', false);
     this.el.lost.classList.toggle('hidden', !lost);
   }
   // ¿Cámara sin señal por una PEM?

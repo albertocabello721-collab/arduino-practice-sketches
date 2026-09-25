@@ -33,6 +33,14 @@
 //   · Humo remoto (NUBE): vuela recto hasta 40 m y abre una nube de humo donde choca.
 //   · Granada PEM (CHISPA): a los 2 s deja 15 s sin funcionar la electrónica enemiga a
 //     menos de 5 m, aunque haya paredes (cámaras, cámaras blindadas, alarmas...).
+// Objetos de las habilidades de la defensa (tecla X):
+//   · Batería (VOLTIO): en un refuerzo (electrifica el panel entero), una barricada o un
+//     alambre. Destruye las cargas de brecha, las térmicas sin encender y los proyectiles de
+//     brecha que se pegan a lo electrificado y los drones que lo tocan; al atacante que lo
+//     toca (o lo golpea) le quita 10 por segundo.
+//   · Inhibidor (SILENCIO): a 2,5 m, los drones enemigos pierden la señal y las cargas
+//     remotas (brecha, térmica) no detonan.
+//   Los dos: la PEM los apaga 15 s; un disparo, un golpe o el dron de choque los destruyen.
 // Las explosiones destruyen además los gadgets, drones y cámaras del otro bando que alcanzan.
 // Simulación pura (corre en Node); el cliente pinta los objetos y los efectos.
 import { SOLID, HARD, MAT, BLAST_RES, GLASS } from '../world/materials.js';
@@ -60,11 +68,14 @@ export const BREACHROUND = { speed: 40, range: 40, fuse: 1.5, hole: 0.75, lethal
 export const SMOKEROUND = { speed: 35, range: 40 };
 export const EMP = { fuse: 2, radius: 5, off: 15 };
 export const ABILITY_CD = 1.0;
+// habilidades de la defensa: batería de VOLTIO e inhibidor de SILENCIO
+export const BATTERY = { place: 1.0, reach: 2.0, margin: 0.3, touch: 0.33, dps: 10, tick: 0.25 };
+export const JAMMER = { place: 1.0, reach: 2.0, radius: 2.5 };
 const THROWABLE = { frag: true, smoke: true, flash: true, impact: true, c4: true, emp: true };
-const PLACEABLE = { breach: BREACH, claymore: CLAYMORE, barbed: WIRE, shield: DSHIELD, bpcam: BPCAM, alarm: ALARM, thermal: THERMAL };
-export const PLACE_LABEL = { breach: 'la carga de brecha', claymore: 'la claymore', barbed: 'el alambre', shield: 'el escudo desplegable', bpcam: 'la cámara blindada', alarm: 'la alarma', thermal: 'la carga térmica' };
-// Electrónica que la PEM apaga (las cámaras de seguridad también; en la Fase 6.5, más)
-const ELECTRONIC = { alarm: true };
+const PLACEABLE = { breach: BREACH, claymore: CLAYMORE, barbed: WIRE, shield: DSHIELD, bpcam: BPCAM, alarm: ALARM, thermal: THERMAL, battery: BATTERY, jammer: JAMMER };
+export const PLACE_LABEL = { breach: 'la carga de brecha', claymore: 'la claymore', barbed: 'el alambre', shield: 'el escudo desplegable', bpcam: 'la cámara blindada', alarm: 'la alarma', thermal: 'la carga térmica', battery: 'la batería', jammer: 'el inhibidor' };
+// Electrónica que la PEM apaga (las cámaras de seguridad también)
+const ELECTRONIC = { alarm: true, battery: true, jammer: true };
 // Qué ranura gasta cada uso: el gadget secundario (G) o la habilidad (X)
 const slotOf = (op, src) => (src === 'ability' ? op.ability : op.gadget);
 const hasCharge = (slot) => !!slot && slot.left !== 0;          // (-1 = sin límite)
@@ -84,6 +95,8 @@ export class Gadgets {
     this.work = new Map();  // operador → colocación en curso {kind, t, total, spot, from}
     this._nextId = 1;
     game.gadgets = this;
+    // golpear un refuerzo o una barricada electrificados da una descarga
+    game.on('melee', (op, info) => this._meleeZap(op, info));
   }
   reset() {
     this.items = []; this.smokes = []; this.placed = []; this.work.clear();
@@ -152,6 +165,7 @@ export class Gadgets {
       else if (c.kind === 'barbed') this._wireTick(c, dt);
       else if (c.kind === 'alarm') this._alarmTick(c, dt);
       else if (c.kind === 'thermal' && c.burning) this._thermalTick(c, dt);
+      else if (c.kind === 'battery') this._batteryTick(c, dt);
     }
     this.placed = this.placed.filter((c) => c.alive);
     for (const it of this.items) {
@@ -495,7 +509,28 @@ export class Gadgets {
       const p = op.body.pos, fx = -Math.sin(op.yaw), fz = -Math.cos(op.yaw);
       return { ok: true, kind: 'shield', cells, pos: { x: p.x + fx * 0.9, y: p.y, z: p.z + fz * 0.9 }, yaw: op.yaw };
     }
-    if (id === 'bpcam' || id === 'alarm') {
+    if (id === 'battery') {
+      const why = 'Pon la batería en un refuerzo, una barricada o un alambre';
+      // un alambre de la defensa delante (antes que la pared de detrás)
+      let wire = null, wt = BATTERY.reach + 0.3;
+      for (const c of this.placed) {
+        if (!c.alive || c.kind !== 'barbed' || c.team !== op.team || !c.target) continue;
+        const t = c.target.rayTest(e, d, wt);
+        if (t >= 0 && t < wt) { wt = t; wire = c; }
+      }
+      const hit = raycastFirst(w, e.x, e.y, e.z, d.x, d.y, d.z, BATTERY.reach, SOLID, true);
+      if (wire && (!hit || hit.t > wt)) return { ok: true, kind: 'battery', pos: { x: wire.pos.x, y: wire.pos.y + 0.62, z: wire.pos.z }, normal: { x: 0, y: 1, z: 0 }, axis: 1, host: { kind: 'wire', wire } };
+      if (!hit || (hit.mat !== MAT.REINFORCED && hit.mat !== MAT.BARRICADE)) return { why };
+      const box = this._structureBox(hit);
+      if (!box) return { why };
+      const axis = hit.face >> 1;
+      const n = { x: 0, y: 0, z: 0 };
+      n[['x', 'y', 'z'][axis]] = hit.face & 1 ? 1 : -1;
+      if (n.x * d.x + n.y * d.y + n.z * d.z > 0) { n.x = -n.x; n.y = -n.y; n.z = -n.z; }
+      const t = hit.t - 0.03;
+      return { ok: true, kind: 'battery', pos: { x: e.x + d.x * t, y: e.y + d.y * t, z: e.z + d.z * t }, normal: n, axis, host: { kind: hit.mat === MAT.BARRICADE ? 'barricade' : 'reinforced', box, voxel: { x: hit.x, y: hit.y, z: hit.z, mat: hit.mat } } };
+    }
+    if (id === 'bpcam' || id === 'alarm' || id === 'jammer') {
       const hit = raycastFirst(w, e.x, e.y, e.z, d.x, d.y, d.z, BPCAM.reach, SOLID, true);
       if (!hit) return { why: 'Acércate a una pared' };
       const axis = hit.face >> 1;
@@ -544,7 +579,7 @@ export class Gadgets {
     if (src === 'ability') spend(op, src);
     else { op.gadget.left--; op.gadgetCd = 0.4; }
     const g = this.game;
-    const c = { id: `g${this._nextId++}`, kind: spot.kind, owner: op, team: op.team, pos: { ...spot.pos }, normal: spot.normal || null, axis: spot.axis, mat: spot.mat, voxel: spot.voxel, yaw: spot.yaw || 0, alive: true, t0: g.time };
+    const c = { id: `g${this._nextId++}`, kind: spot.kind, owner: op, team: op.team, pos: { ...spot.pos }, normal: spot.normal || null, axis: spot.axis, mat: spot.mat, voxel: spot.voxel, yaw: spot.yaw || 0, alive: true, t0: g.time, host: spot.host || null };
     if (spot.kind === 'shield') {
       // vóxeles antibalas (solo los rompen los explosivos)
       const w = g.world;
@@ -583,7 +618,7 @@ export class Gadgets {
         const ld = { x: d.x * cy - d.z * sy, y: d.y, z: d.x * sy + d.z * cy };
         return rayAABB(lo, ld, -WIRE.w / 2, 0, -WIRE.d / 2, WIRE.w / 2, 0.6, WIRE.d / 2, maxT);
       };
-    } else this._target(c, spot.kind === 'claymore' ? 0.12 : spot.kind === 'alarm' ? 0.1 : 0.2);
+    } else this._target(c, spot.kind === 'claymore' ? 0.12 : spot.kind === 'alarm' || spot.kind === 'battery' ? 0.1 : spot.kind === 'jammer' ? 0.12 : 0.2);
     g.emit('gadgetPlaced', op, c);
     return c;
   }
@@ -693,8 +728,106 @@ export class Gadgets {
     this._blastDamage(it.pos, BREACH, it.owner, 'breach');
     g.emit('explosion', 'breach', { ...it.pos }, BREACH, it.owner);
   }
-  // (los inhibidores de SILENCIO lo impedirán: Fase 6.5)
-  canDetonate(it) { void it; return true; }
+  // Los inhibidores de SILENCIO impiden detonar las cargas remotas que tienen cerca.
+  canDetonate(it) { return !this.jammedAt(it.pos, it.team); }
+  /** El inhibidor enemigo (del equipo contrario a `team`) que alcanza el punto p, o null. */
+  jammedAt(p, team) {
+    for (const c of this.placed) {
+      if (!c.alive || c.kind !== 'jammer' || c.team === team || this.isOff(c)) continue;
+      if (Math.hypot(c.pos.x - p.x, c.pos.y - p.y, c.pos.z - p.z) <= JAMMER.radius) return c;
+    }
+    return null;
+  }
+
+  // ---------------------------------------------------------------- batería (VOLTIO)
+  // Caja de lo que electrifica una batería puesta en un refuerzo o una barricada.
+  _structureBox(hit) {
+    const w = this.game.world;
+    if (hit.mat === MAT.REINFORCED && this.fort) {
+      const rec = this.fort.recordAt(hit.x, hit.y, hit.z);
+      if (rec) return this.fort.boxOf(rec);
+    }
+    // si no (una barricada, o acero puesto de otra forma): los vóxeles de ese material
+    // conectados, a menos de 1,5 m del punto
+    const out = [], seen = new Set(), stack = [[hit.x, hit.y, hit.z]], R = 12;
+    let x0 = Infinity, y0 = Infinity, z0 = Infinity, x1 = -Infinity, y1 = -Infinity, z1 = -Infinity;
+    while (stack.length && out.length < 3000) {
+      const [x, y, z] = stack.pop();
+      if (Math.abs(x - hit.x) > R || Math.abs(z - hit.z) > R || Math.abs(y - hit.y) > 28) continue;
+      const k = `${x},${y},${z}`;
+      if (seen.has(k)) continue;
+      seen.add(k);
+      if (w.get(x, y, z) !== hit.mat) continue;
+      out.push(k);
+      if (x < x0) x0 = x; if (y < y0) y0 = y; if (z < z0) z0 = z; if (x > x1) x1 = x; if (y > y1) y1 = y; if (z > z1) z1 = z;
+      stack.push([x + 1, y, z], [x - 1, y, z], [x, y + 1, z], [x, y - 1, z], [x, y, z + 1], [x, y, z - 1]);
+    }
+    if (!out.length) return null;
+    const S = 0.125;
+    return { x0: w.wx(x0), x1: w.wx(x1) + S, y0: w.wy(y0), y1: w.wy(y1) + S, z0: w.wz(z0), z1: w.wz(z1) + S };
+  }
+  // Caja (alineada con los ejes) de un rollo de alambre.
+  _wireBox(c) {
+    const cy = Math.abs(Math.cos(c.yaw)), sy = Math.abs(Math.sin(c.yaw));
+    const hx = (WIRE.w / 2) * cy + (WIRE.d / 2) * sy, hz = (WIRE.w / 2) * sy + (WIRE.d / 2) * cy;
+    return { x0: c.pos.x - hx, x1: c.pos.x + hx, y0: c.pos.y, y1: c.pos.y + 0.6, z0: c.pos.z - hz, z1: c.pos.z + hz };
+  }
+  _batteryTick(c, dt) {
+    const g = this.game, h = c.host;
+    // sin soporte (alambre roto, barricada o refuerzo abiertos donde estaba): cae
+    if (!h || (h.kind === 'wire' && !h.wire.alive) || (h.voxel && g.world.get(h.voxel.x, h.voxel.y, h.voxel.z) !== h.voxel.mat)) { this._destroyPlaced(c); return; }
+    if (this.isOff(c)) return;
+    const box = h.kind === 'wire' ? this._wireBox(h.wire) : h.box;
+    const inBox = (p, m) => p.x > box.x0 - m && p.x < box.x1 + m && p.y > box.y0 - m && p.y < box.y1 + m && p.z > box.z0 - m && p.z < box.z1 + m;
+    // cargas del ataque sobre lo electrificado
+    for (const o of this.placed) {
+      if (o.alive && o.team !== c.team && (o.kind === 'breach' || (o.kind === 'thermal' && !o.burning)) && inBox(o.pos, BATTERY.margin)) this._electrocute(o, c);
+    }
+    for (const it of this.items) if (it.alive && it.team !== c.team && it.kind === 'breachround' && it.stuck && inBox(it.pos, BATTERY.margin)) this._electrocute(it, c);
+    // drones que lo tocan
+    if (this.recon) for (const d of this.recon.drones) {
+      if (!d.alive || d.team === c.team || !inBox(d.center(), 0.25)) continue;
+      g.emit('zapped', c, d.center());
+      g.destroyTarget(d, c.owner, d.center());
+    }
+    // atacantes que lo tocan: 10 por segundo (en golpes de 2,5)
+    for (const op of g.operators) {
+      if (op.team === c.team || op.state === 'dead' || op.frozen) continue;
+      const b = op.body.pos;
+      const dx = Math.max(box.x0 - b.x, 0, b.x - box.x1), dz = Math.max(box.z0 - b.z, 0, b.z - box.z1);
+      if (Math.hypot(dx, dz) > BATTERY.touch || b.y > box.y1 || b.y + op.body.height < box.y0) continue;
+      op.zapT = (op.zapT || 0) + dt;
+      if (op.zapT < BATTERY.tick) continue;
+      op.zapT -= BATTERY.tick;
+      const p = { x: b.x, y: b.y + 0.9, z: b.z };
+      g.emit('zapped', c, p);
+      g.damage(op, BATTERY.dps * BATTERY.tick, { by: c.owner, weapon: { name: 'Batería' }, zone: 'body', point: p });
+    }
+  }
+  _meleeZap(op, info) {
+    if (!info || !info.point || info.target) return;
+    const p = info.point, m = 0.2;
+    for (const c of this.placed) {
+      if (!c.alive || c.kind !== 'battery' || c.team === op.team || this.isOff(c) || !c.host || !c.host.box) continue;
+      const b = c.host.box;
+      if (p.x < b.x0 - m || p.x > b.x1 + m || p.y < b.y0 - m || p.y > b.y1 + m || p.z < b.z0 - m || p.z > b.z1 + m) continue;
+      this.game.emit('zapped', c, { ...p });
+      this.game.damage(op, BATTERY.dps, { by: c.owner, weapon: { name: 'Batería' }, zone: 'body', point: { x: op.body.pos.x, y: op.body.pos.y + 1.2, z: op.body.pos.z } });
+      return;
+    }
+  }
+  _electrocute(o, c) {
+    o.alive = false;
+    if (o.target) this._untarget(o);
+    this.game.emit('zapped', c, { ...o.pos });
+    this.game.emit('gadgetDestroyed', o);
+    this.game.emit('electrified', o, c);
+  }
+  _destroyPlaced(c) {
+    c.alive = false;
+    if (c.target) this._untarget(c);
+    this.game.emit('gadgetDestroyed', c);
+  }
 
   // ---------------------------------------------------------------- carga térmica (TERMO)
   /** La carga térmica de `op` colocada y aún sin encender (o null). */

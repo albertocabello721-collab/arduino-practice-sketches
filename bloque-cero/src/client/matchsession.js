@@ -351,6 +351,7 @@ export class MatchSession extends Session {
     this.chat.tick(dt);
     this._smokeFx(dt);
     this._burnFx(dt);
+    this._electricFx(dt);
     if (m.phase === 'select') { this.ui.updateSelect(m); return; }
     if (!m.running) { this.ui.updateMarkers([]); this.ui.showScoreboard(m, false); this.feed.frame(dt); return; }
     this._feedRules();
@@ -458,6 +459,11 @@ export class MatchSession extends Session {
       const spot = G.placeSpot(p, 'thermal');
       return spot && spot.ok ? 'X para colocar la carga térmica' : '';
     }
+    if (a.id === 'battery' || a.id === 'jammer') {
+      if (!a.left) return '';
+      const spot = G.placeSpot(p, a.id);
+      return spot && spot.ok ? `X para poner ${PLACE_LABEL[a.id]}` : '';
+    }
     return '';
   }
   _gadgetPrompt(p) {
@@ -468,6 +474,21 @@ export class MatchSession extends Session {
     const spot = G.placeSpot(p);
     if (!spot || !spot.ok) return g.id === 'breach' && spot && spot.why && spot.why.startsWith('Muro') ? spot.why : '';
     return `G para colocar ${PLACE_LABEL[g.id]}`;
+  }
+
+  // Lo que electrifica una batería: alguna chispa azul de vez en cuando por su superficie.
+  _electricFx(dt) {
+    const G = this.match.gadgets, fx = this.ctx.effects;
+    if (!G) return;
+    for (const c of G.placed) {
+      if (!c.alive || c.kind !== 'battery' || G.isOff(c) || !c.host) continue;
+      c._sparkT = (c._sparkT || 0) - dt;
+      if (c._sparkT > 0) continue;
+      c._sparkT = 0.12 + Math.random() * 0.35;
+      const b = c.host.kind === 'wire' ? G._wireBox(c.host.wire) : c.host.box;
+      const x = b.x0 + Math.random() * (b.x1 - b.x0), y = b.y0 + Math.random() * (b.y1 - b.y0), z = b.z0 + Math.random() * (b.z1 - b.z0);
+      for (let i = 0; i < 3; i++) fx.spawnSpark(x, y, z, (Math.random() - 0.5) * 1.5, Math.random() * 1.2, (Math.random() - 0.5) * 1.5, 1);
+    }
   }
 
   // Cargas térmicas encendidas: lluvia de chispas y luz naranja que parpadea.

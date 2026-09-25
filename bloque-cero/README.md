@@ -16,7 +16,7 @@ Es un único archivo HTML autónomo: no necesita servidor ni conexión.
 | F3 | Rondas 5v5, 3 ubicaciones de sitios (los defensores eligen), desactivador, HUD con reloj y 10 retratos | ✅ |
 | F4 | Preparación: refuerzos, barricadas, trampillas, drones, cámaras, cuerpo a cuerpo | ✅ |
 | F5 | Bots: navegación, percepción, combate, tácticas por bando, órdenes (H), marcas (T), chat de equipo, depuración (P) | ✅ |
-| F6 | Operadores 8 + 8 y contrajuego de gadgets | en curso: arsenal ✅ · plantilla de 16 ✅ · granadas y explosivos ✅ · gadgets defensivos ✅ · 8 habilidades de ataque ✅ · habilidades de defensa en camino |
+| F6 | Operadores 8 + 8 y contrajuego de gadgets | en curso: arsenal ✅ · plantilla de 16 ✅ · granadas y explosivos ✅ · gadgets defensivos ✅ · 8 habilidades de ataque ✅ · baterías e inhibidores ✅ · resto de la defensa en camino |
 | F7 | Animaciones en primera y tercera persona | pendiente |
 | F8 | Recarga por partes | pendiente |
 | F9 | Audio 3D con oclusión | pendiente |
@@ -114,8 +114,23 @@ La habilidad y sus cargas salen abajo a la derecha, junto al gadget. Ya funciona
   de 90° y 5 m. El golpe con escudo (V) quita 40. Los explosivos no lo rompen (a él sí le
   llega la onda). Contras: flanquearlo, disparar a los pies o a la cabeza que asoma; los bots
   que lo tienen de frente apuntan a los pies.
-- Entre dos usos de la habilidad hay 1 s de espera. Las habilidades de la defensa llegan en la
-  siguiente ronda de la Fase 6; hasta entonces X no hace nada en defensa.
+- Entre dos usos de la habilidad hay 1 s de espera.
+
+Defensa:
+
+- **VOLTIO · batería** (×4): **X** la pone en 1 s, a menos de 2 m, en un refuerzo (electrifica
+  el panel entero, por las dos caras), una barricada o un alambre. Lo electrificado suelta
+  chispas azules y quema las cargas de brecha, las cargas térmicas sin encender y los
+  proyectiles de brecha que se le pegan (a TERMO se le pierde la carga), destruye los drones
+  que lo tocan y quita 10 por segundo al atacante que lo toca o lo golpea. Si su soporte se
+  rompe, la batería cae. Contras: la PEM de CHISPA (la apaga 15 s) y el dron de choque.
+- **SILENCIO · inhibidor** (×4): **X** lo pone en 1 s en el suelo o una pared a menos de 2 m.
+  A 2,5 m, los drones enemigos pierden la señal (no se mueven, ni marcan, ni disparan el rayo;
+  su vista dice «Señal inhibida») y las cargas remotas no detonan (carga de brecha, encender
+  la térmica). Contras: un disparo, un golpe, el dron de choque o la PEM.
+- Las del resto de la defensa llegan en las siguientes rondas de la Fase 6; hasta entonces X
+  no hace nada con ellos.
+- Los golpes cuerpo a cuerpo ya no alcanzan objetos a través de una pared.
 
 ## Gadgets secundarios (Fase 6)
 
@@ -311,6 +326,7 @@ node tools/smoke-aliados.mjs <carpeta>  # depuración (P) y ayudas de equipo en 
 node tools/smoke-gadgets.mjs <carpeta>  # granadas, brecha y claymore con G en el navegador
 node tools/smoke-defensa.mjs <carpeta>  # alambre, escudo, cámara blindada y alarma con G
 node tools/smoke-habilidades.mjs <carpeta>  # las 8 habilidades de ataque con X
+node tools/smoke-defensa-habilidades.mjs <carpeta>  # habilidades de la defensa con X (baterías, inhibidores...)
 node tools/smoke4.mjs <carpeta>  # refuerzos, barricadas, golpes, drones y cámaras en el navegador
 node tools/smoke5.mjs <carpeta>  # partida contra bots en el navegador (rejilla, preparación, ronda)
 node tools/mapslice.mjs <carpeta> # cortes cenitales del mapa por planta

@@ -144,18 +144,29 @@ export class Fortify {
   reset() { this.left.clear(); this.panels = []; this.barricades = []; this.work.clear(); }
   _onVoxels(list) {
     if (!this.panels.length || !list.some((v) => v.mat === MAT.REINFORCED)) return;
-    const w = this.world, c = H / 2;
-    const inside = (rec, v) => {
-      const x = w.wx(v.x) + c, y = w.wy(v.y) + c, z = w.wz(v.z) + c;
-      if (rec.kind === 'hatch') { const h = rec.hatch; return Math.abs(x - h.x) < 0.8 && Math.abs(z - h.z) < 0.8 && Math.abs(y - h.y) < 0.4; }
-      const P = rec.panel, n = P.axisN === 0 ? x : z, u = P.axisN === 0 ? z : x;
-      return Math.abs(n - P.line) < 0.2 && u > P.u0 - 0.05 && u < P.u1 + 0.05 && y > P.y0 - 0.05 && y < P.y1 + 0.05;
-    };
     this.panels = this.panels.filter((rec) => {
-      if (!list.some((v) => v.mat === MAT.REINFORCED && inside(rec, v))) return true;
+      if (!list.some((v) => v.mat === MAT.REINFORCED && this._holds(rec, v.x, v.y, v.z))) return true;
       this.game.emit('panelBreached', rec);
       return false;
     });
+  }
+  // ¿Es el vóxel (vx, vy, vz) parte del refuerzo `rec` (panel de pared o trampilla)?
+  _holds(rec, vx, vy, vz) {
+    const w = this.world, c = H / 2;
+    const x = w.wx(vx) + c, y = w.wy(vy) + c, z = w.wz(vz) + c;
+    if (rec.kind === 'hatch') { const h = rec.hatch; return Math.abs(x - h.x) < 0.8 && Math.abs(z - h.z) < 0.8 && Math.abs(y - h.y) < 0.4; }
+    const P = rec.panel, n = P.axisN === 0 ? x : z, u = P.axisN === 0 ? z : x;
+    return Math.abs(n - P.line) < 0.2 && u > P.u0 - 0.05 && u < P.u1 + 0.05 && y > P.y0 - 0.05 && y < P.y1 + 0.05;
+  }
+  /** El refuerzo (panel o trampilla) al que pertenece el vóxel, o null. */
+  recordAt(vx, vy, vz) { return this.panels.find((rec) => this._holds(rec, vx, vy, vz)) || null; }
+  /** Caja (en metros) de un refuerzo: las dos capas de la pared, o la trampilla. */
+  boxOf(rec) {
+    if (rec.kind === 'hatch') { const h = rec.hatch; return { x0: h.x - 0.625, x1: h.x + 0.625, y0: h.y - 0.25, y1: h.y, z0: h.z - 0.625, z1: h.z + 0.625 }; }
+    const P = rec.panel;
+    return P.axisN === 0
+      ? { x0: P.line - H, x1: P.line + H, y0: P.y0, y1: P.y1, z0: P.u0, z1: P.u1 }
+      : { x0: P.u0, x1: P.u1, y0: P.y0, y1: P.y1, z0: P.line - H, z1: P.line + H };
   }
   remaining(op) { return this.left.has(op) ? this.left.get(op) : REINFORCE_PER_OP; }
 

@@ -169,8 +169,12 @@ export class Recon {
 
   tick(dt) {
     const g = this.game;
+    const G = g.gadgets;
     for (const d of this.drones) {
       if (!d.alive) continue;
+      // un inhibidor enemigo cerca: sin señal (ni se mueve ni marca; el rayo lo rechaza la habilidad)
+      d.jammed = !!(G && G.jammedAt && G.jammedAt(d.center(), d.team));
+      if (d.jammed) { const I = d.intent; I.moveX = 0; I.moveZ = 0; I.jump = false; I.mark = false; }
       d.update(dt, g);
       if (d.intent.mark) { d.intent.mark = false; if (d.markCd <= 0) { d.markCd = 0.4; this.mark(d, d.team, d.pilotOp || null); } }
     }

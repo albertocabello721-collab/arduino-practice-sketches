@@ -188,12 +188,14 @@ export class Game extends Emitter {
       this.emit('melee', op, { target, point: tp });
       return;
     }
+    // objetos (drones, cámaras, gadgets), pero no a través de una pared
+    const hit = raycastFirst(this.world, eye.x, eye.y, eye.z, dir.x, dir.y, dir.z, 1.45, SOLID, true);
+    const reach = Math.min(1.4, hit ? hit.t + 0.05 : 1.4);
     for (const tg of this.targets) {
       if (!tg.alive || tg.team === op.team || tg.indestructible) continue;
-      const t = tg.rayTest(eye, dir, 1.4);
+      const t = tg.rayTest(eye, dir, reach);
       if (t >= 0) { this.hitTarget(tg, MELEE_DAMAGE, op, tg.center()); this.emit('melee', op, { point: tg.center() }); return; }
     }
-    const hit = raycastFirst(this.world, eye.x, eye.y, eye.z, dir.x, dir.y, dir.z, 1.45, SOLID, true);
     if (!hit) { this.emit('melee', op, {}); return; }
     const px = eye.x + dir.x * hit.t, py = eye.y + dir.y * hit.t, pz = eye.z + dir.z * hit.t;
     // el cristal se rompe entero, como con una bala

@@ -27,7 +27,12 @@
 //     plantar o reanimar lo bajan y lo dejan expuesto. X: destello (×4) que ciega como una
 //     cegadora en un cono de 90° y 5 m, tras 0,4 s de carga. Golpe con escudo (V): 40.
 //     Contras: flanquearlo, disparar a los pies o a la cabeza que asoma, explosivos.
-// El resto (habilidades de la defensa, 6.5) llega en la siguiente ronda: hasta entonces X no hace nada.
+// Defensa (Fase 6.5a):
+//   · VOLTIO · batería ×4: X la pone en 1 s en un refuerzo, una barricada o un alambre a
+//     menos de 2 m y los electrifica (ver gadgets.js).
+//   · SILENCIO · inhibidor ×4: X lo pone en 1 s en el suelo o una pared a menos de 2 m; a
+//     2,5 m los drones enemigos pierden la señal y las cargas remotas no detonan.
+// El resto (6.5b-c) llega en las siguientes rondas: hasta entonces X no hace nada.
 // Simulación pura (corre en Node).
 import { ABILITY_CD, FLASH } from './gadgets.js';
 import { raycastFirst, lineOfSight } from '../world/raycast.js';
@@ -43,7 +48,7 @@ export const SHOCK = { charges: 6, regen: 12, range: 8, cooldown: 0.5 };
 export const BSHIELD = { hw: 0.31, front: 0.42, low: 0.45, lowCrouch: 0.18, top: 0.22, cover: 0.34, bash: 40, windup: 0.4, range: 5, cone: Math.cos(Math.PI / 4) };
 
 /** Habilidades ya programadas (las demás aún no se muestran en el HUD). */
-export const ABILITY_READY = { thermal: true, breachround: true, remotesmoke: true, emp: true, scan: true, thermalscope: true, shockdrone: true, shield: true };
+export const ABILITY_READY = { thermal: true, breachround: true, remotesmoke: true, emp: true, scan: true, thermalscope: true, shockdrone: true, shield: true, battery: true, jammer: true };
 
 /** ¿Tiene `op` el escudo balístico levantado? (correr, plantar o reanimar lo bajan) */
 export function shieldUp(op) {
@@ -136,6 +141,7 @@ export class Abilities {
       case 'emp': return G.throwFrom(op, 'ability') ? 'throw' : null;
       case 'scan': return this.startScan(op) ? 'scan' : null;
       case 'shield': return this.startFlash(op) ? 'flash' : null;
+      case 'battery': case 'jammer': return G.startPlace(op, 'ability') ? 'place' : null;
       default: return null;       // (el visor térmico es pasivo: apuntar y quedarse quieto)
     }
   }
@@ -223,8 +229,8 @@ export class Abilities {
     if (best) g.destroyTarget(best, op, to);
     return best;
   }
-  // (los inhibidores de SILENCIO cortarán la señal: Fase 6.5)
-  canZap(d) { void d; return true; }
+  // Un inhibidor de SILENCIO cerca le corta la señal.
+  canZap(d) { return !this.gadgets.jammedAt(d.center(), d.team); }
   _shockTick(dt) {
     const R = this.gadgets.recon;
     if (R) for (const d of R.drones) {
