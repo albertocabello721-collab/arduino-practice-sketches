@@ -404,41 +404,55 @@ const CONFIG = {
     master: 0.8, sfx: 0.9, engine: 0.55, crowd: 0.6,
   },
   car: {
-    mass: 180,
-    hitboxHalf: [59.0, 42.1, 18.1],       // OBB 118 x 84.2 x 36.2
-    hitboxOffset: [13.88, 0, 20.75],      // centro de la caja respecto al centro de masa (local)
-    restZ: 17,                            // altura del centro de masa en reposo
-    maxSpeed: 2300,
-    maxAngSpeed: 5.5,
+    // Modelo de vehículo de RocketSim (btVehicleRL + Car::_UpdateWheels; Octane de CarConfig.cpp)
+    mass: 180,                            // (CAR_MASS_BT)
+    hitboxHalf: [60.2535, 43.3497, 19.32955],   // caja 120.507 × 86.6994 × 38.6591 (HITBOX_SIZES, Octane)
+    hitboxOffset: [13.8757, 0, 20.755],   // centro de la caja respecto al centro de masa (HITBOX_OFFSETS)
+    restZ: 17,                            // altura del centro de masa en reposo (CAR_SPAWN_REST_Z)
+    maxSpeed: 2300,                       // (CAR_MAX_SPEED)
+    maxAngSpeed: 5.5,                     // (CAR_MAX_ANG_SPEED)
     supersonicSpeed: 2200,
     supersonicMaintainSpeed: 2100,
     supersonicMaintainTime: 1.0,
-    throttleCurve: [[0, 1600], [1400, 160], [1410, 0]],
-    brakeAccel: 3500,
-    coastAccel: 525,
-    stoppingSpeed: 25,
-    throttleDeadzone: 0.01,
-    airThrottleAccel: 66.667,
+    throttleTorque: 400,                  // uu/s² por rueda con las 4 en el piso (THROTTLE_TORQUE_AMOUNT / masa)
+    brakeTorque: 14.25 + 1 / 3,           // (BRAKE_TORQUE_AMOUNT / masa) → 3500 uu/s² con 4 ruedas
+    driveSpeedTorqueCurve: [[0, 1.0], [1400, 0.1], [1410, 0.0]],   // (DRIVE_SPEED_TORQUE_FACTOR_CURVE)
+    stoppingSpeed: 25,                    // (STOPPING_FORWARD_VEL)
+    coastingBrakeFactor: 0.15,            // (COASTING_BRAKE_FACTOR) → 525 uu/s²
+    brakingNoThrottleSpeed: 0.01,         // (BRAKING_NO_THROTTLE_SPEED_THRESH)
+    throttleDeadzone: 0.001,              // (THROTTLE_DEADZONE)
+    airThrottleAccel: 200 / 3,            // (THROTTLE_AIR_ACCEL)
+    // ángulo máximo de las ruedas delanteras (rad) según la velocidad hacia adelante
+    steerAngleCurve: [[0, 0.53356], [500, 0.31930], [1000, 0.18203], [1500, 0.10570], [1750, 0.08507], [3000, 0.03454]],
+    powerslideSteerAngleCurve: [[0, 0.39235], [2500, 0.12610]],     // (POWERSLIDE_STEER_ANGLE_FROM_SPEED_CURVE)
+    latFrictionCurve: [[0, 1.0], [1, 0.2]],                        // según el deslizamiento lateral (LAT_FRICTION_CURVE)
+    longFrictionCurve: [],                                         // vacía en RocketSim → 1 (LONG_FRICTION_CURVE)
+    handbrakeLatFrictionCurve: [[0, 0.1]],                         // (HANDBRAKE_LAT_FRICTION_FACTOR_CURVE)
+    handbrakeLongFrictionCurve: [[0, 0.5], [1, 0.9]],              // (HANDBRAKE_LONG_FRICTION_FACTOR_CURVE)
+    nonStickyFrictionCurve: [[0, 0.1], [0.7075, 0.5], [1, 1.0]],   // sin acelerador, según n.z (NON_STICKY_FRICTION_FACTOR_CURVE)
+    bilateralDamping: 0.2,                // impulso lateral = −0.2·v/m_eff (resolveSingleBilateral de Bullet)
+    rollingFrictionScale: 113.73963,      // freno ∝ velocidad en unidades de Bullet (ROLLING_FRICTION_SCALE_MAGIC)
+    // curvatura máxima de referencia (1/radio) según la velocidad; la usan los bots para planificar (el modelo la reproduce)
     steerCurvature: [[0, 0.0069], [500, 0.00398], [1000, 0.00235], [1500, 0.001375], [1750, 0.0011], [2300, 0.00088]],
-    powerslideCurvature: [[0, 0.0069], [500, 0.00415], [1500, 0.00279], [2500, 0.00149]],
-    yawResponse: 28,                      // 1/s: qué tan rápido la rotación sigue a la dirección
-    latAccelMax: 6500,                    // agarre lateral máximo (uu/s²)
-    latSlipCurve: [[0, 1.0], [1, 0.2]],   // agarre según deslizamiento lateral
-    powerslideLatFactor: 0.1,             // agarre lateral durante el derrape
-    powerslideRise: 5,
-    powerslideFall: 2,
+    powerslideRise: 5,                    // (POWERSLIDE_RISE_RATE)
+    powerslideFall: 2,                    // (POWERSLIDE_FALL_RATE)
     stickyBase: 0.5,                      // pegado = g·(0.5 + (1 − |n.z|) con acelerador o |v adelante| > 25) (Car::_UpdateWheels)
+    // anclaje de la suspensión (local: adelante, lado, arriba), radio y largo de reposo (CarConfig.cpp, Octane)
     wheels: [
-      { x: 51.25, y: 25.9, r: 12.5, front: true },
-      { x: 51.25, y: -25.9, r: 12.5, front: true },
-      { x: -33.75, y: 29.5, r: 15, front: false },
-      { x: -33.75, y: -29.5, r: 15, front: false },
+      { x: 51.25, y: 25.90, z: 20.755, r: 12.5, rest: 38.755, front: true },
+      { x: 51.25, y: -25.90, z: 20.755, r: 12.5, rest: 38.755, front: true },
+      { x: -33.75, y: 29.50, z: 20.755, r: 15, rest: 37.055, front: false },
+      { x: -33.75, y: -29.50, z: 20.755, r: 15, rest: 37.055, front: false },
     ],
     suspension: {
-      mountZ: 10,             // altura local del anclaje del resorte
-      stiffness: 1500,        // rigidez total (uu/s² por uu de compresión): soporta ~25 g en las curvas
-      netAccel: 975,          // aceleración neta hacia la superficie en equilibrio (1.5 g)
-      dampingRatio: 0.8,
+      stiffness: 500,                     // (SUSPENSION_STIFFNESS)
+      dampingCompression: 25,             // (WHEELS_DAMPING_COMPRESSION)
+      dampingRelaxation: 40,              // (WHEELS_DAMPING_RELAXATION)
+      maxTravel: 12,                      // uu (MAX_SUSPENSION_TRAVEL); se resta del largo de reposo al crear la rueda
+      forceScaleFront: 36 - 1 / 4,        // (SUSPENSION_FORCE_SCALE_FRONT)
+      forceScaleBack: 54 + 1 / 4 + 1.5 / 100,   // (SUSPENSION_FORCE_SCALE_BACK)
+      subtraction: 2.5,                   // uu (SUSPENSION_SUBTRACTION = 0.05 en unidades de Bullet)
+      pushbackErp: 0.2,                   // corrección de posición del empuje extra (m_erp de Bullet)
     },
     worldRestitution: 0.3,
     worldFriction: 0.3,
@@ -522,7 +536,7 @@ const CONFIG = {
   boost: {
     groundAccel: 991.666,
     airAccel: 1058.333,
-    usePerSecond: 33.3,
+    usePerSecond: 100 / 3,  // (BOOST_USED_PER_SECOND)
     kickoffAmount: 33,
     max: 100,
     minTime: 0.1,
@@ -921,28 +935,21 @@ class Car {
     this.controls = new Controls();
     const hx = C.hitboxHalf[0] * 2, hy = C.hitboxHalf[1] * 2, hz = C.hitboxHalf[2] * 2;
     this.invI = new V3(12 / (C.mass * (hy * hy + hz * hz)), 12 / (C.mass * (hx * hx + hz * hz)), 12 / (C.mass * (hx * hx + hy * hy)));
-    this.wheels = C.wheels.map((w) => {
-      const S = C.suspension;
-      const Lrest = S.mountZ + C.restZ - w.r;
-      const L0 = Lrest + S.netAccel / S.stiffness;
-      return { x: w.x, y: w.y, r: w.r, front: w.front, L0, k: 0, c: 0, contact: false, susLen: L0, comp: 0,
-        px: 0, py: 0, pz: 0, nx: 0, ny: 0, nz: 1, spin: 0, spinVel: 0 };
-    });
-    this.setupSuspension();
+    const S = C.suspension;
+    this.wheels = C.wheels.map((w) => ({
+      front: w.front, x: w.x, y: w.y, z: w.z, r: w.r,
+      rest: w.rest - S.maxTravel,                      // RocketSim resta el recorrido máximo al crear la rueda
+      forceScale: w.front ? S.forceScaleFront : S.forceScaleBack,
+      contact: false, susLen: w.rest, relVel: 0, clippedInv: 1, pushback: 0, force: 0,
+      px: 0, py: 0, pz: 0, nx: 0, ny: 0, nz: 1,        // punto y normal de contacto
+      hx: 0, hy: 0, hz: 0, ax: 0, ay: 1, az: 0,        // anclaje y eje lateral (con dirección) en el mundo
+      steerAngle: 0, engine: 0, brake: 0, latFriction: 0, longFriction: 0,
+      jx: 0, jy: 0, jz: 0, hasImpulse: false,           // impulso de fricción del tick
+      spin: 0, spinVel: 0,
+    }));
     this.events = [];
     this.steerVis = 0;
     this.resetState();
-  }
-  setupSuspension() {
-    const S = CONFIG.car.suspension;
-    const xf = this.wheels.find((w) => w.front).x, xb = this.wheels.find((w) => !w.front).x;
-    const wb = xf - xb;
-    const K = S.stiffness;
-    const Ct = 2 * S.dampingRatio * Math.sqrt(K);
-    for (const w of this.wheels) {
-      const share = (w.front ? -xb : xf) / wb / 2;
-      w.k = K * share; w.c = Ct * share;
-    }
   }
   resetState() {
     this.vel.set(0, 0, 0); this.angVel.set(0, 0, 0);
@@ -961,8 +968,10 @@ class Car {
     this.lastBallTouchTick = -1000;
     this.bumpCooldown = 0;
     this.landingSpeed = 0;
-    const S = CONFIG.car.suspension;
-    for (const w of this.wheels) { w.contact = false; w.susLen = w.L0 - S.netAccel / S.stiffness; w.comp = 0; }
+    for (const w of this.wheels) {
+      w.contact = false; w.susLen = w.rest; w.relVel = 0; w.clippedInv = 1; w.pushback = 0; w.force = 0;
+      w.steerAngle = 0; w.engine = 0; w.brake = 0; w.latFriction = 0; w.longFriction = 0; w.hasImpulse = false;
+    }
   }
   /** Coloca el auto en reposo sobre el piso mirando hacia yaw (radianes, 0 = +x). */
   placeAt(x, y, yaw) {
@@ -1002,43 +1011,191 @@ class Car {
     const O = CONFIG.car.hitboxOffset;
     return this.rot.toWorld(O[0], O[1], O[2], out).add(this.pos);
   }
-  /** Raycasts de suspensión (uno por rueda) contra la cancha. */
-  updateWheels() {
-    const b = this.rot, f = b.f, l = b.l, u = b.u, mz = CONFIG.car.suspension.mountZ;
+  /**
+   * Primera parte del vehículo (btVehicleRL::updateVehicleFirst): anclajes y ejes de las ruedas con el ángulo de
+   * dirección del tick anterior, raycasts de suspensión y cálculo de los impulsos de fricción (con el motor, el freno
+   * y los factores de fricción que dejó el tick anterior, igual que RocketSim).
+   * Unidades: uu; los valores que RocketSim expresa en unidades de Bullet (1 = 50 uu) se convierten donde se usan.
+   */
+  vehicleFirst(dt) {
+    const C = CONFIG.car, S = C.suspension, b = this.rot, f = b.f, l = b.l, u = b.u;
     let nc = 0;
     this.groundNormal.set(0, 0, 0);
     for (const w of this.wheels) {
-      const mx = this.pos.x + f.x * w.x + l.x * w.y + u.x * mz;
-      const my = this.pos.y + f.y * w.x + l.y * w.y + u.y * mz;
-      const mzz = this.pos.z + f.z * w.x + l.z * w.y + u.z * mz;
-      const maxT = w.L0 + w.r;
-      if (arenaRaycast(mx, my, mzz, -u.x, -u.y, -u.z, maxT + 1, _hit) && _hit.t <= maxT) {
+      w.hx = this.pos.x + f.x * w.x + l.x * w.y + u.x * w.z;
+      w.hy = this.pos.y + f.y * w.x + l.y * w.y + u.y * w.z;
+      w.hz = this.pos.z + f.z * w.x + l.z * w.y + u.z * w.z;
+      // eje lateral de la rueda ("right" de RocketSim = l) girado por la dirección alrededor de u
+      const cs = Math.cos(w.steerAngle), sn = Math.sin(w.steerAngle);
+      w.ax = l.x * cs - f.x * sn; w.ay = l.y * cs - f.y * sn; w.az = l.z * cs - f.z * sn;
+      const rayLen = w.rest + S.maxTravel + w.r - S.subtraction;
+      if (arenaRaycast(w.hx, w.hy, w.hz, -u.x, -u.y, -u.z, rayLen + 1, _hit) && _hit.t <= rayLen) {
+        const t = _hit.t;
         w.contact = true;
-        w.susLen = Math.max(0, _hit.t - w.r);
-        w.comp = w.L0 - w.susLen;
         w.px = _hit.x; w.py = _hit.y; w.pz = _hit.z;
         w.nx = _hit.nx; w.ny = _hit.ny; w.nz = _hit.nz;
-        this.groundNormal.x += _hit.nx; this.groundNormal.y += _hit.ny; this.groundNormal.z += _hit.nz;
+        w.susLen = clamp(t - w.r, w.rest - S.maxTravel, w.rest + S.maxTravel);
+        const rx = w.px - this.pos.x, ry = w.py - this.pos.y, rz = w.pz - this.pos.z;
+        this.pointVelRel(rx, ry, rz, _ca);
+        const projVel = w.nx * _ca.x + w.ny * _ca.y + w.nz * _ca.z;
+        const den = w.nx * u.x + w.ny * u.y + w.nz * u.z;
+        if (den > 0.1) { w.relVel = projVel / den; w.clippedInv = 1 / den; }
+        else { w.relVel = 0; w.clippedInv = 10; }
+        // Empuje extra si la rueda se hunde más allá del reposo (resolveSingleCollision con erp 0.2, sin restitución);
+        // como en RocketSim, el valor se conserva hasta que se vuelve a calcular o la rueda deja de tocar
+        const thresh = w.rest + w.r - S.subtraction;
+        if (t < thresh) {
+          _cn.set(w.nx, w.ny, w.nz);
+          const jd = this.invMassAt(rx, ry, rz, _cn);
+          w.pushback = Math.max(0, (S.pushbackErp * (thresh - t) / dt - projVel) / jd) / this.wheels.length;
+        }
+        this.groundNormal.x += w.nx; this.groundNormal.y += w.ny; this.groundNormal.z += w.nz;
         nc++;
       } else {
         w.contact = false;
-        // la rueda cuelga: se extiende suavemente (solo visual)
-        w.susLen = Math.min(w.L0, w.susLen + 240 * DT);
-        w.comp = 0;
+        w.susLen = w.rest + S.maxTravel; w.relVel = 0; w.clippedInv = 1; w.pushback = 0;
       }
     }
     this.numContacts = nc;
     if (nc > 0) this.groundNormal.normalize(); else this.groundNormal.copy(u);
+    // Impulsos de fricción de las ruedas (btVehicleRL::calcFrictionImpulses)
+    const toUU = 50, frictionScale = C.mass / 3;
+    for (const w of this.wheels) {
+      w.hasImpulse = false;
+      if (!w.contact) continue;
+      _cn.set(w.nx, w.ny, w.nz);
+      _ca.set(w.ax, w.ay, w.az);
+      _ca.addScaled(_cn, -_ca.dot(_cn));
+      if (_ca.lengthSq() < 1e-12) continue;
+      _ca.normalize();                                   // eje lateral sobre el plano de contacto
+      _cb.crossVectors(_cn, _ca);
+      if (_cb.lengthSq() < 1e-12) continue;
+      _cb.normalize();                                   // "forwardDir" de RocketSim (n × eje)
+      const rx = w.px - this.pos.x, ry = w.py - this.pos.y, rz = w.pz - this.pos.z;
+      this.pointVelRel(rx, ry, rz, _cc);
+      // fricción lateral: restricción bilateral amortiguada (resolveSingleBilateral), en unidades de Bullet
+      const sideImpulse = -C.bilateralDamping * (_cc.dot(_ca) / toUU) / this.invMassAt(rx, ry, rz, _ca);
+      let rolling = 0;
+      if (w.engine === 0) {
+        if (w.brake) rolling = clamp(-(_cc.dot(_cb) / toUU) * C.rollingFrictionScale, -w.brake, w.brake);
+      } else {
+        rolling = -w.engine / frictionScale;
+      }
+      // impulso = (dirección · fricción longitudinal + eje · impulso lateral) · masa/3 · dt → a uu
+      const kLong = rolling * w.longFriction * frictionScale * dt * toUU;
+      const kLat = sideImpulse * w.latFriction * frictionScale * dt * toUU;
+      w.jx = _cb.x * kLong + _ca.x * kLat; w.jy = _cb.y * kLong + _ca.y * kLat; w.jz = _cb.z * kLong + _ca.z * kLat;
+      w.hasImpulse = kLong !== 0 || kLat !== 0;
+    }
+  }
+
+  /**
+   * Motor, freno, dirección y factores de fricción de cada rueda (RocketSim: Car::_UpdateWheels), más la fuerza de
+   * pegado. Lo que se guarda en las ruedas se usa en el tick siguiente (vehicleFirst), igual que en RocketSim.
+   */
+  updateWheelControls(ctl, dt, nc, forwardSpeed) {
+    const C = CONFIG.car, g = CONFIG.physics.gravity, u = this.rot.u;
+    const absFwd = Math.abs(forwardSpeed);
+    this.handbrakeAmt = clamp(this.handbrakeAmt + (ctl.handbrake ? C.powerslideRise : -C.powerslideFall) * dt, 0, 1);
+    let realThrottle = ctl.throttle, realBrake = 0;
+    if (ctl.boost && (this.boost > 0 || this.unlimitedBoost)) realThrottle = 1;
+    let driveSpeedScale = curve(C.driveSpeedTorqueCurve, absFwd);
+    let engineThrottle = realThrottle;
+    if (!ctl.handbrake) {
+      if (Math.abs(realThrottle) >= C.throttleDeadzone) {
+        // acelerar en sentido contrario al movimiento frena del todo
+        if (absFwd > C.stoppingSpeed && Math.sign(realThrottle) !== Math.sign(forwardSpeed)) {
+          realBrake = 1;
+          if (absFwd > C.brakingNoThrottleSpeed) engineThrottle = 0;
+        }
+      } else {
+        engineThrottle = 0;
+        realBrake = absFwd < C.stoppingSpeed ? 1 : C.coastingBrakeFactor;   // rodando sin acelerador
+      }
+    }
+    if (nc < 3) driveSpeedScale /= 4;
+    const toBT = 1 / 50;
+    const engine = engineThrottle * C.throttleTorque * C.mass * toBT * driveSpeedScale;   // fuerza por rueda (Bullet)
+    const brake = realBrake * C.brakeTorque * C.mass * toBT;
+    let steerAngle = curve(C.steerAngleCurve, absFwd);
+    if (this.handbrakeAmt) steerAngle += (curve(C.powerslideSteerAngleCurve, absFwd) - steerAngle) * this.handbrakeAmt;
+    steerAngle *= -ctl.steer;                          // convención de RocketSim (+ hacia su "right")
+    for (const w of this.wheels) {
+      w.engine = engine; w.brake = brake;
+      if (w.front) w.steerAngle = steerAngle;
+    }
+    // Fricción lateral/longitudinal según el deslizamiento en cada rueda que toca
+    let worldContact = false;
+    for (const w of this.wheels) {
+      if (!w.contact) continue;
+      worldContact = true;
+      const hx = w.hx - this.pos.x, hy = w.hy - this.pos.y, hz = w.hz - this.pos.z;
+      this.pointVelRel(hx, hy, hz, _cc);                // velocidad en el anclaje
+      _ca.set(w.ax, w.ay, w.az);                         // eje lateral
+      _cn.set(w.nx, w.ny, w.nz);
+      _cb.crossVectors(_ca, _cn);                        // longitudinal
+      const base = Math.abs(_cc.dot(_ca));
+      let input = 0;
+      if (base > 5) input = base / (Math.abs(_cc.dot(_cb)) + base);
+      let latF = curve(C.latFrictionCurve, input);
+      let longF = C.longFrictionCurve.length ? curve(C.longFrictionCurve, input) : 1;
+      if (this.handbrakeAmt) {
+        latF *= (curve(C.handbrakeLatFrictionCurve, input) - 1) * this.handbrakeAmt + 1;
+        longF *= (curve(C.handbrakeLongFrictionCurve, input) - 1) * this.handbrakeAmt + 1;
+      } else {
+        longF = 1;
+      }
+      if (realThrottle === 0) {
+        const ns = curve(C.nonStickyFrictionCurve, w.nz);
+        latF *= ns; longF *= ns;
+      }
+      w.latFriction = latF; w.longFriction = longF;
+    }
+    // Pegado a la superficie con cualquier rueda tocando la cancha: 0.5 g, y con acelerador (o turbo) o avanzando
+    // a más de 25 uu/s se suma 1 − |n.z|: el auto no se cae de la pared a ninguna velocidad
+    if (worldContact) {
+      const up = this.groundNormal;
+      const fullStick = realThrottle !== 0 || absFwd > C.stoppingSpeed;
+      const sticky = C.stickyBase + (fullStick ? 1 - Math.abs(up.z) : 0);
+      _acc.addScaled(up, -g * sticky);
+    }
+  }
+
+  /** Segunda parte del vehículo (btVehicleRL::updateVehicleSecond): suspensión e impulsos de fricción. */
+  vehicleSecond(dt) {
+    const S = CONFIG.car.suspension, u = this.rot.u;
+    for (const w of this.wheels) {
+      if (!w.contact) { w.force = 0; continue; }
+      const damp = w.relVel < 0 ? S.dampingCompression : S.dampingRelaxation;
+      let F = ((w.rest - w.susLen) * S.stiffness * w.clippedInv - damp * w.relVel) * w.forceScale;
+      if (F < 0) F = 0;                                  // RL no usa fuerzas de suspensión hacia abajo
+      w.force = F;
+    }
+    for (const w of this.wheels) {
+      if (w.force === 0) continue;
+      const J = w.force * dt + w.pushback;
+      this.applyImpulse(w.px - this.pos.x, w.py - this.pos.y, w.pz - this.pos.z, w.nx * J, w.ny * J, w.nz * J);
+    }
+    // la fricción se aplica a la altura del centro de masa (sin componente "arriba" del auto)
+    for (const w of this.wheels) {
+      if (!w.hasImpulse) continue;
+      let ox = w.px - this.pos.x, oy = w.py - this.pos.y, oz = w.pz - this.pos.z;
+      const d = ox * u.x + oy * u.y + oz * u.z;
+      ox -= u.x * d; oy -= u.y * d; oz -= u.z * d;
+      this.applyImpulse(ox, oy, oz, w.jx, w.jy, w.jz);
+    }
   }
 
   step(ctl, dt) {
-    const C = CONFIG.car, J = CONFIG.jump, D = CONFIG.dodge, B = CONFIG.boost, g = CONFIG.physics.gravity;
+    const C = CONFIG.car, B = CONFIG.boost, g = CONFIG.physics.gravity;
     this.prevPos.copy(this.pos); this.prevRot.copy(this.rot);
     if (this.demolished) return;
     ctl.sanitize();
-    const b = this.rot, f = b.f, l = b.l, u = b.u;
+    const b = this.rot, f = b.f, u = b.u;
     const wasOnGround = this.onGround;
-    this.updateWheels();
+    // Orden de RocketSim (Car::_PreTickUpdate): vehículo (1ª parte), ruedas, aire, salto, auto-flip, doble salto/dodge,
+    // auto-roll, vehículo (2ª parte: suspensión y fricción) y turbo; luego gravedad, fuerzas e integración
+    this.vehicleFirst(dt);
     const nc = this.numContacts;
     const onGround = nc >= 3;
     this.onGround = onGround;
@@ -1047,49 +1204,24 @@ class Car {
       this.landingSpeed = -this.vel.dot(N);
       if (this.landingSpeed > 250) this.events.push({ type: 'aterrizaje', speed: this.landingSpeed });
     }
-
-    // Derrape (sube a 5/s, baja a 2/s)
-    this.handbrakeAmt = ctl.handbrake ? Math.min(1, this.handbrakeAmt + C.powerslideRise * dt)
-      : Math.max(0, this.handbrakeAmt - C.powerslideFall * dt);
-
-    // ---------------- Saltos ----------------
     const jumpPressed = ctl.jump && !this.jumpHeld;
     this.jumpHeld = ctl.jump;
     _acc.set(0, 0, -g);
     _ang.set(0, 0, 0);
+    const forwardSpeed = this.vel.dot(f);
+    this.updateWheelControls(ctl, dt, nc, forwardSpeed);
     // Control aéreo y torque del dodge con menos de 3 ruedas (RocketSim: _UpdateAirTorque); en el suelo termina el dodge
     if (nc < 3) this.updateAirTorque(ctl, nc === 0);
     else this.isFlipping = false;
     this.updateJump(ctl, dt, jumpPressed);
     this.updateAutoFlip(dt, jumpPressed);
-    this.updateDoubleJumpOrFlip(ctl, dt, jumpPressed, this.vel.dot(f));
+    this.updateDoubleJumpOrFlip(ctl, dt, jumpPressed, forwardSpeed);
     // Auto-roll: con acelerador y 1-3 ruedas (o la caja tocando la cancha) el auto se acuesta sobre la superficie
     if (ctl.throttle !== 0 && ((nc > 0 && nc < 4) || this.worldContact)) this.updateAutoRoll(nc);
     this.worldContact = false;
+    this.vehicleSecond(dt);
 
-    // ---------------- Fuerzas con contacto ----------------
-    if (nc > 0) {
-      for (const w of this.wheels) {
-        if (!w.contact) continue;
-        const rx = w.px - this.pos.x, ry = w.py - this.pos.y, rz = w.pz - this.pos.z;
-        this.pointVelRel(rx, ry, rz, _ca);
-        const xdot = -(_ca.x * w.nx + _ca.y * w.ny + _ca.z * w.nz);
-        let F = w.k * w.comp + w.c * xdot;            // aceleración por unidad de masa
-        if (F < 0) F = 0;
-        _acc.x += w.nx * F; _acc.y += w.ny * F; _acc.z += w.nz * F;
-        _cb.set(ry * w.nz - rz * w.ny, rz * w.nx - rx * w.nz, rx * w.ny - ry * w.nx).scale(F * C.mass);
-        this.invInertia(_cb, _cc);
-        _ang.add(_cc);
-      }
-      // Pegado a la superficie con cualquier rueda tocando la cancha (RocketSim: Car::_UpdateWheels).
-      // Con acelerador (o turbo) o avanzando a más de 25 uu/s se suma 1 − |n.z|: el auto no se cae de la pared a ninguna velocidad.
-      const realThrottle = (ctl.boost && (this.boost > 0 || this.unlimitedBoost)) ? 1 : ctl.throttle;
-      const fullStick = realThrottle !== 0 || Math.abs(this.vel.dot(f)) > C.stoppingSpeed;
-      const sticky = C.stickyBase + (fullStick ? 1 - Math.abs(N.z) : 0);
-      _acc.addScaled(N, -g * sticky);
-    }
-
-    // ---------------- Turbo ----------------
+    // ---------------- Turbo (Car::_UpdateBoost) ----------------
     if (this.boostTime > 0) this.boostTime -= dt;
     const wantBoost = ctl.boost || (this.boosting && this.boostTime > 0);
     if (wantBoost && (this.boost > 0 || this.unlimitedBoost)) {
@@ -1101,10 +1233,9 @@ class Car {
       this.boosting = false;
     }
 
-    // ---------------- Integración ----------------
+    // ---------------- Integración (paso de Bullet) ----------------
     this.vel.addScaled(_acc, dt);
     this.angVel.addScaled(_ang, dt);
-    if (nc > 0) this.driveGround(ctl, dt);
     this.vel.clampLength(C.maxSpeed);
     this.angVel.clampLength(C.maxAngSpeed);
     this.pos.addScaled(this.vel, dt);
@@ -1288,39 +1419,6 @@ class Car {
     }
   }
 
-  /** Aceleración, freno, dirección y agarre lateral sobre la superficie de contacto. */
-  driveGround(ctl, dt) {
-    const C = CONFIG.car, N = this.groundNormal, f = this.rot.f;
-    const cs = this.numContacts / 4;
-    _ca.copy(f).addScaled(N, -f.dot(N));
-    if (_ca.lengthSq() < 1e-4) return;
-    _ca.normalize();                      // adelante sobre la superficie
-    _cb.crossVectors(N, _ca);             // izquierda sobre la superficie
-    const vF = this.vel.dot(_ca);
-    const throttle = this.boosting ? 1 : ctl.throttle;
-    let dvF;
-    if (Math.abs(throttle) > C.throttleDeadzone) {
-      if (vF * throttle < 0 && Math.abs(vF) > C.stoppingSpeed) dvF = -Math.sign(vF) * Math.min(C.brakeAccel * dt * cs, Math.abs(vF));
-      else dvF = throttle * curve(C.throttleCurve, Math.abs(vF)) * dt * cs;
-    } else {
-      dvF = -Math.sign(vF) * Math.min(C.coastAccel * dt * cs, Math.abs(vF));
-    }
-    this.vel.addScaled(_ca, dvF);
-    // Dirección: curvatura máxima según velocidad (mayor en derrape)
-    const sp = Math.abs(vF);
-    const curv = lerp(curve(C.steerCurvature, sp), curve(C.powerslideCurvature, sp), this.handbrakeAmt);
-    const target = -ctl.steer * curv * vF;
-    const wN = this.angVel.dot(N);
-    this.angVel.addScaled(N, (target - wN) * Math.min(1, C.yawResponse * dt) * cs);
-    // Agarre lateral (se reduce al deslizar y durante el derrape)
-    const vF2 = this.vel.dot(_ca), vL = this.vel.dot(_cb);
-    const planar = Math.sqrt(vF2 * vF2 + vL * vL);
-    const slip = Math.abs(vL) / Math.max(planar, 1);
-    const fric = curve(C.latSlipCurve, slip) * lerp(1, C.powerslideLatFactor, this.handbrakeAmt);
-    const maxDv = C.latAccelMax * fric * dt * cs;
-    this.vel.addScaled(_cb, -clamp(vL, -maxDv, maxDv));
-  }
-
   updateWheelVisuals(ctl, dt) {
     const vF = this.vel.dot(this.rot.f);
     for (const w of this.wheels) {
@@ -1328,9 +1426,7 @@ class Car {
       w.spinVel = w.contact ? target : lerp(w.spinVel, target, Math.min(1, 2 * dt));
       w.spin = (w.spin + w.spinVel * dt) % TAU;
     }
-    const sp = Math.abs(vF);
-    const maxAng = lerp(0.55, 0.12, clamp(sp / 2300, 0, 1));
-    this.steerVis = lerp(this.steerVis, -ctl.steer * maxAng, Math.min(1, 14 * dt));
+    this.steerVis = lerp(this.steerVis, this.wheels[0].steerAngle, Math.min(1, 14 * dt));
   }
 
   /** Colisión de la caja del auto contra la cancha (impulso + corrección de posición). */
@@ -2254,16 +2350,22 @@ class Match {
 // rotación (nunca dos a la misma pelota, uno siempre atrás) y parámetros por dificultad.
 // =====================================================================
 const JUMP_TABLE = (() => {
-  // altura del centro de masa sobre el reposo en cada tick: salto completo y doble salto (2º a los 0.25 s)
-  const J = CONFIG.jump, g = CONFIG.physics.gravity;
-  const single = [], dbl = [];
-  let z = 0, v = J.impulse, z2 = 0, v2 = J.impulse;
-  for (let i = 1; i <= 240; i++) {
-    const t = i * DT;
-    const a = -g + (t <= J.maxHold + 1e-9 ? J.holdAccel : 0);
-    v += a * DT; z += v * DT; single.push(z);
-    v2 += a * DT; if (i === Math.round(0.25 * TICK_RATE)) v2 += J.impulse; z2 += v2 * DT; dbl.push(z2);
-  }
+  // altura del centro de masa sobre el reposo en cada tick, simulada con la misma física del auto:
+  // salto completo (botón 0.2 s) y doble salto (2º a los 0.25 s)
+  const run = (double) => {
+    const w = new World({ ball: false });
+    const car = w.addCar(new Car(0, 0, 'tabla'));
+    car.placeAt(0, 0, 0);
+    for (let i = 0; i < TICK_RATE / 2; i++) w.step();
+    const z0 = car.pos.z, out = [];
+    for (let i = 0; i < 240; i++) {
+      car.controls.jump = i < Math.round(CONFIG.jump.maxHold * TICK_RATE) || (double && (i === 30 || i === 31));
+      w.step();
+      out.push(car.pos.z - z0);
+    }
+    return out;
+  };
+  const single = run(false), dbl = run(true);
   return { single, dbl, maxSingle: Math.max(...single), maxDouble: Math.max(...dbl) };
 })();
 /** Tiempo (s) desde el inicio del salto hasta alcanzar la altura h subiendo; -1 si no llega. */
@@ -3553,8 +3655,10 @@ Tests.add('1. Sin turbo, el auto llega a ~1410 uu/s y no más', () => {
     finite = finite && car.isFinite();
   }
   const final = car.vel.dot(car.rot.f);
-  const pass = finite && final > 1405 && final <= 1410.05 && maxSpeed <= 1410.05 && car.onGround;
-  return { pass, detail: 'velocidad final ' + final.toFixed(2) + ' uu/s, máxima ' + maxSpeed.toFixed(2) + ' uu/s, llegó a 1400 uu/s a los ' + t1400.toFixed(2) + ' s' };
+  // RocketSim: 1400 uu/s a los 2.225 s y máximo 1410.064 (el tick que cruza 1400 sobrepasa apenas la curva de torque)
+  const pass = finite && final > 1405 && final <= 1410.1 && maxSpeed <= 1410.1 && Math.abs(t1400 - 2.225) < 0.05 && car.onGround;
+  return { pass, detail: 'velocidad final ' + final.toFixed(2) + ' uu/s, máxima ' + maxSpeed.toFixed(3) + ' uu/s (RocketSim 1410.064), llegó a 1400 uu/s a los ' +
+    t1400.toFixed(3) + ' s (RocketSim 2.225)' };
 });
 
 Tests.add('2. Con turbo llega a 2300 uu/s', () => {
@@ -3696,7 +3800,7 @@ Tests.add('Extra E. Pegado como RocketSim: en el techo plano se suelta (0.5 g < 
     if (lost < 0 && car.numContacts === 0) lost = i;
     if (away < 0 && car.pos.z < AR.H - 60) away = i;
   }
-  const okCeil = away > 0 && Math.abs(away - 51) <= 10;
+  const okCeil = Math.abs(lost - 28) <= 2 && Math.abs(away - 51) <= 3;
   // Pared lateral, casi quieto y sin acelerador: se desliza pero no se despega (RocketSim: 360/360 ticks en contacto)
   ({ w, car } = testCar(0, 0, 0));
   car.pos.set(AR.Xq + AR.r - CONFIG.car.restZ, 0, 1000);
@@ -4676,10 +4780,9 @@ class CarView {
     this.renderRot.f.lerpVectors(car.prevRot.f, car.rot.f, alpha);
     this.renderRot.u.lerpVectors(car.prevRot.u, car.rot.u, alpha);
     this.renderRot.orthonormalize();
-    const mz = CONFIG.car.suspension.mountZ;
     for (let i = 0; i < 4; i++) {
       const w = car.wheels[i], vw = this.model.wheels[i];
-      toThree(w.x, CAR_VIS_WHEEL_Y[i], mz - w.susLen, vw.pivot.position);
+      toThree(w.x, CAR_VIS_WHEEL_Y[i], w.z - w.susLen, vw.pivot.position);
       vw.pivot.rotation.y = w.front ? car.steerVis : 0;
       vw.spinner.rotation.z = -w.spin;
     }
