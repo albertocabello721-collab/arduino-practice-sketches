@@ -16,8 +16,9 @@
 // colocaciones que el juego acepta. Los bots en Novato no usan gadgets (documento).
 import { entrancesOf } from './tactics.js';
 import { STANCES } from '../physics.js';
-import { simThrow } from './throws.js';
+import { simThrow, aimThrow } from './throws.js';
 import { lineOfSight } from '../../world/raycast.js';
+import { SOLID, GLASS, HARD, MAT } from '../../world/materials.js';
 
 const EYE = STANCES.stand.eye;
 export const GAS_TRIGGER = 3.2;          // un atacante conocido a menos de esto de un bote: activar
@@ -298,6 +299,71 @@ class Planner {
     const stand = this.nearCenter(r);
     return stand ? [{ kind: 'use', what: 'ability', id: 'plates', stand, face: op.yaw, pitch: -0.4, t: 0, walkT: 0, early: true }] : [];
   }
+  // (F6.6c) C4 pegada en la pared de dentro, junto a una puerta del sitio, a media altura: cuando
+  // se sabe de atacantes al otro lado (esperando para entrar), se detona.
+  c4(op, defs) {
+    // (paneles que va a reforzar alguien: ahí la C4 no atravesaría el muro)
+    const panels = [];
+    for (const D of defs) for (const t of D.fort) if (t.kind === 'wall') panels.push(t.panel);
+    for (const e of this.entsFor(op, 'c4:', ['door'])) {
+      const tx = -e.nz, tz = e.nx, axis = e.nx ? 'x' : 'z';
+      for (const side of [1, -1]) {
+        const l = side * (e.w / 2 + 0.55);
+        const target = { x: e.x + tx * l + e.nx * 0.14, y: e.room.floorY + 1.2, z: e.z + tz * l + e.nz * 0.14 };
+        // pared blanda en sus dos capas (ni ladrillo ni alicatado ni cristal: la explosión la atraviesa)
+        const layer = (k) => this.world.getWorld(e.x + tx * l + e.nx * k, target.y, e.z + tz * l + e.nz * k);
+        if (![0.06, -0.06].every((k) => { const m = layer(k); return SOLID[m] && !HARD[m] && !GLASS[m] && m !== MAT.REINFORCED; })) continue;
+        const u = e.nx ? target.z : target.x, line = e.nx ? e.x : e.z;
+        if (panels.some((P) => Math.abs(P.line - line) < 1e-3 && (P.axisN === 0) === !!e.nx && u > P.u0 - 0.3 && u < P.u1 + 0.3 && target.y > P.y0 && target.y < P.y1)) continue;
+        for (const d of [2.0, 2.5, 1.6]) {
+          const stand = { x: target.x + e.nx * d, y: e.room.floorY, z: target.z + e.nz * d };
+          if (!this.standOk(stand)) continue;
+          const a = aimThrow(this.world, { x: stand.x, y: stand.y + EYE, z: stand.z }, target, { maxErr: 0.35 });
+          if (!a || a.hit.axis !== axis) continue;
+          this.used.add('c4:' + e.key);
+          return [{ kind: 'use', what: 'gadget', id: 'c4', stand, face: a.yaw, pitch: a.pitch, t: 0, walkT: 0 }];
+        }
+      }
+    }
+    return [];
+  }
+  // (F6.6c) Granada de impacto contra la pared que separa las dos salas del sitio, lejos de sus
+  // puertas: un hueco para ver (y disparar) de una a otra.
+  impact(op) {
+    const [A, C] = this.rooms;
+    if (!A || !C || Math.abs(A.floorY - C.floorY) > 0.1) return [];
+    let wall = null;
+    for (const [P, Q] of [[A, C], [C, A]]) {
+      if (Math.abs(P.x1 - Q.x0) < 1e-3) wall = { axis: 'x', line: P.x1, u0: Math.max(P.z0, Q.z0), u1: Math.min(P.z1, Q.z1) };
+      else if (Math.abs(P.z1 - Q.z0) < 1e-3) wall = { axis: 'z', line: P.z1, u0: Math.max(P.x0, Q.x0), u1: Math.min(P.x1, Q.x1) };
+      if (wall) break;
+    }
+    if (!wall || wall.u1 - wall.u0 < 3) return [];
+    const map = this.map, holes = [...map.doors, ...map.windows, ...(map.builder.arches || [])]
+      .filter((o) => (o.axis === 'z') === (wall.axis === 'x') && Math.abs(o.line - wall.line) < 1e-3);
+    // desde la sala donde está (se tira hacia la otra)
+    const p = op.body.pos, inC = p.x > C.x0 && p.x < C.x1 && p.z > C.z0 && p.z < C.z1;
+    const room = inC ? C : A, n = wall.axis === 'x' ? Math.sign((room.x0 + room.x1) / 2 - wall.line) : Math.sign((room.z0 + room.z1) / 2 - wall.line);
+    const at = (u, off, y) => (wall.axis === 'x' ? { x: wall.line + n * off, y, z: u } : { x: u, y, z: wall.line + n * off });
+    const us = [];
+    for (let u = wall.u0 + 1; u <= wall.u1 - 1; u += 0.5) us.push(u);
+    const mid = (wall.u0 + wall.u1) / 2;
+    us.sort((a, b) => Math.abs(a - mid) - Math.abs(b - mid));
+    for (const u of us) {
+      if (holes.some((o) => Math.abs(o.center - u) < o.width / 2 + 1.2)) continue;
+      const target = at(u, 0.14, room.floorY + 1.1), inWall = at(u, -0.05, room.floorY + 1.1);
+      const m = this.world.getWorld(inWall.x, inWall.y, inWall.z);
+      if (!SOLID[m] || GLASS[m]) continue;
+      for (const d of [3.0, 3.5, 2.6]) {
+        const stand = at(u, d, room.floorY);
+        if (!this.standOk(stand)) continue;
+        const a = aimThrow(this.world, { x: stand.x, y: stand.y + EYE, z: stand.z }, target, { maxErr: 0.4 });
+        if (!a || a.hit.axis !== wall.axis) continue;
+        return [{ kind: 'use', what: 'gadget', id: 'impact', stand, face: a.yaw, pitch: a.pitch, t: 0, walkT: 0, target, wait: 6 }];
+      }
+    }
+    return [];
+  }
   gas(op, n) {
     // un bote en cada entrada, desde dentro, que ruede hacia el hueco
     const out = [];
@@ -330,7 +396,9 @@ export function planDefenseGadgets(sq, defs, rooms) {
         case 'shield': tasks.push(...P.shield(op)); break;
         case 'alarm': tasks.push(...P.alarm(op)); break;
         case 'bpcam': tasks.push(...P.bpcam(op)); break;
-        default: break;           // (C4 e impacto: en la acción)
+        case 'c4': tasks.push(...P.c4(op, defs)); break;
+        case 'impact': tasks.push(...P.impact(op)); break;
+        default: break;
       }
     }
     if (a && a.left > 0) {
@@ -365,7 +433,12 @@ export function useCheck(B, T, aimed = true) {
   if (slot.left === 0) return 'skip';
   if (!aimed) return 'go';
   if (!G.canUse(op, src)) return op.channel ? 'wait' : (src === 'ability' ? op.abilityCd : op.gadgetCd) > 0 ? 'wait' : 'skip';
-  if (T.id === 'stickycam' || T.id === 'gas') {
+  if (T.id === 'impact' && T.target) {
+    // (sin compañeros junto a la pared donde va a estallar)
+    const near = B.game.operators.some((o) => o.team === op.team && o !== op && o.state !== 'dead' && Math.hypot(o.body.pos.x - T.target.x, o.body.pos.z - T.target.z) < 2.6 && Math.abs(o.body.pos.y - (T.target.y - 1.1)) < 1.5);
+    return near ? (T.t < T.wait ? 'wait' : 'skip') : 'go';
+  }
+  if (T.id === 'stickycam' || T.id === 'gas' || T.id === 'c4') {
     if (!T.clear) return 'go';
     const e = op.eyePos(), d = op.viewDir();
     return lineOfSight(G.game.world, e.x, e.y, e.z, e.x + d.x * T.clear, e.y + d.y * T.clear, e.z + d.z * T.clear) ? 'go' : 'skip';

@@ -230,6 +230,7 @@ export class MatchSession extends Session {
     const m = this.match, def = this.mySide() === 'def';
     const items = [{ kind: 'follow' }, { kind: 'hold' }, { kind: 'goto' }];
     if (def) items.push({ kind: 'reinforce', disabled: !(m.phase === 'prep' || m.phase === 'action') });
+    items.push({ kind: 'gadget', disabled: !(m.phase === 'action' || m.phase === 'planted' || (def && m.phase === 'prep')) });
     items.push({ kind: 'free' });
     return items;
   }
@@ -240,8 +241,8 @@ export class MatchSession extends Session {
     if (!this.canOrder()) return 0;
     let pos = null;
     if (kind === 'goto') pos = m.recon.pingOf(p.team, p) || m.recon.ping(p);
-    if (kind === 'reinforce') pos = m.recon.ping(p);
-    if ((kind === 'goto' || kind === 'reinforce') && !pos) { audio.ping('deny'); hud.toast('Mira a un punto del mapa'); return 0; }
+    if (kind === 'reinforce' || kind === 'gadget') pos = m.recon.ping(p);
+    if ((kind === 'goto' || kind === 'reinforce' || kind === 'gadget') && !pos) { audio.ping('deny'); hud.toast('Mira a un punto del mapa'); return 0; }
     this.chat.push('Tú', ORDERS[kind].say, { cls: 'me' });
     const n = this.bots.order(kind, p, pos);
     if (n) audio.ui('click'); else audio.ping('deny');

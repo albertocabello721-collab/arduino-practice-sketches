@@ -15,6 +15,7 @@
 // Cada uso es una acción breve (B.kit.act): ir a un punto si hace falta, encarar y pulsar G o
 // X como un jugador; mientras dura, sustituye a la tarea del bot (salvo si entra en combate).
 import { aimThrow } from './throws.js';
+import { kitOf, roll, late, start, runAct } from './acts.js';
 import { entrancesOf } from './tactics.js';
 import { probe } from './gadgetai.js';
 import { FLASH, EMP, THERMAL, SMOKE } from '../gadgets.js';
@@ -23,6 +24,8 @@ import { STANCES } from '../physics.js';
 import { raycastFirst, lineOfSight } from '../../world/raycast.js';
 import { SOLID, MAT, HARD, GLASS, BLAST_RES } from '../../world/materials.js';
 import { angleDiff } from '../../core/math.js';
+
+export { runAct };
 
 const EYE = STANCES.stand.eye;
 /**
@@ -35,73 +38,9 @@ const yawTo = (dx, dz) => Math.atan2(-dx, -dz);
 const has = (slot, id) => !!slot && slot.id === id && slot.left !== 0;
 const inRoomXZ = (r, x, y, z) => x > r.x0 && x < r.x1 && z > r.z0 && z < r.z1 && Math.abs(y - r.floorY) < 1.2;
 
-function kitOf(B) {
-  return B.kit || (B.kit = { act: null, job: null, rolls: new Map(), t: 0, fragNext: 0, scanAt: -99, flashTgt: null, flashAt: Infinity, roomFlashed: false, clay: false });
-}
-// Una tirada por ocasión y ronda (con la probabilidad de la dificultad).
-function roll(B, key, p) {
-  const K = kitOf(B);
-  if (!K.rolls.has(key)) K.rolls.set(key, B.rng.next() < p);
-  return K.rolls.get(key);
-}
-function late(B) { const [a, b] = B.diff.kitLate; return a + B.rng.next() * (b - a); }
 function siteRooms(M, site) { return [site.A, site.B].map((id) => M.map.rooms.find((r) => r.id === id)).filter(Boolean); }
 function matesNear(B, p, r) {
   return B.game.operators.some((o) => o.team === B.team && o.state !== 'dead' && Math.hypot(o.body.pos.x - p.x, o.body.pos.z - p.z) < r && Math.abs(o.body.pos.y - p.y) < 2.5);
-}
-
-// ====================================================================== acciones breves
-/**
- * Acción: {src: 'gadget'|'ability', yaw, pitch, at? (ir antes ahí), aim? (recalcula yaw y
- * pitch al llegar; null = cancelar), delay, hold (s tras pulsar), away (darse la vuelta
- * mientras: cegadoras), say (radio), then (al terminar)}.
- */
-function start(B, act) { kitOf(B).act = { t: 0, delay: 0, hold: 0.25, timeout: 8, ...act }; }
-
-/** Ejecuta la acción en curso. true mientras la acción manda sobre el bot. */
-export function runAct(B, dt) {
-  const K = B.kit, A = K && K.act;
-  if (!A) return false;
-  const op = B.op, I = op.intent;
-  A.t += dt;
-  const placing = op.channel && op.channel.kind === 'gadget';
-  if ((B.target && !placing) || A.t > A.timeout || op.state !== 'alive' || (A.breach && !B.breach)) { K.act = null; if (A.fail) A.fail(B); return false; }
-  if (A.at && !A.arrived) {
-    const p = op.body.pos, d = Math.hypot(A.at.x - p.x, A.at.z - p.z);
-    // (cerca y sin avanzar —algo le impide clavarse en el punto—: vale donde está)
-    if (d < (A.best ?? Infinity) - 0.05) { A.best = d; A.bestT = A.t; }
-    const stalled = d < 1.0 && A.t - (A.bestT ?? A.t) > 1.2;
-    if (d > (A.r || 0.3) && !stalled) { B._goto(A.at, dt, { r: 0.25, exact: true }); return true; }
-    A.arrived = true;
-    if (A.aim) {
-      const r = A.aim(B);
-      if (!r) { K.act = null; if (A.fail) A.fail(B); return false; }
-      A.yaw = r.yaw; A.pitch = r.pitch;
-    }
-  }
-  B._stand(dt);
-  if (A.stance) I.stance = A.stance;
-  if (!A.pressed) {
-    B._turn(A.yaw, A.pitch, 9, dt);
-    if (A.delay > 0) { A.delay -= dt; return true; }
-    if (Math.abs(angleDiff(op.yaw, A.yaw)) > 0.03 || Math.abs(A.pitch - op.pitch) > 0.03) return true;
-    op.yaw = A.yaw; op.pitch = A.pitch;
-    if (!A.noCheck && !B.game.gadgets.canUse(op, A.src)) return true;   // (enfriamiento: espera; el tope de tiempo decide)
-    if (A.src === 'gadget') I.gadget = true; else I.ability = true;
-    A.pressed = true; A.pt = 0;
-    if (A.say) B.sq.radio.say(op, 'kit', A.say, { cooldown: 3 });
-    if (A.onPress) A.onPress(B);
-    return true;
-  }
-  A.pt += dt;
-  if (placing) { op.yaw = A.yaw; op.pitch = A.pitch; return true; }
-  if (A.pt < A.hold) {
-    if (A.away && A.pt > 0.2) B._turn(A.yaw + Math.PI, 0, 10, dt);    // darse la vuelta: que no le ciegue la suya
-    return true;
-  }
-  K.act = null;
-  if (A.then) A.then(B);
-  return false;
 }
 
 // ====================================================================== entrada en grupo
@@ -119,7 +58,8 @@ export function entryGo(B) {
   if (!st) {
     st = { t0: now, coord: B.rng.next() < B.diff.coord, jobs: [] };
     S.set(e, st);
-    const group = [...sq.brains.values()].filter((X) => X.side === 'atk' && X.entry === e && X.op.state === 'alive');
+    // (solo los que siguen fuera: quien ya ha entrado por su cuenta no lanza la de la entrada)
+    const group = [...sq.brains.values()].filter((X) => X.side === 'atk' && X.entry === e && X.op.state === 'alive' && (X.stage === 'stack' || X.stage === 'approach'));
     const give = (X, kind) => {
       const job = { kind, entry: e, at: now + (st.coord ? 0 : late(X) * (kind === 'scan' ? 2 : 1)), readyAt: Infinity, st };
       kitOf(X).job = job;
@@ -166,7 +106,7 @@ function runJob(B, K, now) {
     // (con coordinación, tras lanzarla vuelve a su sitio junto a la puerta, fuera de su vista)
     start(B, {
       src: 'gadget', at: inside ? null : { x: e.x, y: e.y, z: e.z }, aim, yaw: op.yaw, pitch: 0, hold: 0.25, say: '¡Cegadora!',
-      onPress: () => done(B.game.time + FLASH.fuse + 0.1), fail,
+      onPress: () => { J.thrownAt = B.game.time; done(B.game.time + FLASH.fuse + 0.1); }, fail,
       then: () => { if (st.coord && !inside && B.stackAt) { K.sidePos = B.stackAt; K.sideUntil = B.game.time + FLASH.fuse; K.sideYaw = yawTo(e.x - e.inside.x, e.z - e.inside.z); } },
     });
     if (inside) { const r = aim(B); if (!r) { K.act = null; return fail(); } K.act.yaw = r.yaw; K.act.pitch = r.pitch; }

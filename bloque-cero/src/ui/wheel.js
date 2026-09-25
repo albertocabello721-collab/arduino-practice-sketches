@@ -8,6 +8,7 @@ export const ORDERS = {
   hold: { label: 'Mantener aquí', icon: '■', say: '¡Mantened la posición!' },
   goto: { label: 'Ir a mi marca', icon: '◆', say: '¡Id a mi marca!' },
   reinforce: { label: 'Reforzar aquí', icon: '▦', say: '¡Reforzad aquí!' },
+  gadget: { label: 'Poner gadget aquí', icon: '✚', say: '¡Poned un gadget aquí!' },
   free: { label: 'Por libre', icon: '✦', say: '¡Por libre!' },
 };
 const R_SEL = 26;       // px de ratón desde el centro para elegir algo

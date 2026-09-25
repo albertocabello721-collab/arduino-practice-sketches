@@ -94,34 +94,42 @@ test('Élite: CHISPA lanza la PEM al muro y, cuando estalla, TERMO pone la carga
 
 test('Élite: el grupo espera a que estalle su cegadora antes de entrar; con los errores de Normal sale tarde y entran sin esperarla', () => {
   for (const mode of ['elite', 'normal']) {
-    const M = match(3, { atk: ['rompe:1', 'radar:1', 'nube:0', 'lumen:0', 'muralla:0'], def: ['voltio:0', 'silencio:0', 'cepo:1', 'ojo:0', 'coraza:1'], diff: 'elite' });
-    // (Normal con la tirada siempre a favor: se ve su forma de usarla, tarde y sin coordinarse)
-    if (mode === 'normal') { M.bots.diff = { ...DIFFICULTY.normal, kit: 1 }; for (const B of M.bots.brains.values()) B.diff = M.bots.diff; }
-    toAction(M);
-    const { m, g, bots } = M;
-    freeze(m.opsOfSide('def'));
-    const clearAt = new Map();
-    const pops = [];
-    g.on('flashbang', (p, hit, op) => { if (op && op.side === 'atk') pops.push({ t: g.time, op }); });
-    run(M, () => {
-      for (const B of bots.brains.values()) if (B.side === 'atk' && B.stage !== 'approach' && B.stage !== 'stack' && !clearAt.has(B)) clearAt.set(B, g.time);
-      return pops.length > 0 && [...bots.brains.values()].filter((B) => B.side === 'atk' && B.entry === bots.brains.get(pops[0].op).entry).every((B) => clearAt.has(B));
-    }, 60);
-    assert.ok(pops.length > 0, `${mode}: lanzan una cegadora al entrar`);
-    const flasher = bots.brains.get(pops[0].op), st = bots.kitEntry.get(flasher.entry);
-    assert.ok(st, `${mode}: la cegadora es la de la entrada`);
-    const group = [...bots.brains.values()].filter((B) => B.side === 'atk' && B.entry === flasher.entry);
-    const early = group.filter((B) => clearAt.get(B) < pops[0].t - 0.05);
-    if (mode === 'elite') {
-      assert.ok(st.coord, 'Élite: se coordinan');
-      assert.equal(early.length, 0, 'Élite: nadie entra antes de que estalle');
-    } else {
-      assert.ok(!st.coord, 'Normal: no se coordinan');
-      assert.ok(early.length > 0, 'Normal: alguien entra antes de que estalle');
-      const thrown = M.log.find((l) => l.what === 'lanza:flash');
-      assert.ok(thrown.t - st.t0 >= DIFFICULTY.normal.kitLate[0] - 0.05, `Normal: la cegadora sale tarde (${(thrown.t - st.t0).toFixed(2)} s)`);
+    // (la primera partida en la que a un grupo le toca la cegadora de entrada: en Élite la usan el 85 % de las veces)
+    let checked = false;
+    for (const seed of [3, 4, 5, 6, 7, 8]) {
+      const M = match(seed, { atk: ['rompe:1', 'radar:1', 'nube:0', 'lumen:0', 'muralla:0'], def: ['voltio:0', 'silencio:0', 'cepo:1', 'ojo:0', 'coraza:1'], diff: 'elite' });
+      // (Normal con la tirada siempre a favor: se ve su forma de usarla, tarde y sin coordinarse)
+      if (mode === 'normal') { M.bots.diff = { ...DIFFICULTY.normal, kit: 1 }; for (const B of M.bots.brains.values()) B.diff = M.bots.diff; }
+      toAction(M);
+      const { m, g, bots } = M;
+      freeze(m.opsOfSide('def'));
+      const clearAt = new Map();
+      const entryFlash = () => bots.kitEntry && [...bots.kitEntry.entries()].find(([, st]) => st.jobs.some((j) => j.kind === 'flash' && j.thrownAt !== undefined));
+      run(M, () => {
+        for (const B of bots.brains.values()) if (B.side === 'atk' && B.stage !== 'approach' && B.stage !== 'stack' && !clearAt.has(B)) clearAt.set(B, g.time);
+        const ef = entryFlash();
+        return ef && [...bots.brains.values()].filter((B) => B.side === 'atk' && B.entry === ef[0] && B.op.state === 'alive').every((B) => clearAt.has(B));
+      }, 60);
+      const ef = entryFlash();
+      if (!ef) { bots.dispose(); continue; }
+      const [e, st] = ef, job = st.jobs.find((j) => j.kind === 'flash');
+      const pop = job.thrownAt + 1.5;
+      const group = [...bots.brains.values()].filter((B) => B.side === 'atk' && B.entry === e);
+      // (quien entra tras la señal del grupo y antes de que estalle; quien ya estaba dentro no cuenta)
+      const early = group.filter((B) => clearAt.has(B) && clearAt.get(B) >= st.t0 - 0.05 && clearAt.get(B) < pop - 0.05);
+      if (mode === 'elite') {
+        assert.ok(st.coord, 'Élite: se coordinan');
+        assert.equal(early.length, 0, 'Élite: nadie entra antes de que estalle');
+      } else {
+        assert.ok(!st.coord, 'Normal: no se coordinan');
+        assert.ok(early.length > 0, 'Normal: alguien entra antes de que estalle');
+        assert.ok(job.at - st.t0 >= DIFFICULTY.normal.kitLate[0] - 0.05, `Normal: la cegadora sale tarde (${(job.at - st.t0).toFixed(2)} s)`);
+      }
+      checked = true;
+      bots.dispose();
+      break;
     }
-    bots.dispose();
+    assert.ok(checked, `${mode}: algún grupo lanza la cegadora al entrar`);
   }
 });
 

@@ -16,7 +16,7 @@ Es un único archivo HTML autónomo: no necesita servidor ni conexión.
 | F3 | Rondas 5v5, 3 ubicaciones de sitios (los defensores eligen), desactivador, HUD con reloj y 10 retratos | ✅ |
 | F4 | Preparación: refuerzos, barricadas, trampillas, drones, cámaras, cuerpo a cuerpo | ✅ |
 | F5 | Bots: navegación, percepción, combate, tácticas por bando, órdenes (H), marcas (T), chat de equipo, depuración (P) | ✅ |
-| F6 | Operadores 8 + 8 y contrajuego de gadgets | en curso: arsenal ✅ · plantilla de 16 ✅ · granadas y explosivos ✅ · gadgets defensivos ✅ · 8 habilidades de ataque ✅ · 16 habilidades ✅ · la defensa bot coloca gadgets y habilidades ✅ · el ataque bot los usa según la dificultad ✅ · contrajuego de los bots, en camino |
+| F6 | Operadores 8 + 8 y contrajuego de gadgets | ✅ arsenal · plantilla de 16 · granadas y explosivos · gadgets defensivos · 16 habilidades · la defensa bot coloca gadgets y habilidades · el ataque bot los usa según la dificultad · contrajuego de la defensa bot y gadgets de acción |
 | F7 | Animaciones en primera y tercera persona | pendiente |
 | F8 | Recarga por partes | pendiente |
 | F9 | Audio 3D con oclusión | pendiente |
@@ -262,8 +262,20 @@ Reglas de Siege, contra bots:
   y el grupo no espera a la cegadora; en Veterano, más y mejor (75 %); en Élite casi siempre
   (85 %) y coordinados (esperan a que estalle la cegadora y se dan la vuelta, TERMO espera a la
   PEM). En Novato, nada.
-- Balance (partidas solo de bots): el ataque gana el 58 % de las rondas en Normal (56 de 97) y
-  en Élite (53 de 92); sin sus gadgets, en Élite ya ganaba el 56 %.
+- La defensa bot responde: con el aviso del escaneo de RADAR se queda quieta hasta que acaba (así
+  apenas la marca); dispara a las cargas de brecha, claymores y cargas térmicas del ataque que ve
+  a menos de 14 m; REMEDIO levanta con estimulantes a los compañeros derribados, cura a los
+  heridos (si le quedan dos cargas) y se cura a sí mismo; VOLTIO y OJO hacen estallar su C4
+  cuando saben de un atacante a menos de 2,5 m de ella (también al otro lado de la pared) y no
+  hay compañeros cerca; CORAZA abre en la preparación un hueco de rotación entre las dos salas
+  del sitio con una granada de impacto y, tras el plantado, lanza otra al que va a por el
+  desactivador (a 3,5–14 m, sin compañeros al lado). Igual que el ataque, según la dificultad:
+  en Normal a veces y tarde (se paran con el escaneo ya empezado), en Élite casi siempre y a
+  tiempo. En Novato, nada.
+- Balance (partidas solo de bots, 16 partidas por nivel): el ataque gana el 53,6 % de las
+  rondas en Élite (45 de 84) y el 52,9 % en Normal (46 de 87). Con el ataque usando sus gadgets
+  y la defensa aún sin contrajuego ganaba el 58 % en los dos; con el contrajuego y dos
+  merodeadores, el 58,9 % en Élite y el 55 % en Normal: por eso la defensa merodea con uno.
 - Durante la preparación el ataque aún no está desplegado: no se le puede disparar.
 
 ## Bots (Fase 5)
@@ -292,11 +304,12 @@ Reglas de Siege, contra bots:
   El error se corrige mientras sigue al blanco (muelle amortiguado con sobrecorrección y
   microajustes) y el retroceso también les afecta.
 - **Defensa**: en la preparación reparte los 10 refuerzos y las barricadas del sitio y dispara a
-  los drones que ve; después, 3 anclas sostienen ángulos en diagonal sobre las puertas del sitio
-  (agachados si hace falta) y 2 merodeadores vigilan salas vecinas, cambian de sala y vuelven
-  al sitio si el ataque llega o quedan 60 s. Investigan ruidos cercanos, cambian de posición si
-  un dron o una cámara los marca y, tras el plantado, van al desactivador: el más cercano lo
-  inutiliza y el resto cubre.
+  los drones que ve; después, las anclas sostienen ángulos en diagonal sobre las puertas del
+  sitio (agachados si hace falta) y un merodeador (si hay al menos 3 bots) vigila salas vecinas,
+  cambia de sala y vuelve al sitio si el ataque llega o quedan 60 s. (El documento pide 3
+  anclas y 2 merodeadores; con 2, el ataque bot ganaba casi el 59 % de las rondas en Élite.)
+  Investigan ruidos cercanos, cambian de posición si un dron o una cámara los marca y, tras el
+  plantado, van al desactivador: el más cercano lo inutiliza y el resto cubre.
 - **Ataque**: en la preparación cada dron va a un punto de plantado distinto, marca defensores,
   se aparta si alguien lo mira de cerca y, sin objetivo a la vista, pasa a otra ubicación.
   En la acción, dos grupos por puertas distintas se agrupan al lado de su puerta (fuera de la
@@ -323,11 +336,15 @@ Reglas de Siege, contra bots:
   marca** (a tu marca de posición, o a donde miras si no tienes; cada uno a su hueco alrededor
   y vigilando en la dirección en que la señalaste), **Reforzar aquí** (defensa, en preparación
   o acción: los aliados con refuerzos refuerzan las paredes y trampillas de la sala señalada
-  más cercanas a la marca, hasta 2 cada uno, y luego vuelven por libre) y **Por libre**. Un
+  más cercanas a la marca, hasta 2 cada uno, y luego vuelven por libre), **Poner gadget aquí**
+  (en la acción, y en la preparación si defiendes: va el aliado que mejor pueda poner algo en
+  la marca; primero un gadget que se coloca, como alambre, escudo, cámara o claymore; luego una
+  habilidad que se coloca o se suelta, como la batería o las placas; luego lo que se lanza, como
+  humo, cegadora o C4; y solo si nadie tiene otra cosa, lo que rompe, como el impacto o la
+  fragmentación; a igualdad, el más cercano) y **Por libre**. Un
   aliado responde por radio y la orden activa se ve abajo a la izquierda. Combatir, reanimar,
   recoger el desactivador, plantarlo (con el sitio a la vista o menos de 50 s) y retomar el
   plantado mandan sobre la orden; si caes, vuelven por libre; cada ronda empieza sin órdenes.
-  *Poner gadget aquí* llegará con los gadgets de la Fase 6.
 - **Depuración (P)**: puntos de la rejilla de navegación a menos de 14 m (verde de pie,
   amarillo solo agachado, magenta barricada por romper, azul pie de escalera), la ruta que
   sigue cada bot, su cono de visión de 100° (rojo si tiene a alguien a tiro) y una etiqueta
@@ -377,6 +394,9 @@ node tools/smoke-habilidades.mjs <carpeta>  # las 8 habilidades de ataque con X
 node tools/smoke-defensa-habilidades.mjs <carpeta>  # habilidades de la defensa con X (baterías, inhibidores...)
 node tools/smoke4.mjs <carpeta>  # refuerzos, barricadas, golpes, drones y cámaras en el navegador
 node tools/smoke5.mjs <carpeta>  # partida contra bots en el navegador (rejilla, preparación, ronda)
+node tools/smoke-bots-gadgets.mjs <carpeta>  # la defensa bot coloca gadgets y habilidades
+node tools/smoke-bots-ataque.mjs <carpeta>  # el ataque bot usa sus gadgets y habilidades
+node tools/smoke-contrajuego.mjs <carpeta>  # contrajuego de la defensa bot y «Poner gadget aquí»
 node tools/mapslice.mjs <carpeta> # cortes cenitales del mapa por planta
 ```
 
@@ -400,7 +420,8 @@ node tools/mapslice.mjs <carpeta> # cortes cenitales del mapa por planta
 - Mapa completo: ~170 llamadas de dibujo por pasada y ~65 000 triángulos gracias al mallado voraz y a las regiones de 8 m.
 - Coste de CPU por fotograma: 2–4 ms. Remallado tras una bala: ~1 ms (celdas de 16³); la luz de una brecha se recalcula en trozos de 1,5 ms.
 - Calidad adaptativa: si el juego baja de 55 FPS durante 2 s, reduce la resolución interna, el MSAA y el bloom hasta volver a 60.
-- Partida 5v5: la simulación de 10 operadores cuesta ~0,2 ms por tick y la IA de los bots ~0,12 ms
-  de media (p99 ≈ 1,6 ms) con presupuestos por tick para la búsqueda de rutas (900 nodos) y el
-  recálculo de la rejilla tras la destrucción (3 columnas). La rejilla (24 000 nodos, 172 000
-  aristas) se construye una vez al arrancar (~0,9 s, «Calculando rutas…»).
+- Partida 5v5: la simulación de 10 operadores cuesta ~0,2 ms por tick y la IA de los bots ~0,13 ms
+  de media con los gadgets de la Fase 6 (p99 ≈ 1,3 ms), con presupuestos por tick para la
+  búsqueda de rutas (900 nodos) y el recálculo de la rejilla tras la destrucción (3 columnas).
+  La rejilla (24 000 nodos, 172 000 aristas) se construye una vez al arrancar (~0,9 s,
+  «Calculando rutas…»).

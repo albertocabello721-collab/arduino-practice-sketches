@@ -26,6 +26,7 @@ import { entrancesOf, holdPointFor, adjacentRooms, attackEntries } from './ai/ta
 import { Radio, callout } from './ai/radio.js';
 import { planDefenseGadgets, useCheck, visitPlateBag, gasTick } from './ai/gadgetai.js';
 import { kitThink, runAct, avert, entryGo, planBreach, breachTick, breachStuck, droneZap } from './ai/attackkit.js';
+import { scanWarned, scanFrozen, spotGadget, shootGadget, defKitThink, orderGadget } from './ai/defensekit.js';
 import { lineOfSight, traverse } from '../world/raycast.js';
 import { SOLID, HARD, PEN_COST } from '../world/materials.js';
 import { angleDiff, clamp } from '../core/math.js';
@@ -116,6 +117,7 @@ export class BotSquad {
     on(m, 'planted', (op) => { if (op && op.isBot) this.radio.say(op, 'planted', '¡Desactivador plantado!', { force: true }); });
     on(g, 'bullet', (op, res) => this._whiz(op, res));
     on(g, 'gadgetPlaced', (op, c) => { if (c && c.kind === 'platebag') visitPlateBag(this, c); });
+    on(g, 'scanWarn', (s) => scanWarned(this, s));
     // el desactivador se oye desde lejos; plantado y en el suelo, lo sabe todo el equipo
     on(m, 'plantStart', (op) => this._noise(op, op.body.pos, 'plant', 30));
     on(m, 'disableStart', (op) => { for (const B of this.brains.values()) if (B.side === 'atk') B.per.hear(op.body.pos, 'disable', op, 999); });
@@ -133,8 +135,9 @@ export class BotSquad {
   // ---------------------------------------------------------------- órdenes del jugador
   /**
    * Orden para los bots del equipo de `by`: 'follow' (seguirle), 'hold' (mantener aquí),
-   * 'goto' (ir a `pos`), 'reinforce' (reforzar junto a `pos`, defensa) o 'free' (por
-   * libre). Devuelve cuántos aliados la cumplen (0 si ninguno puede).
+   * 'goto' (ir a `pos`), 'reinforce' (reforzar junto a `pos`, defensa), 'gadget' (poner o
+   * lanzar un gadget en `pos`) o 'free' (por libre). Devuelve cuántos aliados la cumplen
+   * (0 si ninguno puede).
    */
   order(kind, by, pos = null) {
     const now = this.game.time, bp = by.body.pos;
@@ -150,6 +153,7 @@ export class BotSquad {
       return allies.length;
     }
     if (kind === 'reinforce') return this._orderReinforce(by, pos, allies, ack);
+    if (kind === 'gadget') return orderGadget(this, by, pos, allies, ack);
     let spots = null;
     if (kind === 'goto') {
       if (!pos) return 0;
@@ -359,8 +363,9 @@ export class BotSquad {
     for (const r of rooms) for (const e of entrancesOf(map, r)) if (e.kind === 'door' || e.kind === 'arch') ents.push({ ...e, room: r, watchers: 0 });
     if (!ents.length) for (const r of rooms) for (const e of entrancesOf(map, r)) if (!e.kind.startsWith('hatch')) ents.push({ ...e, room: r, watchers: 0 });
     this.defPlan = { rooms, ents, adj: adjacentRooms(map, rooms), holds: [] };
-    // papeles: hasta 2 merodeadores (si hay bastantes bots), el resto anclas
-    const nRoam = defs.length >= 4 ? 2 : defs.length >= 3 ? 1 : 0;
+    // papeles: un merodeador (si hay bastantes bots), el resto anclas. (El documento dice 2, pero
+    // con 2 el ataque bot ganaba el 59 % de las rondas en Élite; con 1 queda más parejo.)
+    const nRoam = defs.length >= 3 ? 1 : 0;
     const order = rng.shuffle([...defs]);
     order.forEach((B, i) => { B.role = i < nRoam ? 'roam' : 'anchor'; });
     if (!M.fort) return;
@@ -590,8 +595,11 @@ class Brain {
     this.thinkT -= dt;
     if (this.thinkT <= 0) { this.thinkT = 0.2; this._think(phase); }
     kitThink(this, dt);
+    defKitThink(this, dt);
     this._act(dt, phase);
     gasTick(this, dt);
+    // aviso de escaneo: quieto mientras dure (puede girarse y disparar, pero no moverse)
+    if (scanFrozen(this)) { I.moveX = 0; I.moveZ = 0; I.sprint = false; return; }
     this._trackStill(dt);
   }
 
@@ -636,6 +644,7 @@ class Brain {
       }
       this._pickTarget();
       this._spotDrone();
+      spotGadget(this);
     }
     if (this.target && this.target.state === 'dead') this.target = null;
     if (this.target && !this.per.visible.includes(this.target)) {
@@ -845,11 +854,15 @@ class Brain {
     const op = this.op, I = op.intent;
     // combate: prioridad absoluta (salvo terminar un refuerzo que ya se está poniendo)
     const channel = op.channel && (op.channel.kind === 'reinforce' || op.channel.kind === 'barricade');
+    // (un gadget para el combate —la granada de impacto tras el plantado— va antes que disparar)
+    if (this.kit && this.kit.act && this.kit.act.combat && runAct(this, dt)) return;
     if (this.target && !channel) {
       this._fight(dt);
       return;
     }
     if (this.drone && !channel && this.drone.alive) { this._shootDrone(dt); return; }
+    // (defensa) la carga o claymore del ataque que tiene a la vista
+    if (this.gadgetTgt && !channel && this.gadgetTgt.alive) { shootGadget(this, dt); return; }
     // desatascarse: unos pasos hacia atrás
     if (this.backT > 0) {
       this.backT -= dt;
