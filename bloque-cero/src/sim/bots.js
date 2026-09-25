@@ -872,7 +872,8 @@ class Brain {
     // un gadget o una habilidad en marcha (lanzar, disparar, colocar)
     if (avert(this, dt) || runAct(this, dt)) return;
     // recargar con calma
-    if (!this.target && op.weapon.ammo < op.weapon.def.mag * 0.55 && op.weapon.reserve > 0 && !this.per.freshest(1.2, true)) I.reload = true;
+    // (el cargador que se saca se pierde con sus balas: recargan al 35 %, no a medio cargador)
+    if (!this.target && op.weapon.ammo < op.weapon.def.mag * 0.35 && op.weapon.reserve > 0 && !this.per.freshest(1.2, true)) I.reload = true;
     if (op.weaponIndex !== 0 && op.weapons[0].ammo + op.weapons[0].reserve > 0 && !this.target) I.switchTo = 0;
     // disparar a través de una pared blanda a un enemigo que se oye muy cerca
     if (this._wallbang(dt)) return;

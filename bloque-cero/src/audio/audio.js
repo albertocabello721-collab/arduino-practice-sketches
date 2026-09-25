@@ -271,6 +271,15 @@ export class AudioEngine {
     if (kind === 'magout') { click(0, 2600, 0.6); click(0.03, 900, 0.4, 0.05, 1.5); }
     else if (kind === 'magin') { click(0, 1500, 0.5, 0.03, 2); click(0.05, 3200, 0.9); }
     else if (kind === 'bolt') { click(0, 1200, 0.4, 0.06, 1.2); click(0.09, 3800, 1.0); click(0.12, 2000, 0.5); }
+    else if (kind === 'slap') { click(0, 650, 0.8, 0.05, 1.1); click(0.004, 2500, 0.55, 0.015, 3); }
+    else if (kind === 'shell') { click(0, 1800, 0.45, 0.025, 2.2); click(0.05, 3100, 0.5, 0.012, 5); }
+    else if (kind === 'pump') { click(0, 1000, 0.55, 0.06, 1.2); click(0.1, 850, 0.5, 0.06, 1.2); click(0.14, 3300, 0.7, 0.015, 5); }
+    else if (kind === 'open') { click(0, 2300, 0.45, 0.02, 3); click(0.05, 1200, 0.3, 0.04, 1.5); }
+    else if (kind === 'close') { click(0, 1400, 0.5, 0.025, 2); click(0.03, 3400, 0.75, 0.012, 6); }
+    else if (kind === 'eject') { for (let i = 0; i < 4; i++) click(0.03 + i * 0.035, 3600 + i * 300, 0.35, 0.02, 6); }
+    else if (kind === 'belt') { for (let i = 0; i < 3; i++) click(i * 0.04, 2500 + i * 250, 0.3, 0.02, 3); }
+    else if (kind === 'magdrop') { click(0, 900, 0.55, 0.05, 1.3); click(0.01, 2800, 0.35, 0.03, 3); click(0.09, 2200, 0.2, 0.03, 3); }
+    else if (kind === 'casing') { click(0, 5200, 0.25, 0.04, 8); click(0.06, 4800, 0.15, 0.04, 8); }
     else if (kind === 'dry') { click(0, 3000, 0.5, 0.01, 6); }
     else if (kind === 'switch') { click(0, 900, 0.25, 0.05, 1); click(0.12, 2600, 0.35); }
     else if (kind === 'vault') { this._burst(out, t, { type: 'lowpass', freq: 700, q: 0.7, a: 0.02, peak: 0.4, d: 0.2, pink: true }); }

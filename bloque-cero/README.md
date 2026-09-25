@@ -17,10 +17,10 @@ Es un único archivo HTML autónomo: no necesita servidor ni conexión.
 | F4 | Preparación: refuerzos, barricadas, trampillas, drones, cámaras, cuerpo a cuerpo | ✅ |
 | F5 | Bots: navegación, percepción, combate, tácticas por bando, órdenes (H), marcas (T), chat de equipo, depuración (P) | ✅ |
 | F6 | Operadores 8 + 8 y contrajuego de gadgets | ✅ arsenal · plantilla de 16 · granadas y explosivos · gadgets defensivos · 16 habilidades · la defensa bot coloca gadgets y habilidades · el ataque bot los usa según la dificultad · contrajuego de la defensa bot y gadgets de acción |
-| F7 | Animaciones en primera y tercera persona | pendiente |
-| F8 | Recarga por partes | pendiente |
+| F7 | Animaciones en primera y tercera persona, con la recarga por partes (antes F8) | en curso: recarga por partes en primera persona ✅ · resto de la primera persona · siluetas de los 16 · tercera persona por capas · muerte con física |
 | F9 | Audio 3D con oclusión | pendiente |
-| F10 | Pulido, pruebas de partidas completas y publicación | pendiente |
+| F10 | Pulido, pruebas de partidas completas y publicación (con rappel en Villa: tejado y fachada) | pendiente |
+| — | Mapa Residencia del Lago | pendiente |
 
 ## Arsenal (Fase 6)
 
@@ -49,6 +49,33 @@ Las 10 armas de la tabla del documento:
   disparar la vista recupera el 70 % de lo que no hayas compensado tirando del ratón.
   Agachado −10 %, tumbado −20 %.
 - Modos de disparo con **B**: automático, ráfaga de 3 y tiro a tiro según el arma.
+
+### Recarga por partes (Fase 7.1)
+
+Cada recarga es una serie de partes con su momento, y la munición cambia en su parte, no al
+final. En primera persona se ve cada una (poses clave con curvas de suavizado y mezclas de
+0,15 s), con las piezas del arma moviéndose y su sonido en su momento:
+
+- **Fusiles, subfusiles, T-308 y pistolas**: el arma se inclina, la mano saca el cargador (el de
+  la pistola cae solo) y lo suelta: cae al suelo y se queda 20 s (como mucho 24 a la vez). La
+  mano trae el nuevo, lo mete y lo asienta con un golpe de la palma; en la recarga vacía tira
+  además de la palanca de carga (en las pistolas, suelta la corredera, que se queda atrás al
+  vaciar el cargador).
+- **El cargador que sacas se pierde con sus balas** (como pide el documento); queda la de la
+  recámara: con 12 balas, la táctica deja 30+1 y se pierden 11. Las balas nuevas cuentan
+  cuando entra el cargador. Si interrumpes (cambiar de arma, cuerpo a cuerpo) antes de
+  sacarlo, no cambia nada; entre medias, te quedas sin cargador (solo la de la recámara) y la
+  siguiente recarga no saca otro; después de meterlo, ya cuenta.
+- **E-12**: cartucho a cartucho por la ventana de carga (0,55 s cada uno, cuentan al entrar).
+  Disparar interrumpe la recarga: vuelve a encarar la escopeta y dispara con los que ya
+  metiste. Si estaba vacía, bombea al final; y bombea tras cada disparo.
+- **R-44**: abre el tambor, boca arriba caen los casquillos (y las balas que quedaran), mete el
+  cargador rápido y cierra. El tambor gira con cada disparo.
+- **AL-60**: levanta la tapa, fuera la caja, caja nueva, coloca la cinta y cierra (5 s). Admite
+  80, sin bala en recámara, como en la tabla.
+- Los bots recargan con menos del 35 % del cargador (antes, al 55 %), para no tirar medio
+  cargador en cada recarga. Con esto, en partidas solo de bots el ataque gana el 50,5 % de
+  las rondas en Élite (47 de 93, 16 partidas) y el 47,6 % en Normal (89 de 187, 32 partidas).
 
 ## Operadores (Fase 6)
 
@@ -397,6 +424,8 @@ node tools/smoke5.mjs <carpeta>  # partida contra bots en el navegador (rejilla,
 node tools/smoke-bots-gadgets.mjs <carpeta>  # la defensa bot coloca gadgets y habilidades
 node tools/smoke-bots-ataque.mjs <carpeta>  # el ataque bot usa sus gadgets y habilidades
 node tools/smoke-contrajuego.mjs <carpeta>  # contrajuego de la defensa bot y «Poner gadget aquí»
+node tools/smoke-recarga.mjs <carpeta>  # recarga por partes de cada familia de armas, con capturas
+node tools/perf-partida.mjs [html...]  # llamadas de dibujo, triángulos y CPU con 10 operadores a la vista
 node tools/mapslice.mjs <carpeta> # cortes cenitales del mapa por planta
 ```
 

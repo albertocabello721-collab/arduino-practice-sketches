@@ -217,14 +217,20 @@ export function bindGameFx(ctx, game, view) {
     const local = op === viewer();
     audio.footstep(snd, { x: p.x, y: p.y + 0.05, z: p.z }, loud, local, local ? 0 : occlusion(p));
   });
-  on('reload', (op, w) => {
+  // recarga por partes: cada sonido en su parte (si se interrumpe, no suena lo que falta) y lo
+  // que se suelta (el cargador, los casquillos del revólver) cae al suelo y se queda un rato
+  const PART_SOUND = { magOut: 'magout', eject: 'eject', open: 'open', magIn: 'magin', slap: 'slap', bolt: 'bolt', belt: 'belt', close: 'close', shell: 'shell', pump: 'pump' };
+  on('reloadPart', (op, w, part) => {
     if (op !== viewer()) return;
-    const T = w.reloadTotal;
-    const empty = w.ammo === 0;
-    setTimeout(() => audio.weaponFoley('magout'), T * 250);
-    setTimeout(() => audio.weaponFoley('magin'), T * 580);
-    if (empty) setTimeout(() => audio.weaponFoley('bolt'), T * 830);
+    audio.weaponFoley(PART_SOUND[part] || 'magin');
+    if (part !== 'magOut' && part !== 'eject') return;
+    const eye = op.eyePos(), v = op.body.vel;
+    for (const d of vm.released(ctx.camera, part)) {
+      const up = d.kind === 'casing' ? 0.5 + Math.random() * 0.8 : -0.5;
+      effects.drop(d.kind, d.pos, d.quat, d.size, d.color, { x: v.x + (Math.random() - 0.5) * 0.5, y: v.y * 0.5 + up, z: v.z + (Math.random() - 0.5) * 0.5 }, eye);
+    }
   });
+  effects.onDropLand = (p, kind) => audio.weaponFoley(kind === 'mag' ? 'magdrop' : 'casing', p, false);
   // ---------------- fortificación, cuerpo a cuerpo y reconocimiento (Fase 4)
   const fortTimers = new Map();
   const stopTimer = (op) => { clearTimeout(fortTimers.get(op)); fortTimers.delete(op); };
@@ -285,5 +291,5 @@ export function bindGameFx(ctx, game, view) {
   on('land', (op, v) => { if (op === viewer()) { audio.weaponFoley('land'); vm.onLand(v); } });
   on('vault', (op) => { if (op === viewer()) audio.weaponFoley('vault'); });
 
-  return () => { for (const f of offs) f(); };
+  return () => { for (const f of offs) f(); effects.onDropLand = null; };
 }

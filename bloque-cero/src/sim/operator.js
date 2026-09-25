@@ -129,7 +129,7 @@ export class Operator {
     this.body.height = STANCES.prone.height;
     this.reviveT = 0;
     this.vault = null;
-    this.weapon.reloadT = 0;
+    this.weapon.cancelReload();
   }
   becomeDead() {
     this.state = 'dead';
@@ -262,7 +262,7 @@ export class Operator {
     this.meleeT = Math.max(0, this.meleeT - dt);
     if (I.melee && !downed && !busy && !this.reviving && this.meleeT <= 0) {
       this.meleeT = 0.8;
-      this.weapon.reloadT = 0;
+      this.weapon.cancelReload();
       this.ads = Math.min(this.ads, 0.2);
       game.melee(this);
     }
@@ -359,7 +359,7 @@ export class Operator {
     w.bloom = Math.max(0, w.bloom - dt * 3.5);
     if (this.state !== 'alive') { I.switchTo = -1; I.reload = false; return; }
     if (I.switchTo >= 0 && I.switchTo !== this.weaponIndex && I.switchTo < this.weapons.length) {
-      w.reloadT = 0;
+      w.cancelReload();
       this.weaponIndex = I.switchTo;
       this.weapon.equipT = this.weapon.def.equip;
       this.ads = 0;
@@ -368,18 +368,31 @@ export class Operator {
     I.switchTo = -1;
     const cw = this.weapon;
     if (cw.reloadT > 0) {
-      cw.reloadT -= dt;
-      if (cw.reloadT <= 0) { cw.reloadT = 0; cw.finishReload(); game.emit('reloadDone', this, cw); }
+      // recarga por partes: cada parte (cargador fuera, dentro, cerrojo, cartucho...) avisa
+      const parts = this._parts || (this._parts = []);
+      parts.length = 0;
+      const done = cw.tickReload(dt, parts);
+      for (const part of parts) game.emit('reloadPart', this, cw, part);
+      if (done) game.emit('reloadDone', this, cw);
     }
     if (I.reload && !busy) {
       if (cw.startReload()) { this.ads = Math.min(this.ads, 0.3); game.emit('reload', this, cw); }
     }
     I.reload = false;
     if (I.fireMode) { I.fireMode = false; if ((cw.def.modes || []).length > 1) game.emit('fireMode', this, cw, cw.cycleMode()); }
+    // la escopeta se interrumpe disparando: se queda con los cartuchos ya metidos y dispara en
+    // cuanto vuelve a encararla
+    if (I.fire && cw.reloadT > 0 && cw.def.perShell && cw.ammo > 0 && !cw.triggerHeld && !busy && !this.sprinting) {
+      cw.cancelReload();
+      cw.cooldown = Math.max(cw.cooldown, 0.12);
+      cw.queuedShot = true;
+      game.emit('reloadCancel', this, cw);
+    }
     const canFire = !busy && cw.ready && !this.sprinting;
     const burstOn = cw.burstLeft > 0;
     if (!I.fire) { cw.triggerHeld = false; if (!burstOn) cw.shotsInBurst = 0; }
-    if ((I.fire || burstOn) && canFire) {
+    if (!canFire) cw.queuedShot = false;
+    if ((I.fire || burstOn || cw.queuedShot) && canFire) {
       if (cw.ammo <= 0) {
         cw.burstLeft = 0;
         if (!cw.triggerHeld) { game.emit('dryfire', this, cw); cw.triggerHeld = true; if (cw.reserve > 0 && cw.startReload()) game.emit('reload', this, cw); }
@@ -393,6 +406,7 @@ export class Operator {
         if (cw.cooldown < 0) cw.cooldown = interval * 0.5;
         if (!burstOn && cw.mode === 'burst') cw.burstLeft = BURST;
         if (I.fire) cw.triggerHeld = true;
+        cw.queuedShot = false;
         this._shoot(game, cw);
         if (cw.burstLeft > 0) cw.burstLeft--;
       }

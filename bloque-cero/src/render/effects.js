@@ -1,10 +1,12 @@
 // Efectos: escombros físicos (cubitos del material roto), polvo, chispas,
-// trazadoras, marcas de impacto y luces dinámicas de fogonazos/explosiones.
+// trazadoras, marcas de impacto, luces dinámicas de fogonazos/explosiones y lo que
+// cae al suelo (cargadores y casquillos, en drops.js).
 import * as THREE from 'three';
 import { MATS, SOLID, MAT } from '../world/materials.js';
 import { raycastFirst } from '../world/raycast.js';
 import { VS } from '../world/voxelworld.js';
 import { TINTS } from './texgen.js';
+import { Drops } from './drops.js';
 
 const MAX_DEBRIS = 2400;
 const MAX_DUST = 900;
@@ -35,6 +37,20 @@ export class Effects {
       return avg || this.matColor[m.id];
     });
     this._lightSample = { sky: 1, warm: 0, cool: 0 };
+    // cargadores sacados y casquillos (onLand: quien quiera oírlos caer)
+    this.drops = new Drops(scene, world, (x, y, z) => this.lightAt(x, y, z), (p, kind) => { if (this.onDropLand) this.onDropLand(p, kind); });
+  }
+
+  /**
+   * Algo que se suelta y cae (un cargador, un casquillo): desde `pos` (si está dentro de una
+   * pared, se acerca a `safe`, el ojo de quien lo suelta), con su giro, tamaño y color.
+   */
+  drop(kind, pos, quat, size, color, vel, safe) {
+    const p = { x: pos.x, y: pos.y, z: pos.z };
+    for (let i = 0; i < 8 && safe && SOLID[this.world.getWorld(p.x, p.y, p.z)]; i++) {
+      p.x += (safe.x - p.x) * 0.35; p.y += (safe.y - p.y) * 0.35; p.z += (safe.z - p.z) * 0.35;
+    }
+    this.drops.spawn(kind, p, quat, size, color, vel);
   }
 
   lightAt(x, y, z) {
@@ -504,6 +520,7 @@ export class Effects {
     this.decalMesh.instanceMatrix.needsUpdate = true;
     this.decalMesh.count = 0; this.decalNext = 0;
     for (const d of this.decals) if (d) d.on = false;
+    this.drops.clear();
   }
 
   update(dt, camPos) {
@@ -511,6 +528,7 @@ export class Effects {
     this._updateDebris(dt);
     this._updatePoints(dt);
     this._updateTracers(dt, camPos);
+    this.drops.update(dt);
     // luces dinámicas
     for (let i = this.lights.length - 1; i >= 0; i--) { const l = this.lights[i]; l.life -= dt; if (l.life <= 0) this.lights.splice(i, 1); }
     const list = this.lights.map((l) => { const k = l.life / l.max; return { x: l.x, y: l.y, z: l.z, r: l.r * k, g: l.g * k, b: l.b * k, radius: l.radius }; });

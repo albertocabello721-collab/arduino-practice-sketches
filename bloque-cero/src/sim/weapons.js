@@ -11,7 +11,7 @@
 //     verticales y luego una deriva a izquierda y derecha que se puede aprender, con un
 //     poco de azar. Se recupera al dejar de disparar. Agachado −10 %, tumbado −20 %.
 //   Modos de disparo (B): automático, ráfaga de 3 y tiro a tiro según el arma.
-// (La Fase 8 añade la recarga por partes.)
+//   Recarga por partes (reloadPlan): la munición cambia en su parte, no al final.
 
 // Penetración común: 2 vóxeles de pladur (coste 0,07 cada uno) → 70 % del daño.
 const PEN = 0.07 * 2 / 0.3;
@@ -50,7 +50,7 @@ export const WEAPONS = {
   // ---------------- ametralladora ligera
   lmg: {
     id: 'lmg', name: 'AL-60 Oso', kind: 'Ametralladora ligera', cls: 'lmg', auto: true, modes: ['auto', 'semi'], rpm: 700, damage: 47, pellets: 1,
-    mag: 80, reserve: 160, reload: 5.0, reloadEmpty: 5.0, equip: 0.8, adsTime: 0.45, adsZoom: 1.35,
+    mag: 80, reserve: 160, reload: 5.0, reloadEmpty: 5.0, noChamber: true, equip: 0.8, adsTime: 0.45, adsZoom: 1.35,
     spreadHip: 3.4, spreadAds: 0.1, spreadMove: 2.6, bloom: 0.35,
     recoil: { v: 0.5, h: 0.46, first: 1.3, jitter: 0.12, seed: 5 },
     penetration: PEN, extraBreak: 0.15, falloff: [25, 35, 0.75], range: 140, sound: 'rifle', model: 'lmg',
@@ -121,6 +121,52 @@ export function recoilPattern(def, i) {
   return { up: up * (0.9 + 0.1 * Math.cos(k * 0.8 + ph)), side };
 }
 
+// ------------------------------------------------------------ recarga por partes (Fase 7.1)
+// Cada recarga es una lista de partes con su momento (s desde que empieza). La munición cambia
+// en su parte: al sacar el cargador se pierde con las balas que llevaba (queda la de la
+// recámara) y al meter el nuevo, cuentan las suyas. Si se interrumpe entre medias, el arma se
+// queda como esté en ese momento. La animación en primera persona usa los mismos momentos.
+//   'mag'   fusiles, subfusiles, tirador y pistolas: cargador fuera, cargador dentro, golpe con
+//           la palma y, en la vacía, cerrojo (en las pistolas, soltar la corredera).
+//   'belt'  AL-60: abrir la tapa, caja fuera, caja nueva, cinta, cerrar y, vacía, palanca.
+//   'cyl'   R-44: abrir el tambor, fuera casquillos y balas, cargador rápido y cerrar.
+//   'shell' E-12: cartucho a cartucho (0,55 s cada uno; se interrumpe disparando). Si estaba
+//           vacía, bombea al final.
+export function reloadFamily(def) {
+  if (def.perShell) return 'shell';
+  if (def.model === 'revolver') return 'cyl';
+  if (def.cls === 'lmg') return 'belt';
+  return 'mag';
+}
+
+/** Partes de una recarga que empieza con `ammo` en el arma y `reserve` de reserva. */
+export function reloadPlan(def, ammo, reserve, magOut = false) {
+  const family = reloadFamily(def), empty = ammo === 0;
+  const parts = [];
+  const add = (at, part) => { if (!(magOut && part === 'magOut')) parts.push({ at, part }); };
+  let total;
+  if (family === 'shell') {
+    const need = Math.max(0, Math.min(def.mag - ammo, reserve));
+    total = 0.3 + need * def.reload;
+    for (let i = 0; i < need; i++) add(0.6 + i * def.reload, 'shell');
+    if (empty) add(total - 0.12, 'pump');
+  } else if (family === 'cyl') {
+    total = def.reload;
+    add(0.12 * total, 'open'); add(0.26 * total, 'eject'); add(0.6 * total, 'magIn'); add(0.78 * total, 'close');
+  } else if (family === 'belt') {
+    total = empty ? def.reloadEmpty : def.reload;
+    add(0.1 * total, 'open'); add(0.28 * total, 'magOut'); add(0.56 * total, 'magIn'); add(0.7 * total, 'belt'); add(0.82 * total, 'close');
+    if (empty) add(0.92 * total, 'bolt');
+  } else if (empty) {
+    total = def.reloadEmpty;
+    add(0.2 * total, 'magOut'); add(0.53 * total, 'magIn'); add(0.6 * total, 'slap'); add(0.82 * total, 'bolt');
+  } else {
+    total = def.reload;
+    add(0.25 * total, 'magOut'); add(0.66 * total, 'magIn'); add(0.74 * total, 'slap');
+  }
+  return { family, empty, total, parts };
+}
+
 export class WeaponState {
   constructor(def) {
     this.def = def;
@@ -129,6 +175,10 @@ export class WeaponState {
     this.cooldown = 0;
     this.reloadT = 0;          // tiempo restante de recarga (>0 recargando)
     this.reloadTotal = 0;
+    this.plan = null;          // partes de la recarga en curso (reloadPlan)
+    this.partIdx = 0;          // la siguiente parte por hacer
+    this.magOut = false;       // sin cargador: se interrumpió la recarga tras sacarlo
+    this.lost = 0;             // balas perdidas con los cargadores sacados
     this.equipT = 0;           // tiempo restante de desenfunde
     this.bloom = 0;            // dispersión acumulada por disparo
     this.shotsInBurst = 0;
@@ -148,20 +198,46 @@ export class WeaponState {
   startReload() {
     if (this.reloadT > 0 || this.reserve <= 0) return false;
     if (this.ammo >= this.capacity || (this.ammo >= this.def.mag && (this.def.pellets > 1 || this.def.noChamber))) return false;
-    if (this.def.perShell) {
-      // escopeta: cartucho a cartucho (0,55 s cada uno)
-      const need = Math.min(this.def.mag - this.ammo, this.reserve);
-      this.reloadTotal = 0.3 + need * this.def.reload;
-    } else this.reloadTotal = this.ammo > 0 ? this.def.reload : this.def.reloadEmpty;
+    this.plan = reloadPlan(this.def, this.ammo, this.reserve, this.magOut);
+    this.partIdx = 0;
+    this.reloadTotal = this.plan.total;
     this.reloadT = this.reloadTotal;
     return true;
   }
-  finishReload() {
-    // recarga táctica: con bala en recámara el cargador admite +1 (no en escopetas ni revólver)
-    const cap = this.ammo > 0 ? this.capacity : this.def.mag;
-    const need = cap - this.ammo;
-    const take = Math.min(need, this.reserve);
-    this.ammo += take; this.reserve -= take;
+  /**
+   * Avanza la recarga `dt` s y hace las partes a las que llega (las añade a `out`, si se da).
+   * Devuelve true cuando termina.
+   */
+  tickReload(dt, out = null) {
+    this.reloadT -= dt;
+    const P = this.plan, el = this.reloadTotal - this.reloadT;
+    while (P && this.partIdx < P.parts.length && P.parts[this.partIdx].at <= el + 1e-6) {
+      const part = P.parts[this.partIdx++].part;
+      this._part(part);
+      if (out) out.push(part);
+    }
+    if (this.reloadT > 0) return false;
+    this.reloadT = 0; this.plan = null;
+    return true;
   }
-  refill() { this.ammo = this.def.mag; this.reserve = this.def.reserve; this.reloadT = 0; this.cooldown = 0; this.bloom = 0; this.burstLeft = 0; }
+  _part(part) {
+    const d = this.def;
+    if (part === 'magOut' || part === 'eject') {
+      // el cargador sacado (o lo que quedara en el tambor) se pierde con sus balas; la de la
+      // recámara se queda (táctica: 30+1)
+      const chamber = this.ammo > 0 && d.pellets === 1 && !d.noChamber ? 1 : 0;
+      this.lost += this.ammo - chamber;
+      this.ammo = chamber;
+      this.magOut = true;
+    } else if (part === 'magIn') {
+      const take = Math.min(d.mag, this.reserve);
+      this.ammo += take; this.reserve -= take;
+      this.magOut = false;
+    } else if (part === 'shell') {
+      if (this.reserve > 0 && this.ammo < d.mag) { this.ammo++; this.reserve--; }
+    }
+  }
+  /** Interrumpir la recarga: lo hecho, hecho está (cartuchos metidos, cargador fuera o dentro). */
+  cancelReload() { this.reloadT = 0; this.plan = null; }
+  refill() { this.ammo = this.def.mag; this.reserve = this.def.reserve; this.reloadT = 0; this.plan = null; this.magOut = false; this.lost = 0; this.cooldown = 0; this.bloom = 0; this.burstLeft = 0; this.queuedShot = false; }
 }
