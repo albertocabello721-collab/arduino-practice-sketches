@@ -16,16 +16,15 @@
 // colocaciones que el juego acepta. Los bots en Novato no usan gadgets (documento).
 import { entrancesOf } from './tactics.js';
 import { STANCES } from '../physics.js';
-import { THROW } from '../gadgets.js';
-import { lineOfSight, raycastFirst } from '../../world/raycast.js';
-import { SOLID } from '../../world/materials.js';
+import { simThrow } from './throws.js';
+import { lineOfSight } from '../../world/raycast.js';
 
 const EYE = STANCES.stand.eye;
 export const GAS_TRIGGER = 3.2;          // un atacante conocido a menos de esto de un bote: activar
 const yawTo = (dx, dz) => Math.atan2(-dx, -dz);
 
 // Operador de prueba: de pie en `stand` mirando con (yaw, pitch).
-function probe(op, stand, yaw, pitch) {
+export function probe(op, stand, yaw, pitch) {
   const pos = { x: stand.x, y: stand.y, z: stand.z };
   return {
     team: op.team, side: op.side, yaw, pitch, gadget: op.gadget, ability: op.ability, body: { pos },
@@ -220,26 +219,8 @@ class Planner {
     }
     return out;
   }
-  // Dónde se pega lo que se lanza desde `stand` con (yaw, pitch): el mismo vuelo que en el
-  // juego (gadgets.throwFrom y _move) hasta el primer choque. {pos, axis, t} o null.
-  simThrow(stand, yaw, pitch) {
-    const w = this.world, cp = Math.cos(pitch);
-    const d = { x: -Math.sin(yaw) * cp, y: Math.sin(pitch), z: -Math.cos(yaw) * cp };
-    const p = { x: stand.x + d.x * 0.35, y: stand.y + EYE + d.y * 0.35 - 0.05, z: stand.z + d.z * 0.35 };
-    const v = { x: d.x * THROW.speed, y: d.y * THROW.speed + THROW.up, z: d.z * THROW.speed };
-    if (SOLID[w.getWorld(p.x, p.y, p.z)]) return null;
-    const h = 1 / 240;
-    for (let t = 0; t < 2; t += h) {
-      v.y -= THROW.gravity * h;
-      for (const ax of ['x', 'y', 'z']) {
-        const q = { x: p.x, y: p.y, z: p.z };
-        q[ax] += v[ax] * h;
-        if (SOLID[w.getWorld(q.x, q.y, q.z)]) return { pos: p, axis: ax, t };
-        p[ax] = q[ax];
-      }
-    }
-    return null;
-  }
+  // Dónde se pega lo que se lanza desde `stand` con (yaw, pitch) (ver throws.js).
+  simThrow(stand, yaw, pitch) { return simThrow(this.world, { x: stand.x, y: stand.y + EYE, z: stand.z }, yaw, pitch); }
   stickycam(op, n) {
     // lanzadas por las puertas del sitio: se pegan en una pared de fuera y vigilan por dónde
     // llega el ataque; si ninguna puerta da a una pared cerca, en el fondo del sitio mirando a la entrada

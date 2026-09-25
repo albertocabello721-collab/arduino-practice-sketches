@@ -25,6 +25,7 @@ import { Perception, TeamBoard } from './ai/perception.js';
 import { entrancesOf, holdPointFor, adjacentRooms, attackEntries } from './ai/tactics.js';
 import { Radio, callout } from './ai/radio.js';
 import { planDefenseGadgets, useCheck, visitPlateBag, gasTick } from './ai/gadgetai.js';
+import { kitThink, runAct, avert, entryGo, planBreach, breachTick, breachStuck, droneZap } from './ai/attackkit.js';
 import { lineOfSight, traverse } from '../world/raycast.js';
 import { SOLID, HARD, PEN_COST } from '../world/materials.js';
 import { angleDiff, clamp } from '../core/math.js';
@@ -37,13 +38,16 @@ import { shieldFaces } from './abilities.js';
 //   normal   · lo básico
 //   veterano · pre-disparo en esquinas conocidas, dispara a paredes blandas si oye pasos
 //   elite    · además se coordina, flanquea y cambia de ángulo tras ser visto
+// Gadgets y habilidades del ataque (F6.6b): `kit` = probabilidad de usarlos en cada ocasión,
+// `kitLate` = retraso [mín, máx] s (la cegadora un poco tarde…), `kitErr` = error al lanzar
+// (m) y `coord` = probabilidad de coordinarse (esperar a la cegadora, a la PEM…).
 const DEG = Math.PI / 180;
 const FOV = 50 * DEG;       // cono de visión de 100°
 export const DIFFICULTY = {
-  novato: { label: 'Novato', react: 0.70, aimErr: 1.8 * DEG, settle: 0.9, turn: 3.0, burst: 0.28, pause: [0.55, 1.0], fov: FOV, range: 26, head: 0.08, recoil: 0.4, hearing: 0.8, wallbang: 0, strafe: 0.1, prefire: 0.2, flank: 0, reposition: 0 },
-  normal: { label: 'Normal', react: 0.45, aimErr: 1.0 * DEG, settle: 0.6, turn: 4.4, burst: 0.38, pause: [0.35, 0.7], fov: FOV, range: 34, head: 0.18, recoil: 0.6, hearing: 1.0, wallbang: 0, strafe: 0.3, prefire: 0.4, flank: 0.3, reposition: 0.35 },
-  veterano: { label: 'Veterano', react: 0.30, aimErr: 0.6 * DEG, settle: 0.45, turn: 6.0, burst: 0.48, pause: [0.25, 0.5], fov: FOV, range: 42, head: 0.28, recoil: 0.75, hearing: 1.15, wallbang: 0.6, strafe: 0.6, prefire: 0.8, flank: 0.4, reposition: 0.65 },
-  elite: { label: 'Élite', react: 0.22, aimErr: 0.35 * DEG, settle: 0.35, turn: 7.5, burst: 0.55, pause: [0.18, 0.4], fov: FOV, range: 48, head: 0.38, recoil: 0.85, hearing: 1.3, wallbang: 0.8, strafe: 0.8, prefire: 1.0, flank: 0.6, reposition: 1.0 },
+  novato: { label: 'Novato', react: 0.70, aimErr: 1.8 * DEG, settle: 0.9, turn: 3.0, burst: 0.28, pause: [0.55, 1.0], fov: FOV, range: 26, head: 0.08, recoil: 0.4, hearing: 0.8, wallbang: 0, strafe: 0.1, prefire: 0.2, flank: 0, reposition: 0, kit: 0, kitLate: [0, 0], kitErr: 0, coord: 0 },
+  normal: { label: 'Normal', react: 0.45, aimErr: 1.0 * DEG, settle: 0.6, turn: 4.4, burst: 0.38, pause: [0.35, 0.7], fov: FOV, range: 34, head: 0.18, recoil: 0.6, hearing: 1.0, wallbang: 0, strafe: 0.3, prefire: 0.4, flank: 0.3, reposition: 0.35, kit: 0.45, kitLate: [0.6, 1.6], kitErr: 1.0, coord: 0 },
+  veterano: { label: 'Veterano', react: 0.30, aimErr: 0.6 * DEG, settle: 0.45, turn: 6.0, burst: 0.48, pause: [0.25, 0.5], fov: FOV, range: 42, head: 0.28, recoil: 0.75, hearing: 1.15, wallbang: 0.6, strafe: 0.6, prefire: 0.8, flank: 0.4, reposition: 0.65, kit: 0.75, kitLate: [0.2, 0.7], kitErr: 0.5, coord: 0.5 },
+  elite: { label: 'Élite', react: 0.22, aimErr: 0.35 * DEG, settle: 0.35, turn: 7.5, burst: 0.55, pause: [0.18, 0.4], fov: FOV, range: 48, head: 0.38, recoil: 0.85, hearing: 1.3, wallbang: 0.8, strafe: 0.8, prefire: 1.0, flank: 0.6, reposition: 1.0, kit: 0.85, kitLate: [0, 0.15], kitErr: 0.2, coord: 1 },
 };
 DIFFICULTY.recluta = DIFFICULTY.novato;   // nombre antiguo (ajustes guardados)
 export const DIFFICULTY_KEYS = ['novato', 'normal', 'veterano', 'elite'];
@@ -334,6 +338,8 @@ export class BotSquad {
     this.defPlan = null;
     this.atkPlan = null;
     this.pickupBy = null;
+    this.kitEntry = null;
+    this.kitTargets = null;
     for (const op of this.game.operators) {
       if (!op.isBot) continue;
       op.recoilControl = this.diff.recoil;
@@ -428,6 +434,8 @@ export class BotSquad {
       B.siteRoomKey = i % 2 ? 'B' : 'A';
       B.delay = rng.next() * 2.5;
     });
+    // TERMO (y CHISPA con la PEM) abren un muro reforzado del sitio
+    planBreach(this, atk);
   }
   // Sitio al que va el ataque ahora (el encontrado o el que toca revisar).
   atkTargetSite() {
@@ -581,6 +589,7 @@ class Brain {
     this._perceive(dt);
     this.thinkT -= dt;
     if (this.thinkT <= 0) { this.thinkT = 0.2; this._think(phase); }
+    kitThink(this, dt);
     this._act(dt, phase);
     gasTick(this, dt);
     this._trackStill(dt);
@@ -608,6 +617,7 @@ class Brain {
     switch (T.kind) {
       case 'clear': this.siteRoomKey = this.siteRoomKey === 'B' ? 'A' : 'B'; break;
       case 'approach': this.stage = 'clear'; break;
+      case 'breach': breachStuck(this); break;
       case 'fortify': this.fort.shift(); break;
       case 'anchor': case 'roam': case 'siteHold': case 'guard': this.hold = null; break;
       default: this.task = null; this.thinkT = 0;
@@ -811,6 +821,7 @@ class Brain {
     }
     if (late && this.stage !== 'hold') this.stage = 'clear';
     const key = `${this.stage}:${site.id}`;
+    if (this.stage === 'breach') return this._setTask({ kind: 'breach', key: 'breach' });
     if (this.stage === 'approach') return this._setTask({ kind: 'approach', key, site });
     if (this.stage === 'stack') return this._setTask({ kind: 'stack', key, site });
     if (this.stage === 'clear') return this._setTask({ kind: 'clear', key, site });
@@ -845,6 +856,8 @@ class Brain {
       I.moveZ = -0.8; I.moveX = (this.unsticks % 2 ? 0.5 : -0.5); I.sprint = false;
       return;
     }
+    // un gadget o una habilidad en marcha (lanzar, disparar, colocar)
+    if (avert(this, dt) || runAct(this, dt)) return;
     // recargar con calma
     if (!this.target && op.weapon.ammo < op.weapon.def.mag * 0.55 && op.weapon.reserve > 0 && !this.per.freshest(1.2, true)) I.reload = true;
     if (op.weaponIndex !== 0 && op.weapons[0].ammo + op.weapons[0].reserve > 0 && !this.target) I.switchTo = 0;
@@ -861,6 +874,7 @@ class Brain {
       case 'disable': this._tDisable(dt); break;
       case 'revive': this._tRevive(dt, T); break;
       case 'approach': this._tApproach(dt, T); break;
+      case 'breach': breachTick(this, dt); break;
       case 'stack': this._tStack(dt, T); break;
       case 'clear': this._tClear(dt, T); break;
       case 'siteHold': this._tSiteHold(dt, T); break;
@@ -1367,7 +1381,8 @@ class Brain {
     const group = [...this.sq.brains.values()].filter((B) => B.side === 'atk' && B.entry === e && B.op.state === 'alive');
     const ready = group.every((B) => B.stage !== 'approach');
     const wait = this.stackWait ?? 6;
-    if ((ready && this.stackT > wait) || this.stackT > wait + 8 || this.match.timer < 80) { this.stage = 'clear'; this.thinkT = 0; }
+    // (al pasar, cegadora, humo y escaneo; con coordinación, se espera a que hagan efecto)
+    if (((ready && this.stackT > wait) || this.stackT > wait + 8 || this.match.timer < 80) && (entryGo(this) || this.stackT > wait + 16)) { this.stage = 'clear'; this.thinkT = 0; }
     this._stand(dt);
     this.op.intent.stance = 'crouch';
     const p = this.op.body.pos;
@@ -1522,6 +1537,8 @@ class Brain {
     if (!this.dm || this.dm.drone !== d) this.dm = { drone: d, mover: new Mover(d, this.sq.nav, { drone: true }), markT: 0.4, mark: null, scanT: 0, waitT: 0, goal: null, watchT: 0, fleeT: 0, fleeDir: 1, flees: 0 };
     const S = this.dm, I = d.intent, M = this.match;
     I.moveX = 0; I.moveZ = 0;
+    // PULGA: el rayo del dron de choque contra los gadgets de la defensa que ve
+    if (droneZap(this, d, S, dt)) return;
     S.markT -= dt;
     // marcar defensores visibles
     if (S.markT <= 0) {

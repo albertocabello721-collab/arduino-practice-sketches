@@ -16,7 +16,7 @@ Es un único archivo HTML autónomo: no necesita servidor ni conexión.
 | F3 | Rondas 5v5, 3 ubicaciones de sitios (los defensores eligen), desactivador, HUD con reloj y 10 retratos | ✅ |
 | F4 | Preparación: refuerzos, barricadas, trampillas, drones, cámaras, cuerpo a cuerpo | ✅ |
 | F5 | Bots: navegación, percepción, combate, tácticas por bando, órdenes (H), marcas (T), chat de equipo, depuración (P) | ✅ |
-| F6 | Operadores 8 + 8 y contrajuego de gadgets | en curso: arsenal ✅ · plantilla de 16 ✅ · granadas y explosivos ✅ · gadgets defensivos ✅ · 8 habilidades de ataque ✅ · 16 habilidades ✅ · la defensa bot coloca gadgets y habilidades ✅ · el ataque bot, en camino |
+| F6 | Operadores 8 + 8 y contrajuego de gadgets | en curso: arsenal ✅ · plantilla de 16 ✅ · granadas y explosivos ✅ · gadgets defensivos ✅ · 8 habilidades de ataque ✅ · 16 habilidades ✅ · la defensa bot coloca gadgets y habilidades ✅ · el ataque bot los usa según la dificultad ✅ · contrajuego de los bots, en camino |
 | F7 | Animaciones en primera y tercera persona | pendiente |
 | F8 | Recarga por partes | pendiente |
 | F9 | Audio 3D con oclusión | pendiente |
@@ -151,8 +151,7 @@ Defensa:
   destruye); **mantener X** (o pulsarla sin botes en la mano) activa todos: nube amarillenta de
   4 m durante 10 s que quita 12 por segundo a los atacantes que están dentro y tapa algo la
   vista (a jugadores y bots).
-- Con esto están las 16 habilidades. La defensa bot ya las usa (ver «Bots»); el ataque bot, en la
-  Fase 6.6b.
+- Con esto están las 16 habilidades. Los bots de los dos bandos ya las usan (ver «Bots»).
 - La cámara blindada ya mira hacia la habitación (antes quedaba mirando a la pared).
 - Los golpes cuerpo a cuerpo ya no alcanzan objetos a través de una pared.
 
@@ -250,6 +249,21 @@ Reglas de Siege, contra bots:
   entradas. CORAZA deja la bolsa de placas al empezar y los demás pasan a coger la suya. En la
   acción, TIZÓN activa el gas cuando sabe de un atacante junto a un bote. En Novato no usan
   gadgets (como pide el documento).
+- El ataque bot usa los suyos en la acción: CHISPA lanza la PEM al muro reforzado del sitio y,
+  cuando estalla, TERMO pone la carga térmica, se aparta y la enciende (si una batería se la
+  destruye o un inhibidor no le deja encenderla, pide otra PEM); ROMPE abre desde lejos las
+  barricadas y paredes blandas del sitio que ve; al entrar, el grupo lanza una cegadora (con el
+  humo de NUBE y el escaneo de RADAR), y otra a la sala del sitio antes de cruzar su puerta; una
+  granada de fragmentación al defensor que el equipo sabe dónde está y no se ve (por una puerta,
+  si hace falta); MURALLA usa el destello del escudo a quemarropa; PULGA destruye con el rayo
+  del dron de choque, en la preparación, los gadgets de la defensa y las cámaras que pone (las
+  seis fijas del mapa no: el jugador sí puede); y tras plantar, una claymore en la puerta de la
+  sala. Por dificultad: en Normal los usan a veces (45 %), tarde (0,6–1,6 s) y con error (1 m),
+  y el grupo no espera a la cegadora; en Veterano, más y mejor (75 %); en Élite casi siempre
+  (85 %) y coordinados (esperan a que estalle la cegadora y se dan la vuelta, TERMO espera a la
+  PEM). En Novato, nada.
+- Balance (partidas solo de bots): el ataque gana el 58 % de las rondas en Normal (56 de 97) y
+  en Élite (53 de 92); sin sus gadgets, en Élite ya ganaba el 56 %.
 - Durante la preparación el ataque aún no está desplegado: no se le puede disparar.
 
 ## Bots (Fase 5)
@@ -372,7 +386,8 @@ node tools/mapslice.mjs <carpeta> # cortes cenitales del mapa por planta
 - `src/sim/` simulación sin render (corre en Node): física de personaje, operadores, armas,
   plantilla de 16 operadores (`operators.js`), partida por rondas (`match.js`), fortificación
   (`fortify.js`), drones y cámaras (`recon.js`), rejilla de navegación (`nav.js`) y bots
-  (`bots.js` con `ai/mover.js`, `ai/perception.js`, `ai/tactics.js` y `ai/gadgetai.js`).
+  (`bots.js` con `ai/mover.js`, `ai/perception.js`, `ai/tactics.js`, `ai/gadgetai.js`, `ai/attackkit.js`
+  y `ai/throws.js`).
 - `src/client/` sesiones de juego (campo de pruebas, partida), control del jugador y puente
   eventos → sonido/efectos/HUD.
 - `src/render/` Three.js: texturas PBR procedurales, mallado voraz por celdas de 16³, shader PBR con volumen de luz y sombra del sol, efectos, arma en primera persona, post-proceso (bloom + ACES).
