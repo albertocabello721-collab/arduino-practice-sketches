@@ -1,15 +1,20 @@
 // Arma en primera persona: modelos procedurales (fusil, subfusil, escopeta,
 // pistola) con guantes y mangas tácticas. Escena y cámara propias que se
-// componen encima del mundo. Animación: balanceo al andar, inercia de ratón,
-// apuntar, retroceso, sprint y desenfunde (base), y encima la recarga por partes
-// (Fase 7.1: clip de poses clave con mezcla de 0,15 s, render/reloadanim.js) con
-// piezas que se mueven: cargador, palanca de carga, corredera, tambor, tapa y bomba.
+// componen encima del mundo. Animación: balanceo al andar, respiración, inercia de
+// ratón, apuntar, retroceso, sprint y cambio de arma (baja una y sube la otra) de base;
+// encima, la recarga por partes (Fase 7.1, render/reloadanim.js, con piezas que se
+// mueven: cargador, palanca de carga, corredera, tambor, tapa y bomba) y las manos
+// (Fase 7.2, render/handanim.js: inspeccionar, lanzar, dron, colocar, reforzar,
+// barricada, plantar, desactivar y reanimar), con mezclas de 0,15 s. Los brazos se
+// colocan en el espacio de la cámara: pueden soltar el arma y trabajar con las dos manos.
 import * as THREE from 'three';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { damp, clamp } from '../core/math.js';
 import { shieldUp } from '../sim/abilities.js';
 import { BLEND, sampleClip } from './anim.js';
 import { reloadClip, HOLD, SHELL_HOLD, LOADER_HOLD } from './reloadanim.js';
+import { inspectClip, throwClip, droneClip, channelClip } from './handanim.js';
+import { REVIVE_TIME } from '../sim/operator.js';
 
 function std(color, rough = 0.6, metal = 0.0) {
   return new THREE.MeshStandardMaterial({ color, roughness: rough, metalness: metal });
@@ -39,6 +44,16 @@ const M = {
 const lin = (m) => { const c = m.color; return [c.r, c.g, c.b]; };
 const arr = (v) => [v.x, v.y, v.z];
 const ZERO3 = [0, 0, 0];
+// codos de las manos de las acciones (espacio de la cámara): abajo, hacia fuera y atrás
+const ELBOW_L = new THREE.Vector3(-0.13, -0.27, 0.2), ELBOW_R = new THREE.Vector3(0.13, -0.27, 0.2);
+const CHANNEL_HANDS = { reinforce: true, barricade: true, gadget: true, plant: true, disable: true };
+// lo que se coloca, en las manos: tamaño y color (el escudo desplegable, más pequeño que el de verdad)
+const GADGET_LOOK = {
+  barbed: [[0.14, 0.06, 0.06], 0x5a5c5e], shield: [[0.24, 0.16, 0.03], 0x3a3f46], bpcam: [[0.06, 0.06, 0.07], 0x222428],
+  alarm: [[0.07, 0.035, 0.07], 0x7a2a22], claymore: [[0.11, 0.07, 0.035], 0x4b503b], breach: [[0.18, 0.11, 0.03], 0x7d6b4a],
+  battery: [[0.08, 0.08, 0.06], 0x3c3f44], jammer: [[0.07, 0.07, 0.06], 0x2b3a2b], lasermine: [[0.06, 0.03, 0.08], 0x5a1f1f],
+  interceptor: [[0.07, 0.08, 0.07], 0x3b4450], thermal: [[0.2, 0.14, 0.035], 0x8a4a22], platebag: [[0.14, 0.1, 0.07], 0x3d3a33],
+};
 
 function box(w, h, d, mat, x = 0, y = 0, z = 0, parent) {
   const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat);
@@ -223,7 +238,7 @@ export class ViewModel {
       this.guns[k] = g;
     }
     this.armR = buildArm(1); this.armL = buildArm(-1);
-    this.root.add(this.armR, this.armL);
+    this.scene.add(this.armR, this.armL);          // (en el espacio de la cámara, no colgados del arma)
     // fogonazo
     const fm = new THREE.MeshBasicMaterial({ color: new THREE.Color(9, 5.5, 2.2), transparent: true, opacity: 1, depthWrite: false, blending: THREE.AdditiveBlending });
     this.flash = new THREE.Group();
@@ -246,6 +261,19 @@ export class ViewModel {
     cyl(0.021, 0.024, M.brass, 0, 0, -0.006, this.loader, 'z', 8);
     this.loader.visible = false;
     this.root.add(this.shell, this.loader);
+    // lo que llevan las dos manos: una tabla (barricada), el desactivador y el gadget que se coloca
+    this.plank = box(0.42, 0.07, 0.025, M.wood, 0, 0, 0);
+    this.defuser = new THREE.Group();
+    box(0.15, 0.06, 0.11, std(0x2a2c30, 0.6, 0.3), 0, 0, 0, this.defuser);
+    box(0.05, 0.012, 0.03, new THREE.MeshBasicMaterial({ color: new THREE.Color(3, 1.2, 0.2) }), 0.03, 0.036, 0.0, this.defuser);
+    box(0.02, 0.07, 0.02, std(0x111111, 0.5, 0.2), -0.05, 0.05, 0.03, this.defuser);
+    this.gadgetBox = box(1, 1, 1, std(0x555555, 0.7, 0.2), 0, 0, 0);
+    for (const o of [this.plank, this.defuser, this.gadgetBox]) { o.visible = false; this.scene.add(o); }
+    this.prevKind = null;                           // el arma que se guarda al cambiar
+    // capa de las manos (inspeccionar, lanzar, dron, colocar, reforzar, barricada, plantar, desactivar, reanimar)
+    this.hands = { kind: null, tracks: null, t: 0, dur: 0, w: 0, pose: {}, away: false, pulse: null, oneShot: false, active: false, pending: null };
+    this.freezeHands = false;                       // (pruebas: las acciones de un momento se quedan en su instante)
+    this._bL = new THREE.Vector3(); this._bR = new THREE.Vector3(); this._eL = new THREE.Vector3(); this._eR = new THREE.Vector3(); this._h = new THREE.Vector3();
     this.current = null;
     this.state = { bob: 0, swayX: 0, swayY: 0, kick: 0, kickRot: 0, flashT: 0, reload: 0, sprint: 0, equip: 0, ads: 0, land: 0, roll: 0, shieldUp: 0, slideT: 0, pumpT: 0, cylSpin: 0 };
     // capa de acción encima de la base: la recarga por partes (clip, peso que entra y sale en 0,15 s)
@@ -277,11 +305,26 @@ export class ViewModel {
 
   setWeapon(kind) {
     if (this.current === kind) return;
-    for (const k in this.guns) this.guns[k].group.visible = k === kind;
+    this.prevKind = this.current;                   // (baja mientras dure la primera parte del desenfunde)
     this.current = kind;
-    this.state.equip = 1;
     this.act.plan = null; this.act.w = 0;
   }
+
+  // ---- capa de las manos: pedir una acción (si hay otra, primero se desvanece)
+  _handsRequest(kind, clip, oneShot) {
+    const H = this.hands;
+    if (H.kind === kind && H.active) return;
+    if (H.kind && H.w > 0.01) { H.active = false; H.pending = { kind, clip, oneShot }; return; }
+    this._handsStart(kind, clip, oneShot);
+  }
+  _handsStart(kind, clip, oneShot) {
+    const H = this.hands;
+    Object.assign(H, { kind, tracks: clip.tracks, dur: clip.dur, away: !!clip.away, pulse: clip.pulse || null, oneShot, t: 0, active: true, pending: null });
+  }
+  /** Lanzar una granada o un gadget: el brazo izquierdo acompaña el tiro. */
+  onThrow() { this._handsRequest('throw', throwClip(), true); }
+  /** Sacar el dron: lanzamiento bajo. */
+  onDrone() { this._handsRequest('drone', droneClip(), true); }
 
   onShot() {
     const s = this.state;
@@ -308,7 +351,13 @@ export class ViewModel {
     const s = this.state;
     const w = op.weapon;
     this.setWeapon(w.def.model);
-    const g = this.guns[this.current], info = g.info;
+    // cambio de arma: en la primera parte del desenfunde baja la que se guarda; luego sube la nueva
+    const eq = Math.max(0.01, w.def.equip), el = eq - Math.max(0, w.equipT);
+    if (w.equipT <= 0) this.prevKind = null;
+    const hol = this.prevKind ? Math.min(0.22, eq * 0.4) : 0;
+    const holstering = hol > 0 && el < hol;
+    const shown = holstering ? this.prevKind : this.current;
+    const g = this.guns[shown], info = g.info;
     // luz de la escena del arma según el entorno
     const sky = light.sky * light.sky, warm = light.warm * light.warm, cool = light.cool * light.cool;
     const amb = 0.06 + sky * 0.75 + warm * 0.6 + cool * 0.5;
@@ -323,48 +372,82 @@ export class ViewModel {
     s.kick = damp(s.kick, 0, 16, dt);
     s.kickRot = damp(s.kickRot, 0, 10, dt);
     s.land = damp(s.land, 0, 8, dt);
-    s.equip = Math.max(0, w.equipT / Math.max(0.01, w.def.equip));
-    // manos ocupadas (plantar, inutilizar, reanimar): el arma baja
-    s.lower = damp(s.lower || 0, op.channel || op.reviving ? 1 : 0, 7, dt);
+    s.equip = holstering ? el / hol : hol > 0 ? clamp(1 - (el - hol) / Math.max(0.01, eq - hol), 0, 1) : Math.max(0, w.equipT / eq);
     s.melee = Math.max(0, (s.melee || 0) - dt * 2.2);
     const mk = s.melee > 0 ? Math.sin((1 - s.melee) * Math.PI) : 0;   // 0 → 1 → 0 en ~0,45 s
     // ---- capa de acción: la recarga por partes, con los momentos de la simulación
     const A = this.act, P = A.pose;
-    if (A.weapon !== w) { A.weapon = w; A.plan = null; A.w = 0; }
+    const switched = A.weapon !== w;
+    if (switched) { A.weapon = w; A.plan = null; A.w = 0; }
     if (w.plan && w.plan !== A.plan) { A.plan = w.plan; A.clip = reloadClip(w.plan, w.def, info, this._rest(info)); }
-    const active = !!w.plan && w.plan === A.plan && w.reloadT > 0;
+    const active = !holstering && !!w.plan && w.plan === A.plan && w.reloadT > 0;
     if (active) sampleClip(A.clip, w.reloadTotal - w.reloadT, P);   // (interrumpida: se queda la última pose y se desvanece)
     A.w = clamp(A.w + (active ? dt : -dt) / BLEND, 0, 1);
     const k = A.plan ? A.w : 0;
     s.reload = active ? 1 - w.reloadT / w.reloadTotal : 0;
+    // ---- capa de las manos: acciones de canal (lo que dura en la simulación), reanimar y las de un momento
+    const H = this.hands, HP = H.pose;
+    const ch = op.channel;
+    if (ch && CHANNEL_HANDS[ch.kind]) {
+      if (H.kind !== ch.kind && !(H.pending && H.pending.kind === ch.kind)) this._handsRequest(ch.kind, channelClip(ch.kind, ch.total), false);
+      if (H.kind === ch.kind) { H.t = ch.t; H.active = true; }
+    } else if (op.reviving && op.state === 'alive') {
+      if (H.kind !== 'revive' && !(H.pending && H.pending.kind === 'revive')) this._handsRequest('revive', channelClip('revive', REVIVE_TIME), false);
+      if (H.kind === 'revive') { H.t = op.reviving.reviveT || 0; H.active = true; }
+    } else if (H.kind && !H.oneShot) H.active = false;
+    // inspeccionar (I): con el arma lista y las manos libres; se corta al disparar, apuntar, correr o recargar
+    const I = op.intent;
+    if (I && I.inspect) {
+      I.inspect = false;
+      if (!H.kind && w.ready && !op.channel && !op.reviving && op.ads < 0.05 && !op.sprinting && s.melee <= 0 && op.state === 'alive') this._handsStart('inspect', inspectClip(w.def.cls === 'pistol'), true);
+    }
+    if (H.kind === 'inspect' && H.active && (switched || (I && (I.fire || I.ads)) || op.ads > 0.05 || op.sprinting || w.reloadT > 0 || !w.ready || op.channel || op.reviving || s.melee > 0 || op.state !== 'alive')) H.active = false;
+    if (H.kind && H.active) {
+      if (H.oneShot && !this.freezeHands) { H.t += dt; if (H.t >= H.dur) H.active = false; }
+      sampleClip(H.tracks, Math.min(H.t, H.dur), HP);
+    }
+    H.w = clamp(H.w + (H.kind && H.active ? dt : -dt) / BLEND, 0, 1);
+    if (H.kind && !H.active && H.w === 0) {
+      H.kind = null;
+      if (H.pending) this._handsStart(H.pending.kind, H.pending.clip, H.pending.oneShot);
+    }
+    const kh = H.kind ? H.w : 0;
     const speed = op.moveSpeed;
     s.bob += dt * (speed > 0.3 ? (op.sprinting ? 11 : 7.5) * Math.min(1, speed / 3) + 2 : 1.6);
     const bobAmp = speed > 0.3 ? Math.min(1, speed / 4) * (1 - s.ads * 0.9) : 0.08;
     s.swayX = damp(s.swayX, clamp(-mouseDX * 0.0009, -0.05, 0.05), 10, dt);
     s.swayY = damp(s.swayY, clamp(mouseDY * 0.0009, -0.05, 0.05), 10, dt);
     s.roll = damp(s.roll, op.roll, 12, dt);
+    // respiración en reposo: el arma sube y baja despacio (casi nada al apuntar)
+    s.breathT = (s.breathT || 0) + dt;
+    const br = Math.sin(s.breathT * Math.PI * 2 / 3.4) * (1 - clamp(speed / 0.6, 0, 1)) * (1 - s.ads * 0.8);
     // posición de cadera vs. mira
     const hip = new THREE.Vector3(0.19, -0.2, -0.44);
     const ads = new THREE.Vector3(0, -g.info.sightY, -0.3);
     const pos = hip.clone().lerp(ads, s.ads);
     const bx = Math.sin(s.bob) * 0.012 * bobAmp, by = -Math.abs(Math.cos(s.bob)) * 0.014 * bobAmp;
     pos.x += bx + s.swayX * (1 - s.ads * 0.8);
-    pos.y += by + s.swayY * (1 - s.ads * 0.8) - s.land * 0.04;
+    pos.y += by + s.swayY * (1 - s.ads * 0.8) - s.land * 0.04 + br * 0.0035;
     pos.z += s.kick * 0.045;
     pos.y += s.kick * 0.006;
     // sprint: arma baja y girada
     pos.x += s.sprint * 0.05; pos.y -= s.sprint * 0.06;
-    // desenfunde: sube desde abajo; manos ocupadas: baja
-    pos.y -= s.equip * 0.25 + s.lower * 0.32;
+    // desenfunde: sube desde abajo; la que se guarda baja con la boca hacia abajo
+    pos.y -= s.equip * 0.25;
+    const hk = holstering ? s.equip : 0, dk = holstering ? 0 : s.equip;
     pos.x -= mk * 0.12; pos.z -= mk * 0.2; pos.y += mk * 0.03;
     const rp = k > 0 ? P.pos : ZERO3, rr = k > 0 ? P.rot : ZERO3;
-    pos.x += rp[0] * k; pos.y += rp[1] * k; pos.z += rp[2] * k;
+    const hp = kh > 0 && HP.pos ? HP.pos : ZERO3, hr = kh > 0 && HP.rot ? HP.rot : ZERO3;
+    pos.x += rp[0] * k + hp[0] * kh; pos.y += rp[1] * k + hp[1] * kh; pos.z += rp[2] * k + hp[2] * kh;
     this.root.position.copy(pos);
     this.root.rotation.set(
-      s.kick * 0.09 + rr[0] * k + s.sprint * -0.25 + s.equip * 0.8 + s.lower * 0.7 + s.swayY * 0.5,
-      s.sprint * 0.9 + s.swayX * 0.6 + s.kickRot + mk * 0.9 + rr[1] * k,
-      rr[2] * k + s.sprint * 0.3 + Math.sin(s.bob * 0.5) * 0.01 * bobAmp,
+      s.kick * 0.09 + rr[0] * k + hr[0] * kh + s.sprint * -0.25 + dk * 0.8 - hk * 0.7 + s.swayY * 0.5 + br * 0.006,
+      s.sprint * 0.9 + s.swayX * 0.6 + s.kickRot + mk * 0.9 + rr[1] * k + hr[1] * kh + hk * 0.3,
+      rr[2] * k + hr[2] * kh + s.sprint * 0.3 + hk * 0.35 + Math.sin(s.bob * 0.5) * 0.01 * bobAmp,
     );
+    // el arma que se ve (la que se guarda o la nueva; ninguna si las dos manos trabajan)
+    const hideGun = H.away && kh > 0.85;
+    for (const kk in this.guns) this.guns[kk].group.visible = kk === shown && !hideGun;
     // ---- piezas que se mueven
     let pumpOff = 0;
     if (info.pump) {
@@ -376,7 +459,7 @@ export class ViewModel {
       pumpOff = pk * 0.08;
       info.pump.position.z = info.pumpRest + pumpOff;
     }
-    if (info.slide) {
+    if (info.slide && !holstering) {
       s.slideT = Math.max(0, s.slideT - dt / 0.07);
       let sl = s.slideT;
       if (w.ammo === 0 && !active) sl = 1;                          // sin balas se queda atrás
@@ -390,12 +473,35 @@ export class ViewModel {
       info.cyl.position.set(info.cylRest[0] - 0.04 * c, info.cylRest[1] - 0.018 * c, info.cylRest[2]);
       info.cyl.rotation.set(Math.PI / 2, s.cylSpin, 0);
     }
-    // ---- brazos: derecha en la empuñadura, izquierda en el guardamanos (o donde diga la recarga)
+    // ---- manos (en el espacio del arma): derecha en la empuñadura, izquierda en el guardamanos o
+    // donde diga la recarga
     const wR = this._wR.copy(g.info.grip).add(this._tmp.set(0.01, -0.01, 0.02));
-    aimArm(this.armR, wR, wR.clone().add(this._tmp.set(0.16, -0.2, 0.3)));
     const r = this._rest(info);
     const wL = this._wL.set(r[0], r[1], r[2] + pumpOff);
     if (k > 0 && P.hand) wL.lerp(this._tmp.set(P.hand[0], P.hand[1], P.hand[2]), k);
+    // ...y al espacio de la cámara, donde las acciones de las manos pueden llevarlas a otro sitio
+    this.root.updateMatrix();
+    const RM = this.root.matrix;
+    // (los codos cuelgan en el espacio de la cámara: no giran con el arma al inclinarla)
+    const bR = this._bR.copy(wR).applyMatrix4(RM), eR = this._eR.copy(bR).add(this._tmp.set(0.16, -0.2, 0.3));
+    const up = clamp((wL.y - r[1] - 0.05) / 0.1, 0, 1);   // (mano por encima del arma: el codo sube y sale)
+    const bL = this._bL.copy(wL).applyMatrix4(RM), eL = this._eL.copy(bL).add(this._tmp.set(-0.2 - 0.12 * up, -0.22 + 0.24 * up, 0.28 - 0.1 * up));
+    if (kh > 0) {
+      const pl = H.pulse && H.t >= H.pulse.from && H.t <= H.pulse.to ? Math.max(0, Math.sin((H.t - H.pulse.from) * Math.PI * 2 * H.pulse.hz)) : 0;
+      if (HP.handL && HP.wL > 0) {
+        const tgt = this._h.set(HP.handL[0], HP.handL[1], HP.handL[2]);
+        if (pl) tgt.add(this._tmp.set(H.pulse.L[0] * pl, H.pulse.L[1] * pl, H.pulse.L[2] * pl));
+        const kk = kh * HP.wL;
+        bL.lerp(tgt, kk); eL.lerp(tgt.add(ELBOW_L), kk);
+      }
+      if (HP.handR && HP.wR > 0) {
+        const tgt = this._h.set(HP.handR[0], HP.handR[1], HP.handR[2]);
+        if (pl) tgt.add(this._tmp.set(H.pulse.R[0] * pl, H.pulse.R[1] * pl, H.pulse.R[2] * pl));
+        const kk = kh * HP.wR;
+        bR.lerp(tgt, kk); eR.lerp(tgt.add(ELBOW_R), kk);
+      }
+    }
+    aimArm(this.armR, bR, eR);
     // con escudo, la mano izquierda lo sujeta (y la pistola va a una mano)
     const hasShield = !!op.ability && op.ability.id === 'shield' && op.state === 'alive';
     this.shield.visible = hasShield;
@@ -408,16 +514,11 @@ export class ViewModel {
       // foco del destello: se enciende al cargarlo
       const hot = op.flashT > 0;
       this.shieldLamp.material.color.setRGB(hot ? 6 : 0.02, hot ? 6 : 0.02, hot ? 6.5 : 0.02);
-      const grip = new THREE.Vector3(-0.1, -0.02, 0.06).applyEuler(this.shield.rotation).add(this.shield.position).sub(this.root.position);
-      grip.applyQuaternion(this.root.quaternion.clone().invert());
-      aimArm(this.armL, grip, grip.clone().add(new THREE.Vector3(-0.12, -0.24, 0.26)));
-    } else {
-      // (con la mano por encima del arma, el codo sube y sale hacia fuera: el antebrazo no cruza la vista)
-      const up = clamp((wL.y - r[1] - 0.05) / 0.1, 0, 1);
-      aimArm(this.armL, wL, wL.clone().add(this._tmp.set(-0.2 - 0.12 * up, -0.22 + 0.24 * up, 0.28 - 0.1 * up)));
-    }
-    // ---- lo que lleva la mano izquierda: el cargador (sacándolo o el nuevo), un cartucho, el cargador rápido
-    if (info.mag) {
+      const grip = new THREE.Vector3(-0.1, -0.02, 0.06).applyEuler(this.shield.rotation).add(this.shield.position);
+      aimArm(this.armL, grip, grip.clone().add(this._tmp.set(-0.12, -0.24, 0.26)));
+    } else aimArm(this.armL, bL, eL);
+    // ---- lo que llevan las manos: el cargador (sacándolo o el nuevo), un cartucho, el cargador rápido
+    if (info.mag && !holstering) {
       let mode = active ? P.mag : (w.magOut ? 'none' : 'gun');
       if (hasShield && mode === 'hand') mode = 'gun';
       const m = info.mag;
@@ -435,6 +536,23 @@ export class ViewModel {
     if (this.shell.visible) this.shell.position.set(wL.x + SHELL_HOLD[0], wL.y + SHELL_HOLD[1], wL.z + SHELL_HOLD[2]);
     this.loader.visible = active && P.loader === 'hand' && !hasShield;
     if (this.loader.visible) this.loader.position.set(wL.x + LOADER_HOLD[0], wL.y + LOADER_HOLD[1], wL.z + LOADER_HOLD[2]);
+    // la tabla, el desactivador o el gadget, entre las dos manos (en el espacio de la cámara)
+    const prop = kh > 0.3 ? HP.prop : 'none';
+    this.plank.visible = prop === 'plank';
+    this.defuser.visible = prop === 'defuser';
+    this.gadgetBox.visible = prop === 'gadget' && !!ch && ch.kind === 'gadget';
+    if (prop && prop !== 'none') {
+      const mid = this._h.copy(bL).add(bR).multiplyScalar(0.5);
+      if (this.plank.visible) { this.plank.position.set(mid.x, mid.y + 0.035, mid.z - 0.02); this.plank.rotation.set(0.15, 0, 0); }
+      if (this.defuser.visible) { this.defuser.position.set(mid.x, mid.y + 0.03, mid.z - 0.05); this.defuser.rotation.set(0.25, 0, 0); }
+      if (this.gadgetBox.visible) {
+        const look = GADGET_LOOK[ch.what] || [[0.12, 0.08, 0.08], 0x555555];
+        this.gadgetBox.scale.set(look[0][0], look[0][1], look[0][2]);
+        this.gadgetBox.material.color.setHex(look[1]);
+        this.gadgetBox.position.set(mid.x, mid.y + look[0][1] * 0.5 + 0.02, mid.z - 0.03);
+        this.gadgetBox.rotation.set(0.1, 0, 0);
+      }
+    }
     // fogonazo
     s.flashT -= dt;
     this.flash.visible = s.flashT > 0;

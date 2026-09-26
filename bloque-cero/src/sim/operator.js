@@ -26,7 +26,7 @@ export function makeIntent() {
     sprint: false,
     stance: 'stand',          // postura deseada
     lean: 0,                  // -1 izquierda, 0, 1 derecha
-    ads: false, fire: false, reload: false, vault: false, melee: false,
+    ads: false, fire: false, reload: false, vault: false, melee: false, inspect: false,
     switchTo: -1,
     interact: false,          // mantener F (reanimar, más adelante: reforzar, plantar…)
     holdWound: false,         // derribado: presionar la herida (sangra más despacio)

@@ -17,7 +17,7 @@ Es un único archivo HTML autónomo: no necesita servidor ni conexión.
 | F4 | Preparación: refuerzos, barricadas, trampillas, drones, cámaras, cuerpo a cuerpo | ✅ |
 | F5 | Bots: navegación, percepción, combate, tácticas por bando, órdenes (H), marcas (T), chat de equipo, depuración (P) | ✅ |
 | F6 | Operadores 8 + 8 y contrajuego de gadgets | ✅ arsenal · plantilla de 16 · granadas y explosivos · gadgets defensivos · 16 habilidades · la defensa bot coloca gadgets y habilidades · el ataque bot los usa según la dificultad · contrajuego de la defensa bot y gadgets de acción |
-| F7 | Animaciones en primera y tercera persona, con la recarga por partes (antes F8) | en curso: recarga por partes en primera persona ✅ · resto de la primera persona · siluetas de los 16 · tercera persona por capas · muerte con física |
+| F7 | Animaciones en primera y tercera persona, con la recarga por partes (antes F8) | en curso: recarga por partes en primera persona ✅ · resto de la primera persona ✅ · siluetas de los 16 · tercera persona por capas · muerte con física |
 | F9 | Audio 3D con oclusión | pendiente |
 | F10 | Pulido, pruebas de partidas completas y publicación (con rappel en Villa: tejado y fachada) | pendiente |
 | — | Mapa Residencia del Lago | pendiente |
@@ -49,6 +49,26 @@ Las 10 armas de la tabla del documento:
   disparar la vista recupera el 70 % de lo que no hayas compensado tirando del ratón.
   Agachado −10 %, tumbado −20 %.
 - Modos de disparo con **B**: automático, ráfaga de 3 y tiro a tiro según el arma.
+
+### Animaciones en primera persona (Fase 7.2)
+
+Encima de la base (balanceo al andar, inercia del ratón, apuntar, retroceso, correr) hay una capa
+de acciones con poses clave como datos y mezclas de 0,15 s. Cada acción dura lo que ya duraba en
+la simulación: la animación no cambia ningún tiempo ni ninguna regla.
+
+- **Cambiar de arma**: en la primera parte del desenfunde la que se guarda baja con la boca hacia
+  abajo, y después sube la nueva.
+- **Respiración en reposo**: parado, el arma sube y baja despacio (casi nada al apuntar).
+- **Inspeccionar (I)**: el arma gira para verla por un lado y por el otro (2,6 s); se corta al
+  disparar, apuntar, correr, recargar o cambiar de arma.
+- **Lanzar** una granada o un gadget: el lanzamiento sale al pulsar y el brazo izquierdo acompaña
+  el tiro. **Sacar el dron**: lanzamiento bajo.
+- **Con las dos manos** (el arma se aparta): colocar un gadget (lo llevan hacia donde miras),
+  reforzar (empujan el panel), poner una barricada (suben una tabla a la puerta), plantar (el
+  desactivador baja al suelo y la mano derecha lo programa), desactivar y reanimar (las manos en
+  el compañero, presionando con ritmo).
+- Los brazos se colocan en el espacio de la cámara y los codos cuelgan: pueden soltar el arma y
+  no giran con ella al inclinarla.
 
 ### Recarga por partes (Fase 7.1)
 
@@ -389,6 +409,7 @@ Reglas de Siege, contra bots:
 | Clic / clic derecho | Disparar / apuntar |
 | R | Recargar |
 | B | Modo de disparo (automático, ráfaga, tiro a tiro) |
+| I | Inspeccionar el arma (se corta al disparar, apuntar, correr o recargar) |
 | G | Gadget secundario (granadas, cargas…) |
 | X | Habilidad del operador (y encender la carga térmica colocada) |
 | 1–4, rueda | Cambiar de arma |
@@ -425,6 +446,7 @@ node tools/smoke-bots-gadgets.mjs <carpeta>  # la defensa bot coloca gadgets y h
 node tools/smoke-bots-ataque.mjs <carpeta>  # el ataque bot usa sus gadgets y habilidades
 node tools/smoke-contrajuego.mjs <carpeta>  # contrajuego de la defensa bot y «Poner gadget aquí»
 node tools/smoke-recarga.mjs <carpeta>  # recarga por partes de cada familia de armas, con capturas
+node tools/smoke-manos.mjs <carpeta>  # cambio de arma, inspeccionar, reforzar, barricada, reanimar y lanzar
 node tools/perf-partida.mjs [html...]  # llamadas de dibujo, triángulos y CPU con 10 operadores a la vista
 node tools/mapslice.mjs <carpeta> # cortes cenitales del mapa por planta
 ```

@@ -75,7 +75,7 @@ export function bindGameFx(ctx, game, view) {
   });
   on('voxels', (list, cause, point, dir) => effects.voxelsDestroyed(list, cause, point, dir));
   // ---------------- gadgets lanzables
-  on('gadgetThrown', (op, it) => audio.throwWhoosh(it.pos, op === viewer()));
+  on('gadgetThrown', (op, it) => { audio.throwWhoosh(it.pos, op === viewer()); if (op === viewer()) vm.onThrow(); });
   on('gadgetEmpty', (op) => { if (op === me()) { audio.ping('deny'); hud.toast('Sin gadgets', 1.2); } });
   on('gadgetDenied', (op, why) => { if (op === me()) { audio.ping('deny'); if (why) hud.toast(why, 1.4); } });
   on('gadgetPlaced', (op, c) => audio.grenadeClink(c.pos, op === viewer() ? 0 : occlusion(c.pos)));
@@ -259,7 +259,7 @@ export function bindGameFx(ctx, game, view) {
     if (info.point && info.mat !== undefined) audio.impact(MATS[info.mat].snd, info.point, occlusion(info.point));
     if (info.target && op === me()) { hud.hitmarker('hit'); audio.hitConfirm('hit'); }
   });
-  on('droneDeployed', (d) => { const p = d.body.pos; audio.impact(5, p, occlusion(p)); });
+  on('droneDeployed', (d, op) => { const p = d.body.pos; audio.impact(5, p, occlusion(p)); if (op === viewer()) vm.onDrone(); });
   on('targetDestroyed', (t, by, point) => {
     const p = point || (t.center ? t.center() : null);
     if (!p) return;
