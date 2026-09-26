@@ -6,13 +6,16 @@
 // Los huesos de las extremidades apuntan a -Y en su espacio local.
 // Matrices 4×4 en orden de columnas (compatible con Three.js).
 
+import { reloadHand, reloadTilt, reloadMag, actionPose } from './poselayers.js';
+
 export const BONE = {
   pelvis: 0, spine: 1, chest: 2, neck: 3, head: 4,
   uarmL: 5, farmL: 6, handL: 7, uarmR: 8, farmR: 9, handR: 10,
   thighL: 11, shinL: 12, footL: 13, thighR: 14, shinR: 15, footR: 16,
   gun: 17, holster: 18,
+  mag: 19,        // el cargador del arma principal (lo coloca el dibujo: en el arma, en la mano o fuera)
 };
-export const BONE_COUNT = 19;
+export const BONE_COUNT = 20;
 
 const UARM = 0.29, FARM = 0.27, THIGH = 0.43, SHIN = 0.44;
 
@@ -78,9 +81,18 @@ export function makePoseState() {
     prone: 0,         // 0 … 1 cuerpo a tierra
     lean: 0,          // desplazamiento lateral real de la cabeza (-1..1 de LEAN)
     walkPhase: 0, walkAmount: 0, strafe: 0, sprint: 0,
-    ads: 0, reload: 0, weaponCls: 'rifle',
+    ads: 0, weaponCls: 'rifle',
     downed: 0, dead: 0, deathDir: 1, deathSide: 0,
     eyeHeight: 1.64, hurt: 0, crawl: 0,
+    // capas de la tercera persona (F7.4, ver poselayers.js y Operator.updatePose)
+    acts: {},         // acción de las manos → {w (peso 0..1), t, dur}; la anterior se desvanece
+    rl: null, rlT: 0, rlW: 0,   // recarga por partes: pista (reloadTrack), instante y peso
+    magOut: false,    // el arma se quedó sin cargador (recarga interrumpida tras sacarlo)
+    mag: 0,           // (salida) cargador: 0 en el arma · 1 el nuevo, en la mano · 2 fuera
+    equip: 0,         // 1 al cambiar de arma (la nueva sube desde abajo) … 0 lista
+    kick: 0,          // retroceso del disparo (1 al disparar, se va en 0,14 s)
+    breath: 0,        // reloj de la respiración en reposo
+    vault: 0,         // progreso del salto de obstáculo (0..1)
   };
 }
 
@@ -109,15 +121,29 @@ export function computePose(s, out, rig) {
   const crouch = s.crouch * (1 - prone);
   const down = s.downed;
   const dead = s.dead;
+  // capa de acciones (poselayers.js): la pose de cada acción activa con su peso, y cuánto
+  // inclinan el tronco y bajan la cadera (solo de pie o agachado)
+  const acts = [];
+  let bend = 0, lower = 0;
+  for (const k in s.acts) {
+    const a = s.acts[k];
+    if (!(a.w > 0)) continue;
+    const P = actionPose(k, a.t, a.dur);
+    if (!P) continue;
+    acts.push({ w: a.w, P });
+    bend += (P.bend || 0) * a.w; lower += (P.lower || 0) * a.w;
+  }
+  const upright = (1 - prone) * (1 - down) * (1 - dead);
+  bend *= upright; lower *= upright;
 
   // --------------------------------------------------- tronco
   // altura de pelvis: de pie 0,95, agachado 0,58, tumbado 0,16, derribado 0,2
   const walkBob = Math.abs(Math.sin(s.walkPhase)) * 0.035 * s.walkAmount * (1 - prone);
-  let pelvisH = 0.95 * (1 - crouch) + 0.6 * crouch - walkBob;
+  let pelvisH = 0.95 * (1 - crouch) + 0.6 * crouch - walkBob - lower;
   pelvisH = pelvisH * (1 - prone) + 0.16 * prone;
   pelvisH = pelvisH * (1 - down) + 0.2 * down;
   // inclinación del tronco: al esprintar hacia delante; agachado un poco; tumbado horizontal
-  let trunkPitch = -0.1 * s.sprint - 0.12 * crouch;                       // negativo = hacia delante
+  let trunkPitch = -0.1 * s.sprint - 0.12 * crouch - bend;                // negativo = hacia delante
   trunkPitch = trunkPitch * (1 - prone) - (Math.PI / 2 - 0.02) * prone;
   trunkPitch = trunkPitch * (1 - down) - 1.15 * down;                     // derribado: casi tumbado, algo incorporado
   // muerte: cae hacia atrás (deathDir 1) o hacia delante (-1)
@@ -139,7 +165,9 @@ export function computePose(s, out, rig) {
   set(BONE.spine, spineP, trunkR);
   // pecho: sigue la mirada vertical (la mitad), salvo tumbado/derribado
   const aimPitch = s.pitch * (1 - dead);
-  const chestPitch = aimPitch * 0.45 * (1 - down);
+  // respiración en reposo (casi nada al moverse o apuntar) y el culatazo del disparo (hombros atrás)
+  const breathe = Math.sin(s.breath * Math.PI * 2 / 3.6) * 0.012 * (1 - s.walkAmount) * (1 - s.ads * 0.8) * upright;
+  const chestPitch = aimPitch * 0.45 * (1 - down) + breathe + 0.03 * s.kick * upright;
   const chestR = rotMul(trunkR, rotX(chestPitch));
   const chestP = add(spineP, rotApply(trunkR, v(0, 0.2, 0)));
   set(BONE.chest, chestP, chestR);
@@ -165,6 +193,8 @@ export function computePose(s, out, rig) {
     const lift = Math.max(0, Math.sin(ph)) * (0.1 + s.sprint * 0.08) * amt;
     // pie objetivo en coordenadas del personaje (suelo = 0)
     let foot = v(side * (0.13 + crouch * 0.06) + s.strafe * Math.cos(ph) * 0.1 * amt, 0.07 + lift, -Math.cos(ph) * stride + crouch * 0.12);
+    // saltando un obstáculo: las piernas se recogen
+    if (s.vault > 0) { const k = Math.sin(Math.PI * s.vault); foot = add(foot, v(0, 0.32 * k, -0.12 * k)); }
     let footW = W(foot);
     let pole = add(fwdW, mul(rightW, side * 0.25));
     if (prone > 0.01 || down > 0.01 || dead > 0.01) {
@@ -200,14 +230,49 @@ export function computePose(s, out, rig) {
     hold.grip = lerpV(hold.grip, v(0.14, -0.06, -0.14), s.sprint);
     hold.fore = lerpV(hold.fore, v(-0.08, 0.02, -0.38), s.sprint);
   }
-  // recarga: la mano izquierda baja al cargador
-  if (s.reload > 0 && s.reload < 1) {
-    const k = Math.sin(s.reload * Math.PI);
-    hold.fore = lerpV(hold.fore, v(0.06, -0.08, -0.24), k);
+  // cambiar de arma: la que llega sube desde abajo, con la boca hacia el suelo
+  if (s.equip > 0) {
+    hold.grip = lerpV(hold.grip, v(0.12, -0.14, -0.14), s.equip);
+    hold.fore = lerpV(hold.fore, v(0.03, -0.17, -0.36), s.equip);
+  }
+  // retroceso: las manos y el arma van hacia el hombro
+  if (s.kick > 0) {
+    const kb = v(0, 0.012 * s.kick, 0.035 * s.kick);
+    hold.grip = add(hold.grip, kb); hold.fore = add(hold.fore, kb);
   }
   const armBase = down > 0 || dead > 0 ? 1 : 0;
   let gripW = add(chestP, rotApply(chestR, hold.grip));
   let foreW = add(chestP, rotApply(chestR, hold.fore));
+  // el arma en la mano derecha, apuntando al guardamanos (la pose base, sin capas)
+  let gunP = gripW;
+  let gunR = basisForward(pistol ? rotApply(chestR, v(0, 0, -1)) : sub(foreW, gripW), rotApply(chestR, v(0, 1, 0)));
+  // capa de la recarga por partes: el arma se inclina y la mano izquierda va al cargador, al
+  // bolsillo, a la palanca… (en el espacio del arma o del pecho)
+  const rw = s.rl && !armBase ? s.rlW : 0;
+  if (rw > 0) {
+    const tl = reloadTilt(s.rl, s.rlT);
+    gunR = rotMul(gunR, rotMul(rotZ(tl.roll * rw), rotX(tl.pitch * rw)));
+    const baseFore = foreW;
+    const toWorld = (a) => (a == null ? baseFore : a.g ? add(gunP, rotApply(gunR, v(a.g[0], a.g[1], a.g[2]))) : add(chestP, rotApply(chestR, v(a.c[0], a.c[1], a.c[2]))));
+    foreW = lerpV(foreW, reloadHand(s.rl, s.rlT, toWorld), rw);
+  }
+  s.mag = s.rl && s.rlW > 0 && !armBase ? reloadMag(s.rl, s.rlT) : (s.magOut ? 2 : 0);
+  // capa de acciones: las manos a lo que hacen; con las dos, el arma cuelga al costado derecho
+  if (acts.length && !armBase) {
+    let aL = v(), aR = v(), wl = 0, wr = 0, away = 0;
+    for (const { w, P } of acts) {
+      if (P.L && P.wL > 0) { aL = add(aL, mul(add(chestP, rotApply(chestR, v(P.L[0], P.L[1], P.L[2]))), w * P.wL)); wl += w * P.wL; }
+      if (P.R && P.wR > 0) { aR = add(aR, mul(add(chestP, rotApply(chestR, v(P.R[0], P.R[1], P.R[2]))), w * P.wR)); wr += w * P.wR; }
+      away += w * (P.away || 0);
+    }
+    if (wl > 0) foreW = lerpV(foreW, mul(aL, 1 / wl), Math.min(1, wl));
+    if (wr > 0) gripW = lerpV(gripW, mul(aR, 1 / wr), Math.min(1, wr));
+    if (away > 0) {
+      const k = Math.min(1, away);
+      gunP = lerpV(gunP, add(chestP, rotApply(chestR, v(0.24, -0.2, 0.04))), k);
+      gunR = blendRot(gunR, rotMul(chestR, basisForward(v(0.05, -0.97, 0.25), v(1, 0, 0))), k);
+    }
+  }
   if (armBase) {
     // derribado: mano derecha sobre la herida; izquierda apoyada en el suelo
     const wound = add(chestP, rotApply(chestR, v(0.05, 0.08, -0.14)));
@@ -215,6 +280,8 @@ export function computePose(s, out, rig) {
     const k = Math.max(down, dead);
     gripW = add(mul(gripW, 1 - k), mul(wound, k));
     foreW = add(mul(foreW, 1 - k), mul(dead > 0 ? add(chestP, rotApply(chestR, v(-0.45, -0.1, 0.1))) : floorL, k));
+    gunR = rotMul(chestR, rotX(-0.6));
+    gunP = add(pelvisP, rotApply(pelvisR, v(0.25, 0.05, 0.05)));
   }
   for (const side of [-1, 1]) {
     const sh = add(chestP, rotApply(chestR, v(side * 0.2, 0.19, 0.02)));
@@ -228,9 +295,6 @@ export function computePose(s, out, rig) {
     set(side < 0 ? BONE.handL : BONE.handR, end, fR);
   }
   // --------------------------------------------------- armas
-  const gunDir = sub(foreW, gripW);
-  const gunR = armBase ? rotMul(chestR, rotX(-0.6)) : basisForward(pistol ? rotApply(chestR, v(0, 0, -1)) : gunDir, rotApply(chestR, v(0, 1, 0)));
-  const gunP = armBase ? add(pelvisP, rotApply(pelvisR, v(0.25, 0.05, 0.05))) : gripW;
   set(BONE.gun, gunP, gunR);
   // funda en el muslo derecho
   const th = bones[BONE.thighR];

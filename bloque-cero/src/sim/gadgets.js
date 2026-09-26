@@ -165,6 +165,7 @@ export class Gadgets {
     else { op.gadget.left--; op.gadgetCd = THROW.cooldown; }
     this.items.push(it);
     this.game.emit('gadgetThrown', op, it);
+    if (op.startAnim) op.startAnim('throw');
     return it;
   }
 

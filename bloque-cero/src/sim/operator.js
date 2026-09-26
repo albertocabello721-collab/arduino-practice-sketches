@@ -6,6 +6,7 @@
 import { Body, STANCES, stepBody, tryResize, findVault, woodInVault, boxFree } from './physics.js';
 import { WeaponState, WEAPONS, recoilPattern, BURST } from './weapons.js';
 import { makePoseState, computePose, BONE_COUNT } from './skeleton.js';
+import { reloadTrack, smooth, ACT_BLEND, THROW_ANIM, DRONE_ANIM, HAND_CHANNELS } from './poselayers.js';
 import { clamp, damp, DEG } from '../core/math.js';
 import { SOUND } from '../world/materials.js';
 
@@ -74,6 +75,7 @@ export class Operator {
     this.frozen = false;     // preparación: el ataque no puede moverse ni disparar
     this.meleeT = 0;         // enfriamiento del golpe cuerpo a cuerpo
     this.channel = null;     // acción mantenida (plantar, inutilizar): {kind, t, total}
+    this.animT = { throw: 9, drone: 9 };   // tiempo desde el último lanzamiento y dron (gesto en tercera persona)
     // pose (compartida por zonas de impacto y render)
     this.pose = makePoseState();
     this.rig = new Array(BONE_COUNT);
@@ -312,11 +314,45 @@ export class Operator {
     p.sprint += ((this.sprinting ? 1 : 0) - p.sprint) * k;
     p.ads = this.ads;
     const w = this.weapon;
-    p.reload = w.reloadT > 0 ? 1 - w.reloadT / w.reloadTotal : 0;
     p.weaponCls = w.def.cls;
     p.eyeHeight = this.eyeHeight;
     p.crawl = downed ? Math.min(1, this.moveSpeed / 0.4) : 0;
+    this._poseLayers(p, dt);
     computePose(p, null, this.rig);
+  }
+
+  /** Empieza un gesto de un momento en tercera persona ('throw' al lanzar, 'drone' al sacar el dron). */
+  startAnim(kind) { if (kind in this.animT) this.animT[kind] = 0; }
+
+  // Capas de la tercera persona (F7.4, poselayers.js): qué hacen las manos, la recarga por partes,
+  // el cambio de arma, el retroceso, la respiración y el salto. Todo sale del estado de la
+  // simulación, con las mismas duraciones; las capas entran y salen en 0,15 s.
+  _poseLayers(p, dt) {
+    const w = this.weapon, alive = this.state === 'alive', ch = this.channel;
+    let kind = null, t = 0, dur = 1;
+    if (alive && ch && HAND_CHANNELS[ch.kind]) { kind = ch.kind; t = ch.t; dur = ch.total; }
+    else if (alive && this.reviving) { kind = 'revive'; t = this.reviving.reviveT || 0; dur = REVIVE_TIME; }
+    else if (alive && this.vault) { kind = 'vault'; t = this.vault.t; dur = this.vault.dur; }
+    else if (alive && this.animT.throw < THROW_ANIM) { kind = 'throw'; t = this.animT.throw; dur = THROW_ANIM; }
+    else if (alive && this.animT.drone < DRONE_ANIM) { kind = 'drone'; t = this.animT.drone; dur = DRONE_ANIM; }
+    this.animT.throw += dt; this.animT.drone += dt;
+    const step = dt / ACT_BLEND;
+    for (const k in p.acts) if (k !== kind) p.acts[k].w = Math.max(0, p.acts[k].w - step);
+    if (kind) {
+      const a = p.acts[kind] || (p.acts[kind] = { w: 0, t: 0, dur: 1 });
+      a.w = Math.min(1, a.w + step); a.t = t; a.dur = dur;
+    }
+    // recarga por partes (la pista se hace una vez por recarga)
+    if (alive && w.reloadT > 0 && w.plan) {
+      if (!p.rl || p.rl.plan !== w.plan) p.rl = reloadTrack(w.plan, w.def.model);
+      p.rlT = w.reloadTotal - w.reloadT;
+      p.rlW = Math.min(1, p.rlW + step);
+    } else p.rlW = Math.max(0, p.rlW - step);
+    p.magOut = w.magOut;
+    p.equip = alive && w.equipT > 0 && w.def.equip > 0 ? smooth(Math.min(1, w.equipT / w.def.equip)) : 0;
+    p.kick = alive && this.sinceShot < 0.14 ? 1 - this.sinceShot / 0.14 : 0;
+    p.breath += dt;
+    p.vault = this.vault ? Math.min(1, this.vault.t / this.vault.dur) : 0;
   }
 
   _clampLean(world, lean) {

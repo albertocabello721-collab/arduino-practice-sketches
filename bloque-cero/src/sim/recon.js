@@ -164,6 +164,7 @@ export class Recon {
     this.drones.push(d);
     this.game.targets.push(d);
     this.game.emit('droneDeployed', d, op);
+    if (thrown && op.startAnim) op.startAnim('drone');
     return d;
   }
 

@@ -17,7 +17,7 @@ Es un único archivo HTML autónomo: no necesita servidor ni conexión.
 | F4 | Preparación: refuerzos, barricadas, trampillas, drones, cámaras, cuerpo a cuerpo | ✅ |
 | F5 | Bots: navegación, percepción, combate, tácticas por bando, órdenes (H), marcas (T), chat de equipo, depuración (P) | ✅ |
 | F6 | Operadores 8 + 8 y contrajuego de gadgets | ✅ arsenal · plantilla de 16 · granadas y explosivos · gadgets defensivos · 16 habilidades · la defensa bot coloca gadgets y habilidades · el ataque bot los usa según la dificultad · contrajuego de la defensa bot y gadgets de acción |
-| F7 | Animaciones en primera y tercera persona, con la recarga por partes (antes F8) | en curso: recarga por partes en primera persona ✅ · resto de la primera persona ✅ · siluetas de los 16 ✅ · tercera persona por capas · muerte con física |
+| F7 | Animaciones en primera y tercera persona, con la recarga por partes (antes F8) | en curso: recarga por partes en primera persona ✅ · resto de la primera persona ✅ · siluetas de los 16 ✅ · tercera persona por capas ✅ · muerte con física |
 | F9 | Audio 3D con oclusión | pendiente |
 | F10 | Pulido, pruebas de partidas completas y publicación (con rappel en Villa: tejado y fachada) | pendiente |
 | — | Mapa Residencia del Lago | pendiente |
@@ -71,6 +71,27 @@ la simulación: la animación no cambia ningún tiempo ni ninguna regla.
   no giran con ella al inclinarla.
 - Todo lo de la primera persona (arma, brazos, lo que llevan las manos y el escudo) se muestra y
   se oculta junto: nada en el menú, pilotando un dron, en las cámaras ni al morir.
+
+### Tercera persona por capas (Fase 7.4)
+
+La pose de cada operador (la misma que sus zonas de impacto, calculada en la simulación) lleva capas
+encima de la base (andar, correr, agacharse, tumbarse, asomarse, apuntar), con mezclas de 0,15 s y
+las duraciones de la simulación (`src/sim/poselayers.js`):
+
+- **Recarga por partes**, con los mismos instantes que en primera persona: el arma se inclina y la
+  mano izquierda va al cargador, lo saca, coge otro del chaleco, lo mete y da el golpe; en la vacía,
+  tira de la palanca. La ametralladora cambia la caja, el revólver vacía el tambor boca arriba y la
+  escopeta mete cartucho a cartucho. El cargador de la principal tiene su propio hueso (en el arma,
+  en la mano o fuera), y lo que sueltan los demás a menos de 20 m de tu cámara cae al suelo (cargadores,
+  cajas y casquillos), con el mismo límite de objetos que los tuyos.
+- **Con las dos manos**, con el arma colgada al costado: reforzar, barricada, colocar un gadget,
+  plantar, desactivar y reanimar; el tronco se inclina hacia lo que hace.
+- **Lanzar** (el brazo acompaña el tiro), **sacar el dron** (lanzamiento bajo), **saltar un
+  obstáculo** (una mano apoyada y las piernas recogidas), **cambiar de arma** (la nueva sube desde
+  abajo), el **culatazo** en los hombros al disparar y la **respiración** en reposo.
+- Las piernas van a lo suyo: se puede andar recargando.
+- Como la pose es la de las zonas de impacto, los brazos, el tronco y la cabeza reciben las balas
+  donde se ven también durante esas acciones. Una pose con todas las capas cuesta unos 9 µs (antes, 7).
 
 ### Recarga por partes (Fase 7.1)
 
@@ -499,6 +520,7 @@ node tools/smoke-contrajuego.mjs <carpeta>  # contrajuego de la defensa bot y «
 node tools/smoke-recarga.mjs <carpeta>  # recarga por partes de cada familia de armas, con capturas
 node tools/smoke-manos.mjs <carpeta>  # cambio de arma, inspeccionar, reforzar, barricada, reanimar y lanzar
 node tools/smoke-siluetas.mjs <carpeta>  # los 16 de cerca (frente, espalda, perfil, arma colgada) y a 25 m
+node tools/smoke-tercera.mjs <carpeta>  # tercera persona: recarga por partes (y lo que cae), plantar, reforzar y lanzar
 node tools/perf-partida.mjs [html...]  # llamadas de dibujo, triángulos y CPU con 10 operadores a la vista
 node tools/mapslice.mjs <carpeta> # cortes cenitales del mapa por planta
 ```

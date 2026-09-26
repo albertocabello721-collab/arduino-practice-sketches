@@ -5,6 +5,7 @@ import { MATS, SND } from '../world/materials.js';
 import { lineOfSight } from '../world/raycast.js';
 import { angleDiff } from '../core/math.js';
 import { BONE } from '../sim/skeleton.js';
+import { thirdPersonDrops } from '../render/character.js';
 
 /**
  * @param {object} ctx     contexto del motor (audio, effects, chars, vm, hud, world)
@@ -221,7 +222,18 @@ export function bindGameFx(ctx, game, view) {
   // que se suelta (el cargador, los casquillos del revólver) cae al suelo y se queda un rato
   const PART_SOUND = { magOut: 'magout', eject: 'eject', open: 'open', magIn: 'magin', slap: 'slap', bolt: 'bolt', belt: 'belt', close: 'close', shell: 'shell', pump: 'pump' };
   on('reloadPart', (op, w, part) => {
-    if (op !== viewer()) return;
+    if (op !== viewer()) {
+      // los demás, a menos de 20 m de la cámara: su cargador (o los casquillos) cae al suelo
+      if ((part !== 'magOut' && part !== 'eject') || op.frozen) return;
+      const c = ctx.camera.position, b = op.body.pos;
+      if ((b.x - c.x) ** 2 + (b.y - c.y) ** 2 + (b.z - c.z) ** 2 > 20 * 20) return;
+      const v = op.body.vel, eye = op.eyePos();
+      for (const d of thirdPersonDrops(op, part)) {
+        const up = d.kind === 'casing' ? 0.5 + Math.random() * 0.8 : -0.5;
+        effects.drop(d.kind, d.pos, d.quat, d.size, d.color, { x: v.x + (Math.random() - 0.5) * 0.5, y: v.y * 0.5 + up, z: v.z + (Math.random() - 0.5) * 0.5 }, eye);
+      }
+      return;
+    }
     audio.weaponFoley(PART_SOUND[part] || 'magin');
     if (part !== 'magOut' && part !== 'eject') return;
     const eye = op.eyePos(), v = op.body.vel;

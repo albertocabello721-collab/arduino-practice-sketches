@@ -81,7 +81,7 @@ class RigBuilder {
     for (let i = 0; i < this.bone.length; i++) {
       const y = this.pos[i * 3 + 1];
       if (this.gear[i] && this.bone[i] === BONE.chest && y > -0.15 && y < 0.35) backZ = Math.max(backZ, this.pos[i * 3 + 2]);
-      if (this.bone[i] === BONE.gun) gunIn = Math.min(gunIn, this.pos[i * 3]);
+      if (this.bone[i] === BONE.gun || this.bone[i] === BONE.mag) gunIn = Math.min(gunIn, this.pos[i * 3]);
     }
     // (colgada, la cara -X del arma mira a la espalda: ver SLING)
     g.userData = { gear: Uint8Array.from(this.gear), backZ, sling: backZ - gunIn + 0.005 };
@@ -262,14 +262,53 @@ export function buildOperatorGeometry(look, primaryModel, secondaryModel) {
   b.add(BONE.thighR, Box(0.05, 0.16, 0.09), { at: [-0.1, -0.13, 0.0], color: '#1b1b1b', rough: 0.6 });
   // ---------------- objeto propio del operador
   if (kit) for (const [bone, shape, o] of kit.parts(L)) b.add(bone, shapeGeo(shape), o);
-  // ---------------- armas (ranuras: 17 = arma principal, 18 = secundaria)
-  addWeapon(b, BONE.gun, primaryModel);
-  addWeapon(b, BONE.holster, secondaryModel);
+  // ---------------- armas (ranuras: 17 = arma principal, 18 = secundaria; el cargador de la
+  // principal va en su propio hueso, 19, para sacarlo al recargar)
+  addWeapon(b, BONE.gun, primaryModel, BONE.mag);
+  addWeapon(b, BONE.holster, secondaryModel, BONE.holster);
   return b.build();
 }
 
-// Armas en tercera persona (empuñadura en el origen, cañón hacia -Z).
-function addWeapon(b, bone, model) {
+// Cargadores en tercera persona: dónde van en el arma (su centro, en el espacio del arma), su
+// tamaño y su color. Los usa el modelo, la mano al recargar y el que cae al suelo (thirdPersonMag).
+export const MAG_3P = {
+  rifle: { at: [0, -0.07, -0.09], rot: 0.15, size: [0.03, 0.13, 0.055], color: '#1b1d20' },
+  mpistol: { at: [0, -0.1, 0.0], rot: 0, size: [0.025, 0.12, 0.03], color: '#1b1d20' },
+  pistol: { at: [0, -0.07, 0.01], rot: -0.2, size: [0.026, 0.1, 0.034], color: '#1b1d20' },
+  lmg: { at: [-0.02, -0.04, -0.12], rot: 0, size: [0.1, 0.1, 0.12], color: '#3f4535' },
+};
+const magKind = (model) => (model === 'lmg' ? 'lmg' : model === 'mpistol' ? 'mpistol' : model === 'pistol' ? 'pistol' : model === 'revolver' || model === 'shotgun' ? null : 'rifle');
+const linColor = (hex) => { const c = new THREE.Color(hex).convertSRGBToLinear(); return [c.r, c.g, c.b]; };
+const _bx = new THREE.Vector3(), _by = new THREE.Vector3(), _bz = new THREE.Vector3(), _bm = new THREE.Matrix4();
+
+/**
+ * Lo que suelta un operador visto en tercera persona en la parte `part` de su recarga ('magOut':
+ * el cargador; 'eject': los casquillos del revólver), en el mundo y desde su pose (la del arma de
+ * la simulación): [{kind, pos, quat, size, color}], como ViewModel.released.
+ */
+export function thirdPersonDrops(op, part) {
+  const g = op.rig && op.rig[BONE.gun];
+  if (!g) return [];
+  const R = g.R;
+  const W = (x, y, z) => new THREE.Vector3(g.p.x + R.x.x * x + R.y.x * y + R.z.x * z, g.p.y + R.x.y * x + R.y.y * y + R.z.y * z, g.p.z + R.x.z * x + R.y.z * y + R.z.z * z);
+  const quat = new THREE.Quaternion().setFromRotationMatrix(_bm.makeBasis(_bx.set(R.x.x, R.x.y, R.x.z), _by.set(R.y.x, R.y.y, R.y.z), _bz.set(R.z.x, R.z.y, R.z.z)));
+  if (part === 'magOut') {
+    const M = MAG_3P[magKind(op.weapon.def.model)];
+    return M ? [{ kind: 'mag', pos: W(...M.at), quat, size: M.size.slice(), color: linColor(M.color) }] : [];
+  }
+  if (part === 'eject' && op.weapon.def.model === 'revolver') {
+    const c = W(0, 0.03, -0.02), out = [];
+    for (let i = 0; i < 6; i++) {
+      const a = (i / 6) * Math.PI * 2;
+      out.push({ kind: 'casing', pos: c.clone().add(new THREE.Vector3(Math.cos(a) * 0.012, Math.sin(a) * 0.012, 0).applyQuaternion(quat)), quat: quat.clone(), size: [0.011, 0.011, 0.034], color: [0.62, 0.45, 0.17] });
+    }
+    return out;
+  }
+  return [];
+}
+
+// Armas en tercera persona (empuñadura en el origen, cañón hacia -Z). El cargador va en `magBone`.
+function addWeapon(b, bone, model, magBone = bone) {
   const dark = { color: '#1b1d20', rough: 0.45, metal: 0.55 };
   const poly = { color: '#262829', rough: 0.7, metal: 0.05 };
   const A = (geo, at, o = dark, rot = [0, 0, 0]) => b.add(bone, geo, { at, rot, ...o });
@@ -277,7 +316,7 @@ function addWeapon(b, bone, model) {
   if (pistolish) {
     A(Box(0.03, 0.1, 0.045), [0, -0.05, 0.01], poly, [-0.2, 0, 0]);
     if (model === 'revolver') { A(Cyl(0.02, 0.02, 0.045, 8), [0, 0.03, -0.02], dark, [Math.PI / 2, 0, 0]); A(Cyl(0.009, 0.009, 0.16, 6), [0, 0.035, -0.12], dark, [Math.PI / 2, 0, 0]); }
-    else { A(Box(0.03, 0.035, model === 'mpistol' ? 0.2 : 0.18), [0, 0.025, -0.07]); if (model === 'mpistol') A(Box(0.025, 0.12, 0.03), [0, -0.1, 0.0], dark); }
+    else { A(Box(0.03, 0.035, model === 'mpistol' ? 0.2 : 0.18), [0, 0.025, -0.07]); if (model === 'mpistol') b.add(magBone, Box(0.025, 0.12, 0.03), { at: [0, -0.1, 0.0], ...dark }); }
     return;
   }
   const long = { ar: 0.62, ar2: 0.68, smg: 0.48, smg2: 0.42, lmg: 0.78, dmr: 0.85, shotgun: 0.74 }[model] || 0.6;
@@ -286,9 +325,9 @@ function addWeapon(b, bone, model) {
   A(Cyl(0.011, 0.011, long * 0.4, 8), [0, 0.04, -0.3 - long * 0.36], dark, [Math.PI / 2, 0, 0]);  // cañón
   A(Box(0.035, 0.1, 0.045), [0, -0.045, 0.02], poly, [-0.25, 0, 0]);          // empuñadura
   A(Box(0.045, 0.07, 0.22), [0, 0.01, 0.18], poly);                           // culata
-  if (model === 'lmg') { A(Box(0.1, 0.1, 0.12), [-0.02, -0.04, -0.12], dark); A(Cyl(0.006, 0.006, 0.25, 5), [0.03, -0.08, -0.55], dark, [0.8, 0, 0]); }
+  if (model === 'lmg') { b.add(magBone, Box(0.1, 0.1, 0.12), { at: [-0.02, -0.04, -0.12], color: MAG_3P.lmg.color, rough: 0.6, metal: 0.2 }); A(Cyl(0.006, 0.006, 0.25, 5), [0.03, -0.08, -0.55], dark, [0.8, 0, 0]); }
   else if (model === 'shotgun') A(Cyl(0.017, 0.017, 0.3, 8), [0, 0.0, -0.3], poly, [Math.PI / 2, 0, 0]);
-  else A(Box(0.03, 0.13, 0.055), [0, -0.07, -0.09], dark, [0.15, 0, 0]);       // cargador
+  else b.add(magBone, Box(0.03, 0.13, 0.055), { at: [0, -0.07, -0.09], rot: [0.15, 0, 0], ...dark });        // cargador
   if (model === 'dmr' || model === 'ar2') A(Cyl(0.02, 0.02, 0.16, 10), [0, 0.1, -0.06], dark, [Math.PI / 2, 0, 0]);  // visor
   else A(Box(0.04, 0.05, 0.06), [0, 0.1, -0.05], dark);                       // mira holográfica
 }
@@ -393,6 +432,8 @@ export class CharacterRenderer {
     this.blobs.renderOrder = 1;
     scene.add(this.blobs);
     this._m = new THREE.Matrix4(); this._v = new THREE.Vector3(); this._q = new THREE.Quaternion(); this._s = new THREE.Vector3(); this._sling = new THREE.Matrix4();
+    this._magHand = new THREE.Matrix4().makeTranslation(0, -0.1, 0.03);   // el cargador nuevo, en la palma izquierda
+    this._magOff = new THREE.Matrix4();
     // visor térmico: velo frío a pantalla completa (multiplica lo ya pintado, humo incluido);
     // los enemigos calientes se pintan después, encima del humo pero no de las paredes
     this.cold = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), new THREE.ShaderMaterial({
@@ -435,7 +476,8 @@ export class CharacterRenderer {
     const mesh = new THREE.Mesh(geo, this._material());
     mesh.frustumCulled = false;
     this.scene.add(mesh);
-    const view = { op, mesh, look, hit: 0, prim: 0, sling: geo.userData.sling };
+    const M = MAG_3P[magKind(models[0])];
+    const view = { op, mesh, look, hit: 0, prim: 0, sling: geo.userData.sling, magAt: M ? M.at : null };
     this.views.set(op.id, view);
     return view;
   }
@@ -447,6 +489,21 @@ export class CharacterRenderer {
   }
   clear() { for (const v of [...this.views.values()]) this.remove(v.op); }
   flashHit(op) { const v = this.views.get(op.id); if (v) v.hit = 1; }
+
+  // Cargador de la principal (hueso 19): en el arma, el nuevo en la mano izquierda o fuera (se
+  // soltó y cae como objeto aparte); lo dice la pose de la simulación (pose.mag, F7.4).
+  _placeMag(v, active, bones) {
+    const g = BONE.gun * 16, m = BONE.mag * 16;
+    const state = active === 0 ? v.op.pose.mag : 0;
+    if (state === 1 && v.magAt) {
+      const a = v.magAt;
+      this._m.fromArray(bones, BONE.handL * 16).multiply(this._magHand).multiply(this._magOff.makeTranslation(-a[0], -a[1], -a[2]));
+      this._m.toArray(bones, m);
+      return;
+    }
+    for (let i = 0; i < 16; i++) bones[m + i] = bones[g + i];
+    if (state === 2) for (const i of [0, 1, 2, 4, 5, 6, 8, 9, 10]) bones[m + i] = 0;   // fuera: sin tamaño
+  }
 
   update(dt, localOp, camPos) {
     let nb = 0;
@@ -474,6 +531,7 @@ export class CharacterRenderer {
         const h = BONE.holster * 16;
         bones[h + 12] -= bones[h] * HOLSTER_OUT; bones[h + 13] -= bones[h + 1] * HOLSTER_OUT; bones[h + 14] -= bones[h + 2] * HOLSTER_OUT;
       }
+      this._placeMag(v, active, bones);
       v.mesh.material.uniformsNeedUpdate = true;
       v.hit = Math.max(0, v.hit - dt * 5);
       v.mesh.material.uniforms.uHit.value = v.hit;
