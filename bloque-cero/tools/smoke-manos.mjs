@@ -41,6 +41,9 @@ await shot('m2_saca', 400);
 console.log('cambio de arma:', JSON.stringify(sw), '→', await page.evaluate(() => window.__bc.ctx.vm.current));
 await ticks(1, 'bc.player.intent.switchTo = 0;');
 await ticks(50);
+// (el arma en primera persona tiene que ver el cambio antes de la I: si le llegan en el mismo
+// fotograma, el cambio corta la inspección; jugando, el cambio se ve mucho antes de que esté lista)
+await frames(2);
 // 2) inspeccionar (I) y cortarlo disparando
 await page.evaluate(() => { window.__bc.player.intent.inspect = true; });
 await frames(6);
