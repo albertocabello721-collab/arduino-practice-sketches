@@ -17,7 +17,7 @@ Es un único archivo HTML autónomo: no necesita servidor ni conexión.
 | F4 | Preparación: refuerzos, barricadas, trampillas, drones, cámaras, cuerpo a cuerpo | ✅ |
 | F5 | Bots: navegación, percepción, combate, tácticas por bando, órdenes (H), marcas (T), chat de equipo, depuración (P) | ✅ |
 | F6 | Operadores 8 + 8 y contrajuego de gadgets | ✅ arsenal · plantilla de 16 · granadas y explosivos · gadgets defensivos · 16 habilidades · la defensa bot coloca gadgets y habilidades · el ataque bot los usa según la dificultad · contrajuego de la defensa bot y gadgets de acción |
-| F7 | Animaciones en primera y tercera persona, con la recarga por partes (antes F8) | en curso: recarga por partes en primera persona ✅ · resto de la primera persona ✅ · siluetas de los 16 · tercera persona por capas · muerte con física |
+| F7 | Animaciones en primera y tercera persona, con la recarga por partes (antes F8) | en curso: recarga por partes en primera persona ✅ · resto de la primera persona ✅ · siluetas de los 16 ✅ · tercera persona por capas · muerte con física |
 | F9 | Audio 3D con oclusión | pendiente |
 | F10 | Pulido, pruebas de partidas completas y publicación (con rappel en Villa: tejado y fachada) | pendiente |
 | — | Mapa Residencia del Lago | pendiente |
@@ -122,6 +122,55 @@ Velocidad/blindaje, armas, gadget secundario a elegir y habilidad (tecla X):
 | GUARDIÁN | 3/1 | FA-7 o E-12 | P-9 | Escudo o cámara blindada | 2 interceptores |
 | REMEDIO | 1/3 | SF-45 o E-12 | P-9 | Alambre o cámara blindada | Pistola de estimulantes (3) |
 | TIZÓN | 2/2 | AL-60 o SF-9 | P-9 | Escudo o alambre | 3 botes de gas |
+
+### Siluetas (Fase 7.3)
+
+Cada operador se reconoce por su complexión y por un objeto propio en la cabeza o la espalda
+(`src/render/kits.js`, como datos). Todo va pegado a los huesos del esqueleto: sigue siendo una
+malla y una llamada de dibujo por operador, con 2.400 triángulos como mucho (entre 1.816 y 2.334).
+
+- **Complexión según el blindaje**: blindaje 1, chaleco fino, sin hombreras ni placas laterales;
+  blindaje 2, como antes; blindaje 3, placas laterales, hombreras grandes y protector de cuello,
+  de ingle y de muslos.
+
+| Ataque | Cabeza | Objeto propio |
+| --- | --- | --- |
+| TERMO | casco con gafas de soldador | marco de la carga térmica a la espalda, que rodea la cabeza |
+| ROMPE | gorra y gafas | tubo lanzador cruzado (asoma sobre el hombro izquierdo) |
+| MURALLA | casco pesado con visera | el escudo |
+| RADAR | casco | antena de plato sobre la cabeza |
+| PULGA | casco | dron de choque amarillo a la espalda y tableta en el antebrazo |
+| CHISPA | gorra y gafas | granadas PEM blancas en el pecho, el cinturón y la mochila |
+| NUBE | capucha y máscara de gas de dos filtros | lanzagranadas corto (asoma sobre el hombro derecho) |
+| LUMEN | sombrero de ala ancha | tiras de camuflaje en hombros y espalda |
+
+| Defensa | Cabeza | Objeto propio |
+| --- | --- | --- |
+| VOLTIO | gorra | baterías amarillas en el cinturón y la espalda |
+| SILENCIO | casco | mochila del inhibidor con tres antenas |
+| CEPO | capucha y máscara | minas láser de lentes rojas en el pecho, los muslos y la espalda |
+| OJO | gorra con una cámara sobre el ojo | cámaras adhesivas en el pecho |
+| CORAZA | casco | bolsa de placas (asoman por encima de los hombros) |
+| GUARDIÁN | casco y gafas | interceptor sobre el hombro izquierdo |
+| REMEDIO | casco con cruz | mochila de médico con cruz blanca sobre verde (y cruces en el pecho y las hombreras) |
+| TIZÓN | capucha y máscara de gas de un filtro | dos botes de gas a la espalda |
+
+- Ningún objeto propio es azul ni naranja: el equipo se sigue leyendo por el brazalete, el parche
+  del pecho y la baliza del casco.
+- Las zonas de impacto no cambian. El cuerpo, el chaleco y el casco quedan a 4,5 cm de ellas
+  como mucho (como antes); lo que se lleva a la espalda o por encima de los hombros no recibe
+  impactos, igual que la mochila de antes.
+- El arma principal colgada (cuando llevas la secundaria) va plana y en diagonal, pegada a lo que
+  se lleve a la espalda (antes atravesaba la mochila), y la pistola enfundada va por fuera del
+  muslo derecho (antes quedaba por dentro).
+- En el **campo de pruebas**, en la calle, a la espalda del punto de salida, están los 16 en
+  fila (primero los 8 de ataque, en azul, y después los 8 de defensa, en naranja). Son del equipo
+  del jugador, así que sus balas los atraviesan, y al apuntar a uno el aviso dice quién es.
+- De cerca todos se distinguen. A 25 m sin apuntar (unos 40 px de alto en 1280×720) se leen los
+  objetos grandes: el marco de TERMO, el tubo de ROMPE, el escudo de MURALLA, el plato de RADAR,
+  el dron de PULGA, las baterías de VOLTIO, las antenas de SILENCIO, las placas de CORAZA, el
+  interceptor de GUARDIÁN y los botes de TIZÓN; de espaldas, también la cruz de REMEDIO. A los
+  demás hay que acercarse a unos 12-15 m o apuntar.
 
 La selección muestra el papel, los números de la habilidad y sus contras.
 
@@ -447,6 +496,7 @@ node tools/smoke-bots-ataque.mjs <carpeta>  # el ataque bot usa sus gadgets y ha
 node tools/smoke-contrajuego.mjs <carpeta>  # contrajuego de la defensa bot y «Poner gadget aquí»
 node tools/smoke-recarga.mjs <carpeta>  # recarga por partes de cada familia de armas, con capturas
 node tools/smoke-manos.mjs <carpeta>  # cambio de arma, inspeccionar, reforzar, barricada, reanimar y lanzar
+node tools/smoke-siluetas.mjs <carpeta>  # los 16 de cerca (frente, espalda, perfil, arma colgada) y a 25 m
 node tools/perf-partida.mjs [html...]  # llamadas de dibujo, triángulos y CPU con 10 operadores a la vista
 node tools/mapslice.mjs <carpeta> # cortes cenitales del mapa por planta
 ```

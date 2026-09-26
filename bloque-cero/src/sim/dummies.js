@@ -28,6 +28,30 @@ export function spawnRangeDummies(game) {
   return ops;
 }
 
+// Fila de los 16 operadores de la plantilla en la calle (Fase 7.3), quietos y mirando a la villa,
+// para comparar sus siluetas de cerca y de lejos: primero los 8 de ataque y después los 8 de
+// defensa. Son del equipo del jugador: sin fuego amigo, sus balas los atraviesan (son un
+// escaparate, no dianas).
+export const LINEUP = { z: -9.5, x0: 6, step: 1.25, gap: 1.75, yaw: Math.PI };
+export function spawnLineup(game, defs) {
+  const ops = [];
+  let x = LINEUP.x0;
+  defs.forEach((def, i) => {
+    if (i > 0 && def.side !== defs[i - 1].side) x += LINEUP.gap - LINEUP.step;
+    const op = game.addOperator(new Operator(`fila-${def.id}`, {
+      name: def.name, team: 0, x, y: 0, z: LINEUP.z, yaw: LINEUP.yaw, armor: def.armor, bot: true,
+      loadout: [def.primaries[0], def.secondaries[0]].filter(Boolean),
+    }));
+    op.opDef = def;
+    // MURALLA lleva su escudo delante, como en partida (aquí solo se ve)
+    if (def.ability.id === 'shield') op.ability = { id: 'shield', left: def.ability.count };
+    op.dummy = { mode: 'idle', home: { x, z: LINEUP.z, yaw: LINEUP.yaw }, t: 0, react: 0, burst: 0, pause: 0 };
+    ops.push(op);
+    x += LINEUP.step;
+  });
+  return ops;
+}
+
 // Actualiza las intenciones de los maniquís (llamar antes de cada tick).
 export function driveDummies(game, dummies, target, dt) {
   for (const op of dummies) {

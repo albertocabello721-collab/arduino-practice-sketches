@@ -1,5 +1,6 @@
 // Campo de pruebas: la villa con maniquís (uno dispara), un compañero para
-// practicar la reanimación y arsenales intercambiables.
+// practicar la reanimación, arsenales intercambiables y, en la calle, la fila
+// de los 16 operadores para ver sus siluetas.
 import { Session } from './session.js';
 import { bindGameFx } from './fx.js';
 import { FeedController } from './feeds.js';
@@ -8,8 +9,10 @@ import { Recon } from '../sim/recon.js';
 import { Game } from '../sim/game.js';
 import { Operator } from '../sim/operator.js';
 import { WeaponState, WEAPONS } from '../sim/weapons.js';
-import { spawnRangeDummies, driveDummies, resetDummies } from '../sim/dummies.js';
-import { defaultLook } from '../render/character.js';
+import { spawnRangeDummies, spawnLineup, driveDummies, resetDummies } from '../sim/dummies.js';
+import { OPERATORS } from '../sim/operators.js';
+import { rayHitRig } from '../sim/skeleton.js';
+import { defaultLook, operatorLook } from '../render/character.js';
 import { raycastFirst } from '../world/raycast.js';
 import { breachRect, explodeSphere } from '../world/destruction.js';
 import { MATS, SOLID } from '../world/materials.js';
@@ -27,6 +30,7 @@ export class RangeSession extends Session {
     this.loadoutIdx = 0;
     this._player = this._game.addOperator(new Operator('jugador', { name: 'Tú', team: 0, x: SPAWN.x, y: SPAWN.y, z: SPAWN.z, yaw: SPAWN.yaw, loadout: LOADOUTS[0], armor: 2 }));
     this.dummies = spawnRangeDummies(this._game);
+    this.lineup = spawnLineup(this._game, OPERATORS);
     // en el campo de pruebas el jugador puede reforzar, poner barricadas y usar drones sin límite
     this.fort = new Fortify(this._game, { canFortify: (op) => op === this._player });
     this.fort.left.set(this._player, Infinity);
@@ -38,6 +42,8 @@ export class RangeSession extends Session {
     chars.clear();
     chars.add(this._player, defaultLook(0, 0));
     this.dummies.forEach((d, i) => chars.add(d, defaultLook(d.team, i)));
+    // la fila, cada uno con su aspecto: en azul los de ataque y en naranja los de defensa
+    for (const op of this.lineup) chars.add(op, operatorLook(op.opDef, op.opDef.side === 'atk' ? 0 : 1));
     this.disposers.push(bindGameFx(ctx, this._game, {
       viewer: () => this._player, me: () => this._player,
       onMeDowned: () => { this.control.stance = 'prone'; },
@@ -62,6 +68,7 @@ export class RangeSession extends Session {
 
   tick(dt) {
     driveDummies(this._game, this.dummies, this._player, dt);
+    driveDummies(this._game, this.lineup, null, dt);
     this._game.tick(dt);
     this.fort.tick(dt);
     this.recon.tick(dt);
@@ -91,7 +98,7 @@ export class RangeSession extends Session {
     this.syncProps(dt, alpha, { recon: this.recon, fort: this.fort, feed: F, myTeam: 0 });
     F.frame(dt, { canExit: true });
     this.statusHud(this.viewOp);
-    this.promptText = this.feed.active ? '' : this.fortifyHud(this.fort, this._player);
+    this.promptText = this.feed.active ? '' : (this.fortifyHud(this.fort, this._player) || this.lineupName());
     this.ctx.hud.hints(!this.feed.active);
     this.ctx.hud.setTopbar('Campo de pruebas', 'Fase 4');
   }
@@ -122,8 +129,26 @@ export class RangeSession extends Session {
     this.fort.reset(); this.fort.left.set(this._player, Infinity);
     this.recon.reset({ defTeam: 1, site: null }); this.recon.left.set(this._player, Infinity);
     resetDummies(this.dummies);
+    resetDummies(this.lineup);
     this.respawn();
     this.ctx.hud.toast('Campo reiniciado');
+  }
+
+  // Operador de la fila al que apuntas (hasta 40 m y sin paredes por medio): quién es.
+  lineupName() {
+    const p = this._player;
+    if (p.state !== 'alive') return '';
+    const e = p.eyePos(), d = p.viewDir();
+    const wall = raycastFirst(this.ctx.world, e.x, e.y, e.z, d.x, d.y, d.z, 40, SOLID, true);
+    let best = null, bt = wall ? wall.t : 40;
+    for (const op of this.lineup) {
+      if (op.state === 'dead') continue;
+      const h = rayHitRig(op.rig, e, d, bt);
+      if (h && h.t < bt) { bt = h.t; best = op; }
+    }
+    if (!best) return '';
+    const def = best.opDef;
+    return `${def.name} · ${def.side === 'atk' ? 'ataque' : 'defensa'} · ${def.role.toLowerCase()} · blindaje ${def.armor}`;
   }
 
   // Carga de brecha de prueba (G): boquete en la pared a la que miras.
