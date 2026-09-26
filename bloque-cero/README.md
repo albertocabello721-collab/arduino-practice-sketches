@@ -92,6 +92,9 @@ las duraciones de la simulación (`src/sim/poselayers.js`):
 - Las piernas van a lo suyo: se puede andar recargando.
 - Como la pose es la de las zonas de impacto, los brazos, el tronco y la cabeza reciben las balas
   donde se ven también durante esas acciones. Una pose con todas las capas cuesta unos 9 µs (antes, 7).
+- Equilibrio (160 partidas de bots por dificultad, con las mismas semillas antes y después): rondas
+  ganadas por el ataque, Normal 51,1 % → 51,9 % y Élite 55,2 % → 56,2 % (±1,6 puntos de error
+  típico: el cambio está dentro del ruido). Bajas por ronda, tiros a la cabeza y plantados, igual.
 
 ### Recarga por partes (Fase 7.1)
 
