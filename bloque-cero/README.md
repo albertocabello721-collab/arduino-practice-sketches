@@ -69,6 +69,8 @@ la simulación: la animación no cambia ningún tiempo ni ninguna regla.
   el compañero, presionando con ritmo).
 - Los brazos se colocan en el espacio de la cámara y los codos cuelgan: pueden soltar el arma y
   no giran con ella al inclinarla.
+- Todo lo de la primera persona (arma, brazos, lo que llevan las manos y el escudo) se muestra y
+  se oculta junto: nada en el menú, pilotando un dron, en las cámaras ni al morir.
 
 ### Recarga por partes (Fase 7.1)
 

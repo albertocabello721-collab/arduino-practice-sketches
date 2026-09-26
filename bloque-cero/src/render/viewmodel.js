@@ -228,8 +228,12 @@ export class ViewModel {
     this.warm.position.set(0.3, 0.5, 0.2);
     this.flashLight = new THREE.PointLight(0xffaa55, 0, 2.5);
     this.scene.add(this.hemi, this.key, this.warm, this.flashLight);
+    // todo lo que se ve en primera persona cuelga de aquí (arma, brazos, lo que llevan las manos y el
+    // escudo), en el espacio de la cámara: se muestra o se oculta entero (ver setShown)
+    this.view = new THREE.Group();
+    this.scene.add(this.view);
     this.root = new THREE.Group();
-    this.scene.add(this.root);
+    this.view.add(this.root);
     this.guns = {};
     for (const k of ['ar', 'ar2', 'smg', 'smg2', 'lmg', 'dmr', 'shotgun', 'pistol', 'revolver', 'mpistol']) {
       const g = buildGun(k);
@@ -238,7 +242,7 @@ export class ViewModel {
       this.guns[k] = g;
     }
     this.armR = buildArm(1); this.armL = buildArm(-1);
-    this.scene.add(this.armR, this.armL);          // (en el espacio de la cámara, no colgados del arma)
+    this.view.add(this.armR, this.armL);           // (en el espacio de la cámara, no colgados del arma)
     // fogonazo
     const fm = new THREE.MeshBasicMaterial({ color: new THREE.Color(9, 5.5, 2.2), transparent: true, opacity: 1, depthWrite: false, blending: THREE.AdditiveBlending });
     this.flash = new THREE.Group();
@@ -268,7 +272,7 @@ export class ViewModel {
     box(0.05, 0.012, 0.03, new THREE.MeshBasicMaterial({ color: new THREE.Color(3, 1.2, 0.2) }), 0.03, 0.036, 0.0, this.defuser);
     box(0.02, 0.07, 0.02, std(0x111111, 0.5, 0.2), -0.05, 0.05, 0.03, this.defuser);
     this.gadgetBox = box(1, 1, 1, std(0x555555, 0.7, 0.2), 0, 0, 0);
-    for (const o of [this.plank, this.defuser, this.gadgetBox]) { o.visible = false; this.scene.add(o); }
+    for (const o of [this.plank, this.defuser, this.gadgetBox]) { o.visible = false; this.view.add(o); }
     this.prevKind = null;                           // el arma que se guarda al cambiar
     // capa de las manos (inspeccionar, lanzar, dron, colocar, reforzar, barricada, plantar, desactivar, reanimar)
     this.hands = { kind: null, tracks: null, t: 0, dur: 0, w: 0, pose: {}, away: false, pulse: null, oneShot: false, active: false, pending: null };
@@ -291,8 +295,11 @@ export class ViewModel {
     // el foco va por fuera; por dentro, solo un piloto que se enciende al cargar el destello
     this.shieldLamp = box(0.025, 0.012, 0.01, new THREE.MeshBasicMaterial({ color: new THREE.Color(0.02, 0.02, 0.02) }), 0.14, 0.22, 0.024, this.shield);
     this.shield.visible = false;
-    this.scene.add(this.shield);
+    this.view.add(this.shield);
   }
+
+  /** Muestra u oculta todo lo de la primera persona: sin operador visto (menú, dron, cámaras) o muerto, nada. */
+  setShown(on) { this.view.visible = on; }
 
   initEnvironment(renderer) {
     const pm = new THREE.PMREMGenerator(renderer);

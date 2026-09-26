@@ -1,6 +1,7 @@
 // Prueba de humo en el navegador de las animaciones de manos en primera persona (F7.2): cambio
 // de arma, inspeccionar (y cortarlo al apuntar), reforzar, barricada y reanimar en el campo de
-// pruebas, y lanzar una cegadora en partida; capturas de cada una y sin errores.
+// pruebas, y lanzar una cegadora en partida; capturas de cada una y sin errores. Además, que la
+// primera persona no se dibuje en el menú ni pilotando el dron (y vuelva al salir).
 // Uso: node tools/smoke-manos.mjs <carpeta de capturas>
 import { createRequire } from 'node:module';
 import path from 'node:path';
@@ -23,6 +24,12 @@ const ticks = (n, body = '') => page.evaluate(([n, body]) => { const bc = window
 // segundo; se espera a que se pinten antes de mirar)
 const frames = (n = 3) => page.evaluate((n) => new Promise((res) => { let k = 0; const f = () => { if (++k >= n) res(); else requestAnimationFrame(f); }; requestAnimationFrame(f); }), n);
 const hands = async () => { await frames(); return page.evaluate(() => { const H = window.__bc.ctx.vm.hands; return { accion: H.kind, activa: H.active, peso: +H.w.toFixed(2) }; }); };
+// ¿se dibuja la primera persona (arma, brazos, lo que llevan las manos)?
+const shown = async () => { await frames(); return page.evaluate(() => window.__bc.ctx.vm.view.visible); };
+
+// ---------------- menú: sin primera persona (los brazos no pueden quedarse delante de la cámara)
+const enMenu = await shown();
+await shot('m0_menu', 100);
 
 // ---------------- campo de pruebas
 await page.evaluate(() => { const bc = window.__bc; bc.settings.quality = 'media'; bc.post.setQuality('media'); bc.start(); });
@@ -30,6 +37,7 @@ await page.waitForFunction(() => window.__bc.state.mode === 'play');
 await freezeSim();
 await page.evaluate(() => { const bc = window.__bc; const s = bc.game.operators.find((o) => o.id === 'm5'); if (s) bc.game.removeOperator(s); bc.place(15.5, 0, -6.5, Math.PI, 0.05); });
 await ticks(4);
+const enCampo = await shown();
 // 1) cambio de arma: la principal baja y sube la pistola
 await ticks(1, 'bc.player.intent.switchTo = 1;');
 await ticks(4);
@@ -92,6 +100,14 @@ await shot('m6_reanima', 400);
 await ticks(200, 'bc.player.intent.interact = true;');
 await ticks(1, 'bc.player.intent.interact = false;');
 console.log('reanimar:', JSON.stringify(rv), JSON.stringify(rev), '· compañero:', await page.evaluate(() => window.__bc.session.dummies.find((d) => d.team === 0)?.state));
+// 6) pilotando el dron: sin primera persona
+await page.evaluate(() => { const s = window.__bc.session; const d = s.recon.deployDrone(s.player, { thrown: true }); s.feed.enterDrone(d, true); });
+const enDron = await shown();
+await shot('m6b_dron', 100);
+await page.evaluate(() => window.__bc.session.feed.exit());
+const alSalir = await shown();
+console.log('primera persona visible · menú:', enMenu, '· campo:', enCampo, '· dron:', enDron, '· al salir del dron:', alSalir);
+if (enMenu || !enCampo || enDron || !alSalir) errors.push('la primera persona se ve donde no toca');
 
 // ---------------- partida: lanzar una cegadora (ROMPE) en la acción
 await page.evaluate(() => { window.__bc.toMenu(); });

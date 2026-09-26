@@ -363,7 +363,7 @@ async function boot() {
     post.grade.uniforms.uBlind.value = v && v.blindT > 0 ? Math.min(1, v.blindT / 1.2) : 0;
     if (s) s.frame(dt, acc / TICK);
     if (v) vm.update(dt, v, lightS, v === s.player ? mouse.dx || 0 : 0, v === s.player ? mouse.dy || 0 : 0);
-    vm.root.visible = !!v && v.state !== 'dead';
+    vm.setShown(!!v && v.state !== 'dead');
     post.render(dt);
     // HUD del operador visto
     hud.playerHud(!!v);
@@ -413,9 +413,9 @@ async function boot() {
       const r = {};
       renderer.setRenderTarget(null);
       r.mundoConPrepasada = time(() => post.worldPass.render(renderer, null, null));
-      const vis = vm.root.visible; vm.root.visible = true;
+      const vis = vm.view.visible; vm.setShown(true);
       r.arma = time(() => { renderer.autoClear = false; renderer.clearDepth(); renderer.render(vm.scene, vm.camera); renderer.autoClear = true; });
-      vm.root.visible = vis;
+      vm.setShown(vis);
       const b = post.bloom.enabled;
       r.composicionCompleta = time(() => post.render(0));
       post.bloom.enabled = false; r.composicionSinBloom = time(() => post.render(0)); post.bloom.enabled = b;
