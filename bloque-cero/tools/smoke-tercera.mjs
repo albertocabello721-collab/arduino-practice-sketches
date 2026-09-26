@@ -29,13 +29,17 @@ const ticks = (id, n, body = '') => page.evaluate(([id, n, body]) => {
   const s = window.__bc.session, op = s.lineup.find((o) => o.opDef.id === id), f = body ? new Function('op', body) : null;
   for (let i = 0; i < n; i++) { if (f) f(op); window.__step(1 / 60); }
 }, [id, n, body]);
-// mira al operador `id` desde delante y a su izquierda, a `d` m
-const look = (id, d = 2.8, side = 1) => page.evaluate(([id, d, side]) => {
-  const bc = window.__bc, op = bc.session.lineup.find((o) => o.opDef.id === id), b = op.body.pos;
-  const x = b.x + side * d * 0.63, z = b.z + d * 0.78;           // (la fila mira a +Z; su izquierda es +X)
-  const tx = b.x - x, tz = b.z - z;
-  bc.place(x, 0.125, z, Math.atan2(-tx, -tz), -0.22);
-}, [id, d, side]);
+// mira al operador `id` desde delante y a su izquierda (side -1: derecha), a `d` m; y pinta: la
+// cámara solo se mueve al pintar (lo que suelta un operador cae si está a menos de 20 m de ella)
+const look = async (id, d = 2.8, side = 1) => {
+  await page.evaluate(([id, d, side]) => {
+    const bc = window.__bc, op = bc.session.lineup.find((o) => o.opDef.id === id), b = op.body.pos;
+    const x = b.x + side * d * 0.63, z = b.z + d * 0.78;           // (la fila mira a +Z; su izquierda es +X)
+    const tx = b.x - x, tz = b.z - z;
+    bc.place(x, 0.125, z, Math.atan2(-tx, -tz), -0.22);
+  }, [id, d, side]);
+  await frames(2);
+};
 const state = (id) => page.evaluate((id) => {
   const bc = window.__bc, op = bc.session.lineup.find((o) => o.opDef.id === id), w = op.weapon, D = bc.ctx.effects.drops.items;
   return { t: w.reloadT > 0 ? +(w.reloadTotal - w.reloadT).toFixed(2) : null, cargador: op.pose.mag, municion: `${w.ammo}|${w.reserve}`, suelo: `${D.filter((d) => d.kind === 'mag').length} cargadores, ${D.filter((d) => d.kind === 'casing').length} casquillos` };
@@ -63,19 +67,25 @@ await shot('t3_cargador_nuevo');
 const s3 = await state('termo');
 await until('termo', P.magIn + 0.05);
 await shot('t4_dentro');
-await page.evaluate(() => { const bc = window.__bc, op = bc.session.lineup.find((o) => o.opDef.id === 'termo'), b = op.body.pos; bc.place(b.x - 1.3, 0.125, b.z + 1.6, Math.atan2(1.3, 1.6), -0.55); });
+await page.evaluate(() => { const bc = window.__bc, op = bc.session.lineup.find((o) => o.opDef.id === 'termo'), b = op.body.pos; bc.place(b.x - 1.3, 0.125, b.z + 1.6, Math.atan2(-1.3, 1.6), -0.55); });
 await shot('t4b_cargador_en_el_suelo');
 const s4 = await state('termo');
 await ticks('termo', 90);
+if (s2.cargador !== 2 || s3.cargador !== 1 || s4.cargador !== 0) errors.push('el cargador de TERMO no sigue la recarga');
 console.log('TERMO:', JSON.stringify({ partes: P, alCargador: s1, cae: s2, nuevo: s3, dentro: s4, final: await state('termo') }));
 
 // ---------------- TIZÓN (AL-60): la caja de la ametralladora
 await look('tizon');
 await ticks('tizon', 10);
 const Q = await reload('tizon', 20);
+const cajas = () => page.evaluate(() => window.__bc.ctx.effects.drops.items.filter((d) => d.kind === 'mag').length);
+await until('tizon', Q.magOut - 0.05);
+const antes = await cajas();
 await until('tizon', Q.magOut + 0.2);
 await shot('t5_caja_fuera');
-console.log('TIZÓN:', JSON.stringify({ partes: Q, caja: await state('tizon') }));
+const despues = await cajas();
+console.log('TIZÓN:', JSON.stringify({ partes: Q, caja: await state('tizon'), cajasAlSuelo: despues - antes }));
+if (despues - antes !== 1) errors.push(`la caja de TIZÓN no cae (${antes} → ${despues})`);
 await ticks('tizon', 300);
 
 // ---------------- CHISPA: plantar (las dos manos al suelo; el arma colgada)
