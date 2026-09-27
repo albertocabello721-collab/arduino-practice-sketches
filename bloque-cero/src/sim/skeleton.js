@@ -93,6 +93,8 @@ export function makePoseState() {
     kick: 0,          // retroceso del disparo (1 al disparar, se va en 0,14 s)
     breath: 0,        // reloj de la respiración en reposo
     vault: 0,         // progreso del salto de obstáculo (0..1)
+    // rappel (F10.2a): peso (0..1), hacia dónde está la pared (en el mundo) y a qué distancia
+    rappel: 0, wallX: 0, wallZ: -1, wallDist: 0.35,
   };
 }
 
@@ -140,6 +142,9 @@ export function computePose(s, out, rig) {
   // altura de pelvis: de pie 0,95, agachado 0,58, tumbado 0,16, derribado 0,2
   const walkBob = Math.abs(Math.sin(s.walkPhase)) * 0.035 * s.walkAmount * (1 - prone);
   let pelvisH = 0.95 * (1 - crouch) + 0.6 * crouch - walkBob - lower;
+  // colgado (rappel): sentado en el arnés, un poco más bajo
+  const rap = (s.rappel || 0) * upright;
+  pelvisH -= 0.12 * rap;
   pelvisH = pelvisH * (1 - prone) + 0.16 * prone;
   pelvisH = pelvisH * (1 - down) + 0.2 * down;
   // inclinación del tronco: al esprintar hacia delante; agachado un poco; tumbado horizontal
@@ -157,7 +162,8 @@ export function computePose(s, out, rig) {
   const leanRoll = Math.asin(Math.max(-0.9, Math.min(0.9, leanDist / leanArm))) * (1 - prone) * (1 - down) * (1 - dead);
   const deathRoll = dead * s.deathSide * 0.5;
   const trunkR = rotMul(Ryaw, rotMul(rotZ(-leanRoll - deathRoll), rotX(trunkPitch)));
-  const pelvisP = W(v(0, pelvisH, prone * 0.15 + down * 0.1));
+  const wallW = v(s.wallX || 0, 0, s.wallZ || 0);                         // hacia la pared (rappel)
+  const pelvisP = add(W(v(0, pelvisH, prone * 0.15 + down * 0.1)), mul(wallW, -0.06 * rap));
   // pelvis: gira con el tronco pero sin el balanceo del asomado
   const pelvisR = rotMul(Ryaw, rotX(trunkPitch * (prone > 0.5 || down > 0.5 || dead > 0.5 ? 1 : 0.35)));
   set(BONE.pelvis, pelvisP, pelvisR);
@@ -197,6 +203,13 @@ export function computePose(s, out, rig) {
     if (s.vault > 0) { const k = Math.sin(Math.PI * s.vault); foot = add(foot, v(0, 0.32 * k, -0.12 * k)); }
     let footW = W(foot);
     let pole = add(fwdW, mul(rightW, side * 0.25));
+    if (rap > 0) {
+      // colgado: los pies apoyados en la pared, separados y algo altos; las rodillas hacia arriba
+      const along = v(-wallW.z, 0, wallW.x);
+      const onWall = add(root, add(mul(wallW, (s.wallDist || 0.35) - 0.06), add(mul(along, side * 0.17), v(0, 0.42 + (side < 0 ? 0.1 : 0), 0))));
+      footW = lerpV(footW, onWall, rap);
+      pole = lerpV(pole, add(wallW, v(0, 0.8, 0)), rap);
+    }
     if (prone > 0.01 || down > 0.01 || dead > 0.01) {
       // tumbado/derribado/muerto: piernas estiradas hacia atrás a partir de la pelvis
       const back = rotApply(pelvisR, v(side * 0.12, -(THIGH + SHIN) * 0.98, 0.04));
@@ -212,7 +225,7 @@ export function computePose(s, out, rig) {
     const shinR = basisDown(sub(end, knee), fwdW);
     set(side < 0 ? BONE.thighL : BONE.thighR, hip, thighR);
     set(side < 0 ? BONE.shinL : BONE.shinR, knee, shinR);
-    const footR = basisForward(prone > 0.5 || down > 0.5 || dead > 0.5 ? rotApply(pelvisR, v(0, -1, 0.2)) : fwdW, upW);
+    const footR = basisForward(prone > 0.5 || down > 0.5 || dead > 0.5 ? rotApply(pelvisR, v(0, -1, 0.2)) : rap > 0.5 ? add(wallW, v(0, 0.35, 0)) : fwdW, upW);
     set(side < 0 ? BONE.footL : BONE.footR, end, footR);
   }
 

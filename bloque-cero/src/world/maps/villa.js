@@ -11,6 +11,19 @@ import { MAT } from '../materials.js';
 
 export const VILLA_BOUNDS = { minX: -13.5, maxX: 53.5, minZ: -15.5, maxZ: 43.5, minY: -4, maxY: 12 };
 
+// Tramos de rappel: pared a lo largo de X (eje 'x', a z = line) o de Z ('z', a x = line), de `a` a
+// `b`, con fuera hacia `out`; `bottom` es el suelo al pie (la calle, el jardín o el tejado del
+// garaje), `roof` el suelo del tejado y `top` lo alto del pretil.
+export const RAPPEL = [
+  { id: 'sur_oeste', axis: 'x', line: 0, out: -1, a: 0.4, b: 12.3, bottom: 0, roof: 7.0, top: 8.125 },
+  { id: 'sur_este', axis: 'x', line: 0, out: -1, a: 21.7, b: 29.6, bottom: 0, roof: 7.0, top: 8.125 },
+  { id: 'norte_oeste', axis: 'x', line: 26, out: 1, a: 0.4, b: 15.8, bottom: 0, roof: 7.0, top: 8.125 },
+  { id: 'norte_centro', axis: 'x', line: 26, out: 1, a: 18.2, b: 21.8, bottom: 0, roof: 7.0, top: 8.125 },
+  { id: 'norte_este', axis: 'x', line: 26, out: 1, a: 23.6, b: 29.6, bottom: 0, roof: 7.0, top: 8.125 },
+  { id: 'oeste', axis: 'z', line: 0, out: -1, a: 8.6, b: 25.6, bottom: 0, roof: 7.0, top: 8.125 },
+  { id: 'este', axis: 'z', line: 30, out: 1, a: 0.5, b: 23.4, bottom: 3.5, roof: 7.0, top: 8.125 },
+];
+
 export function createVillaWorld() {
   return new VoxelWorld({ origin: { x: -14, y: -4, z: -16 }, size: { x: 68, y: 16, z: 60 }, groundY: 0 });
 }
@@ -245,6 +258,18 @@ export function buildVilla(world) {
   // ================= EXTERIOR =================
   buildExterior(b);
 
+  // ================= RAPPEL (Fase 10.2a) =================
+  // Tramos de fachada de la casa principal por los que se hace rappel, marcados con argollas cada
+  // 3 m en el pretil. Fuera quedan el balcón y el porche (sur), la chimenea y el acceso al sótano
+  // (oeste), la puerta trasera y la jardinera (norte) y la escalera de mano (este).
+  for (const R of RAPPEL) {
+    for (let s = R.a + 0.4; s <= R.b - 0.3; s += 3) {
+      const c = R.line + R.out * 0.1875, H2 = H / 2;
+      if (R.axis === 'x') b.box(s - H2, 8.125, c - H2, s + H2, 8.25, c + H2, MAT.METAL_DARK);
+      else b.box(c - H2, 8.125, s - H2, c + H2, 8.25, s + H2, MAT.METAL_DARK);
+    }
+  }
+
   // ================= ZONAS EXTERIORES (callouts) =================
   b.zone('tejado', 'Tejado', 0, 0, 30, 26, 6.9, 20);
   b.zone('tejado_garaje', 'Tejado del garaje', 30, 0, 40, 26, 3.4, 20);
@@ -294,7 +319,7 @@ export function buildVilla(world) {
     cameras,
     builder: b,
     rooms: b.rooms, zones: b.zones, doors: b.doors, windows: b.windows, hatches: b.hatches,
-    lights: b.lights, stairs: b.stairs, ladders: b.ladders,
+    lights: b.lights, stairs: b.stairs, ladders: b.ladders, rappel: RAPPEL,
     sites, attackerSpawns, bounds: VILLA_BOUNDS,
     sun: { dir: normalize([-0.52, 0.5, -0.69]) },
     locationAt(x, y, z) {

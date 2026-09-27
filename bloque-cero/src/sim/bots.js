@@ -110,6 +110,10 @@ export class BotSquad {
     on(g, 'fortifyStart', (op) => this._noise(op, op.body.pos, 'fortify', 18));
     on(g, 'reviveStart', (op) => this._noise(op, op.body.pos, 'revive', 6));
     on(g, 'wireRustle', (op) => this._noise(op, op.body.pos, 'wire', 14));
+    // rappel: el enganche, y la barricada o el cristal al entrar por la ventana
+    on(g, 'rappelHook', (op) => this._noise(op, op.body.pos, 'rappel', 12));
+    on(g, 'rappelBreach', (op, w) => this._noise(op, { x: w.x, y: (w.y0 + w.y1) / 2, z: w.z }, 'breach', 35));
+    on(g, 'rappelGlass', (op, w) => this._noise(op, { x: w.x, y: (w.y0 + w.y1) / 2, z: w.z }, 'glass', 22));
     on(g, 'explosion', (kind, p, spec, owner) => this._noise(owner, p, 'blast', 45));
     on(g, 'damaged', (t, ev) => this._hurt(t, ev));
     on(g, 'downed', (t, ev) => { this._hurt(t, ev); if (t.isBot) this.radio.say(t, 'downed', 'Estoy derribado', { force: true }); this._checkLastOne(); });

@@ -19,7 +19,7 @@ Es un único archivo HTML autónomo: no necesita servidor ni conexión.
 | F6 | Operadores 8 + 8 y contrajuego de gadgets | ✅ arsenal · plantilla de 16 · granadas y explosivos · gadgets defensivos · 16 habilidades · la defensa bot coloca gadgets y habilidades · el ataque bot los usa según la dificultad · contrajuego de la defensa bot y gadgets de acción |
 | F7 | Animaciones en primera y tercera persona, con la recarga por partes (antes F8) | ✅ recarga por partes en primera persona · resto de la primera persona · siluetas de los 16 · tercera persona por capas · muerte con física por partes · repetición de muerte |
 | F9 | Audio 3D con oclusión | ✅ paredes, suelos y rodeo por puertas y agujeros · ambiente · música en menús y últimos 30 s |
-| F10 | Miras y accesorios, rappel en Villa (tejado y fachada, también los bots), equilibrio de Élite, pulido y publicación | en curso: ✅ miras y accesorios |
+| F10 | Miras y accesorios, rappel en Villa (tejado y fachada, también los bots), equilibrio de Élite, pulido y publicación | en curso: ✅ miras y accesorios · ✅ rappel del jugador |
 | — | Mapa Residencia del Lago | pendiente |
 
 ## Arsenal (Fase 6)
@@ -470,6 +470,31 @@ Reglas de Siege, contra bots:
   merodeadores, el 58,9 % en Élite y el 55 % en Normal: por eso la defensa merodea con uno.
 - Durante la preparación el ataque aún no está desplegado: no se le puede disparar.
 
+## Rappel (Fase 10.2a)
+
+Los atacantes suben y bajan por las fachadas de la casa colgados de una cuerda (`src/sim/rappel.js`).
+
+- **Dónde**: siete tramos marcados con argollas cada 3 m en el pretil del tejado (a 8,1 m):
+  fachada sur (a los dos lados del balcón), norte (tres tramos), oeste y este (por encima del
+  tejado del garaje). Fuera quedan el balcón y el porche, la chimenea y el acceso al sótano, la
+  puerta trasera y la jardinera, y la escalera de mano.
+- **Engancharse**: **Espacio** al pie de la fachada mirándola (0,5 s) o en el pretil mirando hacia
+  fuera (1 s). En el pretil, Espacio hace rappel en vez de saltar al vacío; al pie de una ventana
+  baja, Espacio la salta como siempre.
+- **Colgado**: **W** sube a 1,5 m/s, **S** baja a 2,5 m/s y **A/D** van de lado a 1 m/s sin salir
+  del tramo. Arriba del todo los ojos asoman sobre el pretil y **Espacio** sube al tejado (0,8 s).
+  Al tocar el suelo te sueltas de pie; **C** te suelta en el aire (con el daño de caída de
+  siempre: desde unos 2,8 m; desde arriba, unos 75).
+- **Ventanas**: delante de una, **Espacio** entra (0,6 s) rompiendo el cristal. Si tiene barricada
+  (las ventanas empiezan con ella), la rompe al entrar (1,2 s, con mucho ruido: los bots lo oyen a
+  35 m); **V** también la rompe.
+- Colgado se dispara y se apunta, con la dispersión de andar. Nada de gadgets, habilidades, dron,
+  F, agacharse ni asomarse; el escudo baja. Si te derriban, caes.
+- **Quién**: el ataque en la acción (los bots aún no lo usan: F10.2b); en el campo de pruebas, tú.
+- **Se ve y se oye**: la cuerda del pretil al arnés, el cuerpo sentado en el arnés con los pies en
+  la pared, el mosquetón, la cuerda al bajar deprisa y las botas en la pared (los bots las oyen
+  como pasos). Un aviso abajo dice qué puedes hacer en cada momento.
+
 ## Bots (Fase 5)
 
 - **Navegación**: rejilla 2,5D de celdas de 0,5 m con varias superficies por columna (sótano,
@@ -578,9 +603,9 @@ o no la fuente:
 | Tecla | Acción |
 | --- | --- |
 | WASD / Mayús | Moverse / correr |
-| C / Z | Agacharse / cuerpo a tierra |
+| C / Z | Agacharse / cuerpo a tierra (C, colgado de la cuerda: soltarse) |
 | Q / E | Asomarse a izquierda / derecha (alterna, configurable) |
-| Espacio | Saltar obstáculo (alféizares, mesas, muros bajos) |
+| Espacio | Saltar obstáculo (alféizares, mesas, muros bajos); rappel al pie de una fachada o en el pretil; colgado, entrar por la ventana o subir al tejado |
 | Clic / clic derecho | Disparar / apuntar |
 | R | Recargar |
 | B | Modo de disparo (automático, ráfaga, tiro a tiro) |
@@ -631,6 +656,7 @@ node tools/smoke-audio.mjs [html]  # audio 3D: música del menú, viento y zumbi
 node tools/smoke-menu.mjs <carpeta> [html]  # el fondo del menú sin superficies oscuras (Baja, Media y Alta) y sin la primera persona
 node tools/medir-audio.mjs [motor]  # lo que sale por los altavoces (sin gráficos): disparos libres y tapados, de cerca y de lejos, y pasos
 node tools/smoke-accesorios.mjs <carpeta> [html]  # miras y accesorios: selección, primera persona, zoom, supresor, láser, panel O y capturas
+node tools/smoke-rappel.mjs <carpeta> [html]  # rappel: engancharse en la calle, subir, ventana con barricada, pretil, tejado y otro colgado en tercera persona
 node tools/perf-partida.mjs [html...]  # llamadas de dibujo, triángulos y CPU con 10 operadores a la vista (con 5 cayendo y lo que cuesta grabar)
 node tools/mapslice.mjs <carpeta> # cortes cenitales del mapa por planta
 ```

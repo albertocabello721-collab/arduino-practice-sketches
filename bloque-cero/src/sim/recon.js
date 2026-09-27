@@ -151,7 +151,7 @@ export class Recon {
 
   /** Lanza un dron delante de `op` (en la preparación, se deja en el suelo). */
   deployDrone(op, { thrown = true } = {}) {
-    if (this.dronesLeft(op) <= 0) return null;
+    if (this.dronesLeft(op) <= 0 || op.rappel) return null;
     const p = op.body.pos;
     const fx = -Math.sin(op.yaw), fz = -Math.cos(op.yaw);
     const x = p.x + fx * 0.6, z = p.z + fz * 0.6;

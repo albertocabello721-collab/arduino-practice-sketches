@@ -128,7 +128,7 @@ export class Gadgets {
   /** ¿Puede `op` usar ahora su gadget secundario (o su habilidad, con src = 'ability')? */
   canUse(op, src = 'gadget') {
     const cd = src === 'ability' ? op.abilityCd : op.gadgetCd;
-    return hasCharge(slotOf(op, src)) && op.state === 'alive' && !op.frozen && !op.channel && (cd || 0) <= 0;
+    return hasCharge(slotOf(op, src)) && op.state === 'alive' && !op.frozen && !op.channel && !op.rappel && (cd || 0) <= 0;
   }
 
   /**

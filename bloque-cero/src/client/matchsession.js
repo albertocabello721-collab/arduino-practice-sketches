@@ -440,7 +440,10 @@ export class MatchSession extends Session {
     // estado del operador visto y avisos (reanimar, plantar, inutilizar, fortificar)
     this.statusHud(view);
     let prompt = '';
-    if (p && p === view && p.state === 'alive') {
+    // rappel: colgado, lo que se puede hacer; al pie de una fachada o en el pretil, cómo engancharse
+    const rh = p && p === view && p.state === 'alive' && m.rappel ? m.rappel.hint(p) : '';
+    if (p && p === view && p.state === 'alive' && p.rappel) prompt = rh;
+    else if (p && p === view && p.state === 'alive') {
       if (p.channel && (p.channel.kind === 'plant' || p.channel.kind === 'disable')) hud.setRevive(p.channel.kind === 'plant' ? 'Plantando el desactivador' : 'Inutilizando el desactivador', p.channel.t / p.channel.total);
       else if (p.channel && p.channel.kind === 'gadget') hud.setRevive(`Colocando ${PLACE_LABEL[p.channel.what] || 'el gadget'}`, p.channel.t / p.channel.total);
       else if (!p.reviving && !this.game.findRevivable(p)) {
@@ -462,6 +465,7 @@ export class MatchSession extends Session {
           if (gp) prompt += ` · ${gp}`;
         }
         if (!prompt) prompt = kit();
+        if (!prompt) prompt = rh;
       }
       // anti run-out: cuenta atrás mientras estás fuera del edificio
       if (!prompt && side === 'def' && (m.phase === 'action' || m.phase === 'planted') && p.outT > 0) {

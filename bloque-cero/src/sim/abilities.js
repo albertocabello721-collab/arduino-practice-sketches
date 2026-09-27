@@ -64,7 +64,7 @@ export const ABILITY_READY = { thermal: true, breachround: true, remotesmoke: tr
 /** ¿Tiene `op` el escudo balístico levantado? (correr, plantar o reanimar lo bajan) */
 export function shieldUp(op) {
   return !!op.ability && op.ability.id === 'shield' && op.state === 'alive' && !op.frozen && !op.sprinting &&
-    !op.channel && !op.reviving && !op.vault && op.stance !== 'prone';
+    !op.channel && !op.reviving && !op.vault && !op.rappel && op.stance !== 'prone';
 }
 /** Caja del escudo: centro (x, z), alturas y orientación (la del cuerpo). */
 export function shieldBox(op) {

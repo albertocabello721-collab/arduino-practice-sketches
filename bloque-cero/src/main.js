@@ -7,6 +7,7 @@ import { createVillaWorld, buildVilla } from './world/maps/villa.js';
 import { WorldRenderer } from './render/worldrenderer.js';
 import { Effects } from './render/effects.js';
 import { Lasers } from './render/lasers.js';
+import { Ropes } from './render/ropes.js';
 import { ViewModel } from './render/viewmodel.js';
 import { PostFX } from './render/postfx.js';
 import { AudioEngine } from './audio/audio.js';
@@ -76,6 +77,7 @@ async function boot() {
   camera.rotation.order = 'YXZ';
   const effects = new Effects(scene, world, wr);
   const lasers = new Lasers(scene);   // haces de los láseres (F10.3)
+  const ropes = new Ropes(scene);     // cuerdas del rappel (F10.2a)
   const chars = new CharacterRenderer(scene, wr.uniforms, world);
   const props = new PropRenderer(scene, wr);
   const vm = new ViewModel();
@@ -117,7 +119,7 @@ async function boot() {
   let session = null;
   let lockFailed = false;
   const ctx = {
-    THREE, renderer, scene, camera, world, map, nav, wr, effects, lasers, chars, props, vm, post, audio, input, hud, settings, canvas,
+    THREE, renderer, scene, camera, world, map, nav, wr, effects, lasers, ropes, chars, props, vm, post, audio, input, hud, settings, canvas,
     shake: 0, damageFlash: 0, camEye: camera.position, hear: null, paused: false,
     hearing: new Hearing(world, camera.position),   // por dónde llega cada sonido a la cámara (F9)
     // la cámara salta al operador visto sin interpolar (cambio de vista, reaparición)
@@ -366,6 +368,7 @@ async function boot() {
     // los láseres encendidos (en la repetición de muerte, ninguno: serían los de ahora)
     const LG = s && s.game;
     lasers.update(LG ? LG.operators : [], world, LG ? LG.time : 0, v, camera, !!(s && s.replay && s.replay.active));
+    ropes.update(LG ? LG.operators : [], camera, !!(s && s.replay && s.replay.active));
     if (debugView.on) { camera.updateMatrixWorld(); debugView.update(dt, s, camera); }
     if (!s) props.clear();
     ctx.damageFlash = Math.max(0, ctx.damageFlash - dt * 1.4);

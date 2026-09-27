@@ -1,6 +1,6 @@
 // Operador: el cuerpo que controla un jugador o un bot. Movimiento táctico,
 // posturas (de pie, agachado, cuerpo a tierra), asomarse, saltar obstáculos,
-// trepar escaleras de mano, manejo del arma y estado de combate
+// trepar escaleras de mano, rappel (sim/rappel.js), manejo del arma y estado de combate
 // (vivo → derribado con sangrado → muerto). Recibe "intenciones" cada tick
 // (del teclado o de la IA) y emite eventos para render, audio e IA.
 import { Body, STANCES, stepBody, tryResize, findVault, woodInVault, boxFree } from './physics.js';
@@ -53,6 +53,7 @@ export class Operator {
     this.ads = 0;            // 0..1
     this.sprinting = false;
     this.vault = null;       // {t, dur, from, to}
+    this.rappel = null;      // colgado de una cuerda (sim/rappel.js): {seg, s, y, phase, ...}
     this.intent = makeIntent();
     const loadout = opts.loadout || ['ar', 'pistol'];
     // (opts.kits: mira y accesorios de cada arma, por su id; sin ellos, los de serie)
@@ -200,6 +201,11 @@ export class Operator {
       this.updatePose(dt);
       return;
     }
+    // ---------------- rappel: colgado de la cuerda (derribado, se suelta y cae)
+    if (this.rappel) {
+      if (this.state === 'alive' && game.rappel) { this._rappelTick(dt, game); return; }
+      if (game.rappel) game.rappel.release(this); else this.rappel = null;
+    }
     const downed = this.state === 'downed';
     // ---------------- derribado: sangrado
     if (downed) {
@@ -236,6 +242,9 @@ export class Operator {
     const dl = Math.hypot(ddx, ddz), maxD = accel * dt;
     if (dl > maxD) { b.vel.x += ddx / dl * maxD; b.vel.z += ddz / dl * maxD; } else { b.vel.x = tx; b.vel.z = tz; }
     if (I.vault && !downed && !busy && b.onGround && this.stance !== 'prone') {
+      // en el pretil del tejado mirando hacia fuera, rappel (antes que saltarlo)
+      const RP = game.rappel, spot = RP ? RP.hookSpot(this) : null;
+      if (spot && spot.from === 'top' && RP.tryHook(this)) { I.vault = false; this.updatePose(dt); return; }
       let t = findVault(world, b, -sy, -cy);
       // barricada rota (quedan astillas): se salta a través y se arrastran
       if (!t) {
@@ -251,6 +260,8 @@ export class Operator {
         this.updatePose(dt);
         return;
       }
+      // al pie de una fachada de rappel, sin nada que saltar delante
+      if (spot && spot.from === 'ground' && RP.tryHook(this)) { I.vault = false; this.updatePose(dt); return; }
     }
     I.vault = false;
     const r = stepBody(world, b, dt, { bounds: game.bounds, climbInput: !downed && (b.onLadder || this._nearLadder) ? I.moveZ : 0 });
@@ -290,6 +301,31 @@ export class Operator {
     I.melee = false;
     // ---------------- arma
     this._weaponTick(dt, game, downed || busy);
+    this.updatePose(dt);
+  }
+
+  // Colgado de la cuerda (o enganchándose, subiendo al tejado o entrando por una ventana): se
+  // apunta, se dispara, se recarga y se da culatazos; nada de gadgets, habilidades ni F.
+  _rappelTick(dt, game) {
+    const I = this.intent;
+    this.lean = 0; this.leanAllowed = 0; this.sprinting = false;
+    game.rappel.tick(this, dt);
+    const hanging = !!this.rappel && this.rappel.phase === 'hang';
+    if (!this.rappel) this.moveSpeed = 0;
+    const w = this.weapon, adsRate = 1 / Math.max(0.1, w.def.adsTime);
+    this.ads = clamp(this.ads + (I.ads && hanging && w.ready ? adsRate : -adsRate * 1.5) * dt, 0, 1);
+    I.interact = false; I.gadget = false; I.ability = false;
+    if (!hanging) I.vault = false;
+    this.eyeHeight = damp(this.eyeHeight, STANCES[this.stance].eye, 13, dt);
+    this.meleeT = Math.max(0, this.meleeT - dt);
+    if (I.melee && hanging && this.meleeT <= 0) {
+      this.meleeT = 0.8;
+      this.weapon.cancelReload();
+      this.ads = Math.min(this.ads, 0.2);
+      game.melee(this);
+    }
+    I.melee = false;
+    this._weaponTick(dt, game, !hanging);
     this.updatePose(dt);
   }
 
@@ -336,6 +372,10 @@ export class Operator {
     p.weaponCls = w.def.cls;
     p.eyeHeight = this.eyeHeight;
     p.crawl = downed ? Math.min(1, this.moveSpeed / 0.4) : 0;
+    const R = this.rappel, hang = !!R && (R.phase === 'hang' || R.phase === 'hookGround' || R.phase === 'hookTop');
+    p.rappel += ((hang ? 1 : 0) - p.rappel) * (1 - Math.exp(-dt * 12));
+    if (R) { p.wallX = R.seg.nIn.x; p.wallZ = R.seg.nIn.z; p.wallDist = R.seg.plane - R.seg.face; }
+    if (hang) p.walkAmount = 0;
     this._poseLayers(p, dt);
     computePose(p, null, this.rig);
   }
@@ -352,6 +392,7 @@ export class Operator {
     if (alive && ch && HAND_CHANNELS[ch.kind]) { kind = ch.kind; t = ch.t; dur = ch.total; }
     else if (alive && this.reviving) { kind = 'revive'; t = this.reviving.reviveT || 0; dur = REVIVE_TIME; }
     else if (alive && this.vault) { kind = 'vault'; t = this.vault.t; dur = this.vault.dur; }
+    else if (alive && this.rappel && (this.rappel.phase === 'climbTop' || this.rappel.phase === 'enter' || this.rappel.phase === 'breach')) { kind = 'vault'; t = this.rappel.t; dur = this.rappel.dur; }
     else if (alive && this.animT.throw < THROW_ANIM) { kind = 'throw'; t = this.animT.throw; dur = THROW_ANIM; }
     else if (alive && this.animT.drone < DRONE_ANIM) { kind = 'drone'; t = this.animT.drone; dur = DRONE_ANIM; }
     this.animT.throw += dt; this.animT.drone += dt;
@@ -371,7 +412,7 @@ export class Operator {
     p.equip = alive && w.equipT > 0 && w.def.equip > 0 ? smooth(Math.min(1, w.equipT / w.def.equip)) : 0;
     p.kick = alive && this.sinceShot < 0.14 ? 1 - this.sinceShot / 0.14 : 0;
     p.breath += dt;
-    p.vault = this.vault ? Math.min(1, this.vault.t / this.vault.dur) : 0;
+    p.vault = this.vault ? Math.min(1, this.vault.t / this.vault.dur) : kind === 'vault' && this.rappel ? Math.min(1, this.rappel.t / this.rappel.dur) : 0;
   }
 
   _clampLean(world, lean) {
@@ -483,8 +524,9 @@ export class Operator {
   currentSpread() {
     const d = this.weapon.def;
     const base = d.spreadHip + (d.spreadAds - d.spreadHip) * this.ads;
-    const move = Math.min(1, this.moveSpeed / 3.3) * d.spreadMove * (1 - this.ads * 0.6);
-    const air = this.body.onGround ? 0 : 2;
+    // (colgado de la cuerda, la de andar y sin la del aire)
+    const move = (this.rappel ? 1 : Math.min(1, this.moveSpeed / 3.3)) * d.spreadMove * (1 - this.ads * 0.6);
+    const air = this.body.onGround || this.rappel ? 0 : 2;
     const stance = this.stance === 'crouch' ? 0.85 : this.stance === 'prone' ? 0.7 : 1;
     return (base + move + air + this.weapon.bloom * (1 - this.ads * 0.8)) * stance;
   }

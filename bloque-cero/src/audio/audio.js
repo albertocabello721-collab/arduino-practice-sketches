@@ -637,6 +637,19 @@ export class AudioEngine {
     this._tone(g, t, { f0: 3900, f1: 3850, a: 0.05, peak: 0.6, d: 2.8 * strength + 0.4, type: 'sine' });
   }
   // Roce metálico del alambre de púas.
+  // Rappel (F10.2a): el mosquetón al engancharse ('hook') y la cuerda al bajar deprisa ('slide').
+  rappel(kind, pos, local = false, occl = 0) {
+    if (!this.ctx) return;
+    const t = this.ctx.currentTime;
+    const out = this._out(local ? null : pos, { gain: local ? 0.5 : 0.8, ref: 2, rolloff: 1.3, occl, reverb: 0.25, direct: local });
+    if (kind === 'hook') {
+      this._tone(out, t, { f0: 2400, f1: 2300, a: 0.001, peak: 0.25, d: 0.08, type: 'triangle' });
+      this._burst(out, t + 0.01, { type: 'bandpass', freq: 3200, q: 6, a: 0.0005, peak: 0.5, d: 0.02 });
+      this._burst(out, t + 0.05, { type: 'lowpass', freq: 900, q: 0.7, a: 0.02, peak: 0.25, d: 0.25, pink: true });
+    } else if (kind === 'slide') {
+      this._burst(out, t, { type: 'bandpass', freq: 1300, q: 1.5, a: 0.03, peak: 0.28, d: 0.4, pink: true });
+    }
+  }
   wireRustle(pos, occl = 0) {
     if (!this.ctx) return;
     const t = this.ctx.currentTime;

@@ -304,6 +304,18 @@ export function bindGameFx(ctx, game, view) {
   on('switch', (op) => { if (op === viewer()) audio.weaponFoley('switch'); });
   on('land', (op, v) => { if (op === viewer()) { audio.weaponFoley('land'); vm.onLand(v); } });
   on('vault', (op) => { if (op === viewer()) audio.weaponFoley('vault'); });
+  // rappel (F10.2a): el enganche, la cuerda al bajar, y la barricada y el cristal al entrar
+  const ropeAt = (op, h) => ({ x: op.body.pos.x, y: op.body.pos.y + h, z: op.body.pos.z });
+  on('rappelHook', (op) => { const at = ropeAt(op, 1.2), l = op === viewer(); audio.rappel('hook', at, l, l ? 0 : heard(at)); });
+  on('rappelSlide', (op) => { const at = ropeAt(op, 1.0), l = op === viewer(); audio.rappel('slide', at, l, l ? 0 : heard(at)); });
+  const winAt = (w) => ({ x: w.x, y: (w.y0 + w.y1) / 2, z: w.z });
+  on('rappelBreach', (op, w) => {
+    const at = winAt(w);
+    audio.breakMaterial(SND.wood, at, 12, op === viewer() ? 0 : heard(at));
+    if (op === viewer()) ctx.shake = Math.min(1.2, ctx.shake + 0.6);
+  });
+  on('rappelGlass', (op, w) => { const at = winAt(w); audio.breakMaterial(SND.glass, at, 6, op === viewer() ? 0 : heard(at)); });
+  on('rappelBlocked', (op, why) => { if (op === me()) { audio.ping('deny'); hud.toast(why, 1.4); } });
 
   return () => { for (const f of offs) f(); effects.onDropLand = null; };
 }

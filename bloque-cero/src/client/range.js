@@ -6,6 +6,7 @@ import { bindGameFx } from './fx.js';
 import { FeedController } from './feeds.js';
 import { Fortify } from '../sim/fortify.js';
 import { Recon } from '../sim/recon.js';
+import { Rappel } from '../sim/rappel.js';
 import { Game } from '../sim/game.js';
 import { Operator } from '../sim/operator.js';
 import { WeaponState, WEAPONS } from '../sim/weapons.js';
@@ -39,6 +40,7 @@ export class RangeSession extends Session {
     this.recon = new Recon(this._game, { cameras: map.cameras || [] });
     this.recon.reset({ defTeam: 1, site: null });
     this.recon.left.set(this._player, Infinity);
+    this.rappel = new Rappel(this._game, { canRappel: (op) => op === this._player });
     this.feed = new FeedController(ctx, () => this.recon);
     this.promptText = '';
     chars.clear();
@@ -143,7 +145,7 @@ export class RangeSession extends Session {
     this.syncProps(dt, alpha, { recon: this.recon, fort: this.fort, feed: F, myTeam: 0 });
     F.frame(dt, { canExit: true });
     this.statusHud(this.viewOp);
-    this.promptText = this.feed.active ? '' : (this.fortifyHud(this.fort, this._player) || this.lineupName());
+    this.promptText = this.feed.active ? '' : (this.rappel.hint(this._player) || this.fortifyHud(this.fort, this._player) || this.lineupName());
     this.ctx.hud.hints(!this.feed.active);
     this.ctx.hud.setTopbar('Campo de pruebas', 'Fase 4');
   }
@@ -159,6 +161,7 @@ export class RangeSession extends Session {
   }
   respawn() {
     const p = this._player, { audio, hud } = this.ctx;
+    p.rappel = null;
     p.state = 'alive'; p.hp = p.maxHp; p.deathT = 0; p.bleedT = 0;
     p.pose.dead = 0; p.pose.downed = 0;
     p.stance = 'stand'; p.body.height = 1.8; this.control.reset('stand');
@@ -168,6 +171,7 @@ export class RangeSession extends Session {
     hud.setDeath(false); hud.setDowned(false);
   }
   reset() {
+    this.rappel.release(this._player);
     this.ctx.world.resetToPristine();
     this.ctx.effects.clearAll();
     this.feed.exit();
