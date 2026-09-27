@@ -115,7 +115,7 @@ async function boot() {
   let lockFailed = false;
   const ctx = {
     THREE, renderer, scene, camera, world, map, nav, wr, effects, chars, props, vm, post, audio, input, hud, settings, canvas,
-    shake: 0, damageFlash: 0, camEye: camera.position, occlusion: null,
+    shake: 0, damageFlash: 0, camEye: camera.position, occlusion: null, paused: false,
     // la cámara salta al operador visto sin interpolar (cambio de vista, reaparición)
     resetView() { view.op = null; },
     place(x, y, z, yaw, pitch = 0) {
@@ -274,6 +274,7 @@ async function boot() {
     renderer.info.reset();
     const s = state.mode === 'play' ? session : null;
     const paused = !!s && s.wantsPointer && !input.locked && !lockFailed;
+    ctx.paused = paused;
     hud.pause(paused);
     let mouse = { dx: 0, dy: 0 };
     if (s) {
@@ -362,8 +363,11 @@ async function boot() {
     post.grade.uniforms.uGas.value = G && G.gasAt && !thermal ? G.gasAt(camera.position) : 0;
     post.grade.uniforms.uBlind.value = v && v.blindT > 0 ? Math.min(1, v.blindT / 1.2) : 0;
     if (s) s.frame(dt, acc / TICK);
+    // (en la repetición de muerte, el arma del que te mató)
+    const rv = !v && s && s.replayView ? s.replayView : null;
     if (v) vm.update(dt, v, lightS, v === s.player ? mouse.dx || 0 : 0, v === s.player ? mouse.dy || 0 : 0);
-    vm.setShown(!!v && v.state !== 'dead');
+    else if (rv) vm.update(paused ? 0 : dt, rv, lightS, 0, 0);
+    vm.setShown((!!v && v.state !== 'dead') || !!rv);
     post.render(dt);
     // HUD del operador visto
     hud.playerHud(!!v);

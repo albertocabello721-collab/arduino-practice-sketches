@@ -407,6 +407,7 @@ const SLING = new THREE.Matrix4().makeBasis(new THREE.Vector3(0, 0, 1), new THRE
 const HOLSTER_OUT = 0.2;
 
 const UP = new THREE.Vector3(0, 1, 0);
+const NO_BLOB = { on: false };
 
 function rigToMatrices(rig, out) {
   for (let i = 0; i < BONE_COUNT; i++) {
@@ -596,23 +597,77 @@ export class CharacterRenderer {
         v.mesh.material.transparent = hot;
         v.mesh.renderOrder = hot ? 20 : 0;
       }
-      // mancha de contacto (bajo el cuerpo caído, a lo largo de él)
-      if (!hidden && nb < 16) {
+      // mancha de contacto (bajo el cuerpo caído, a lo largo de él); se apunta aunque no se pinte
+      // (la repetición de muerte la necesita también del jugador)
+      const B = v.blob || (v.blob = { on: false, x: 0, y: 0, z: 0, yaw: 0, sx: 0, sz: 0 });
+      B.on = !op.frozen;
+      if (B.on) {
         const p = op.body.pos;
         const lying = op.state !== 'alive' || op.stance === 'prone';
-        let yaw = op.yaw;
         if (v.rag) {
           const r = v.rag, a = r.at(PT.pelvis), hd = r.at(PT.head), fl = r.at(PT.anL), fr = r.at(PT.anR);
-          this._v.set(a.x, r.floorY() + 0.012, a.z);
-          yaw = Math.atan2(hd.x - (fl.x + fr.x) / 2, hd.z - (fl.z + fr.z) / 2);
-        } else this._v.set(p.x, p.y + 0.012, p.z);
-        this._q.setFromAxisAngle(UP, yaw);
-        this._s.set(lying ? 0.9 : 0.75, 1, lying ? 1.9 : 0.75);
-        this._m.compose(this._v, this._q, this._s);
-        this.blobs.setMatrixAt(nb++, this._m);
+          B.x = a.x; B.y = r.floorY() + 0.012; B.z = a.z;
+          B.yaw = Math.atan2(hd.x - (fl.x + fr.x) / 2, hd.z - (fl.z + fr.z) / 2);
+        } else { B.x = p.x; B.y = p.y + 0.012; B.z = p.z; B.yaw = op.yaw; }
+        B.sx = lying ? 0.9 : 0.75; B.sz = lying ? 1.9 : 0.75;
       }
+      if (!hidden && nb < 16) this._blobAt(nb++, B.x, B.y, B.z, B.yaw, B.sx, B.sz);
     }
     this.blobs.count = nb;
     this.blobs.instanceMatrix.needsUpdate = true;
   }
+  _blobAt(i, x, y, z, yaw, sx, sz) {
+    this._v.set(x, y, z);
+    this._q.setFromAxisAngle(UP, yaw);
+    this._s.set(sx, 1, sz);
+    this._m.compose(this._v, this._q, this._s);
+    this.blobs.setMatrixAt(i, this._m);
+  }
+
+  // ------------------------------------------------------------ repetición de muerte (F7.6)
+  /**
+   * Copia los huesos de `op` tal como se pintan ahora (20 × 3×4) en `out` desde `o` y devuelve su
+   * mancha de contacto ({on, x, y, z, yaw, sx, sz}); null si no se pinta.
+   */
+  capture(op, out, o) {
+    const v = this.views.get(op.id);
+    if (!v) return null;
+    const b = v.mesh.material.uniforms.uBones.value;
+    for (let i = 0; i < BONE_COUNT; i++) {
+      const s = i * 16, d = o + i * 12;
+      out[d] = b[s]; out[d + 1] = b[s + 1]; out[d + 2] = b[s + 2];
+      out[d + 3] = b[s + 4]; out[d + 4] = b[s + 5]; out[d + 5] = b[s + 6];
+      out[d + 6] = b[s + 8]; out[d + 7] = b[s + 9]; out[d + 8] = b[s + 10];
+      out[d + 9] = b[s + 12]; out[d + 10] = b[s + 13]; out[d + 11] = b[s + 14];
+    }
+    return v.blob || NO_BLOB;
+  }
+  /**
+   * Pinta lo grabado encima de lo de ahora (después de update): [{op, bones (20 × 3×4), vis,
+   * blob: [x, y, z, yaw, sx, sz] | null}]. Los que no están en la lista no se ven.
+   */
+  applyReplay(list) {
+    for (const v of this.views.values()) v.mesh.visible = false;
+    let nb = 0;
+    for (const e of list) {
+      const v = this.views.get(e.op.id);
+      if (!v) continue;
+      const b = v.mesh.material.uniforms.uBones.value, src = e.bones;
+      for (let i = 0; i < BONE_COUNT; i++) {
+        const s = i * 12, d = i * 16;
+        b[d] = src[s]; b[d + 1] = src[s + 1]; b[d + 2] = src[s + 2]; b[d + 3] = 0;
+        b[d + 4] = src[s + 3]; b[d + 5] = src[s + 4]; b[d + 6] = src[s + 5]; b[d + 7] = 0;
+        b[d + 8] = src[s + 6]; b[d + 9] = src[s + 7]; b[d + 10] = src[s + 8]; b[d + 11] = 0;
+        b[d + 12] = src[s + 9]; b[d + 13] = src[s + 10]; b[d + 14] = src[s + 11]; b[d + 15] = 1;
+      }
+      v.mesh.material.uniformsNeedUpdate = true;
+      v.mesh.material.uniforms.uHit.value = 0;
+      v.mesh.visible = e.vis;
+      if (e.blob && nb < 16) { const B = e.blob; this._blobAt(nb++, B[0], B[1], B[2], B[3], B[4], B[5]); }
+    }
+    this.blobs.count = nb;
+    this.blobs.instanceMatrix.needsUpdate = true;
+  }
+  /** Fin de la repetición: en el siguiente update todos vuelven a pintarse como están ahora. */
+  endReplay() { for (const v of this.views.values()) v.ragDrawn = false; }
 }

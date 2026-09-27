@@ -17,7 +17,7 @@ Es un único archivo HTML autónomo: no necesita servidor ni conexión.
 | F4 | Preparación: refuerzos, barricadas, trampillas, drones, cámaras, cuerpo a cuerpo | ✅ |
 | F5 | Bots: navegación, percepción, combate, tácticas por bando, órdenes (H), marcas (T), chat de equipo, depuración (P) | ✅ |
 | F6 | Operadores 8 + 8 y contrajuego de gadgets | ✅ arsenal · plantilla de 16 · granadas y explosivos · gadgets defensivos · 16 habilidades · la defensa bot coloca gadgets y habilidades · el ataque bot los usa según la dificultad · contrajuego de la defensa bot y gadgets de acción |
-| F7 | Animaciones en primera y tercera persona, con la recarga por partes (antes F8) | ✅ recarga por partes en primera persona · resto de la primera persona · siluetas de los 16 · tercera persona por capas · muerte con física por partes |
+| F7 | Animaciones en primera y tercera persona, con la recarga por partes (antes F8) | ✅ recarga por partes en primera persona · resto de la primera persona · siluetas de los 16 · tercera persona por capas · muerte con física por partes · repetición de muerte |
 | F9 | Audio 3D con oclusión | pendiente |
 | F10 | Pulido, pruebas de partidas completas y publicación (con rappel en Villa: tejado y fachada) | pendiente |
 | — | Mapa Residencia del Lago | pendiente |
@@ -116,6 +116,24 @@ sin doblarse al revés.
 - Es solo dibujo: la simulación, las zonas de impacto y las reglas no cambian (a un muerto no le
   dan las balas). Las mismas llamadas de dibujo y los mismos triángulos que antes; un cuerpo
   cayendo cuesta unos 35 µs por fotograma (la primera vez algo más, mientras se compila).
+- La cámara de muerte mira a donde cae el cuerpo; en pausa (Esc), los que caen se quedan quietos.
+
+### Repetición de muerte (Fase 7.6)
+
+En partida, si te mata otro operador, se repiten los 4 s anteriores y medio segundo después (te
+ves caer) desde sus ojos: con su arma en primera persona, su puntería y su zoom si apuntaba, sus
+disparos (fogonazo, trazadoras y sonido) y tú todavía de pie. Abajo, una tarjeta con su nombre, su
+operador, su arma, la vida que le quedó y la distancia. **Espacio** la salta. Al terminar se pasa
+directo a observar a un compañero (o a las cámaras o los drones, con 5). Si no te mató nadie (una
+caída, tu propia granada, desangrarte), no hay repetición y se ven 3 s tu cuerpo, como antes.
+
+- Nada de vídeo: el dibujo guarda sin parar los últimos 4,3 s como datos, 30 muestras por segundo
+  (`src/client/replay.js`): de cada operador, sus huesos tal como se dibujan, sus ojos, hacia dónde
+  mira, si apunta, su arma y su recarga; y los disparos y los impactos. Ocupa 1,35 MB y cada muestra
+  cuesta unos 16 µs.
+- La repetición pinta esos datos con las mismas mallas (las mismas llamadas de dibujo) mientras la
+  partida sigue por detrás. Las paredes se ven como están ahora, y las marcas del mundo no salen.
+- La simulación no se toca: el equilibrio es el mismo.
 
 ### Recarga por partes (Fase 7.1)
 
@@ -546,7 +564,8 @@ node tools/smoke-manos.mjs <carpeta>  # cambio de arma, inspeccionar, reforzar, 
 node tools/smoke-siluetas.mjs <carpeta>  # los 16 de cerca (frente, espalda, perfil, arma colgada) y a 25 m
 node tools/smoke-tercera.mjs <carpeta>  # tercera persona: recarga por partes (y lo que cae), plantar, reforzar y lanzar
 node tools/smoke-muerte.mjs <carpeta>  # muerte con física: de frente, contra una pared, en la escalera, explosión y doce a la vez
-node tools/perf-partida.mjs [html...]  # llamadas de dibujo, triángulos y CPU con 10 operadores a la vista (y con 5 cayendo)
+node tools/smoke-repeticion.mjs <carpeta>  # repetición de muerte: desde el que te mata, tarjeta, después a observar y Espacio
+node tools/perf-partida.mjs [html...]  # llamadas de dibujo, triángulos y CPU con 10 operadores a la vista (con 5 cayendo y lo que cuesta grabar)
 node tools/mapslice.mjs <carpeta> # cortes cenitales del mapa por planta
 ```
 

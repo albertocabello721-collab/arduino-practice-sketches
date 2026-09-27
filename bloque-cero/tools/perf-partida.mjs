@@ -47,6 +47,15 @@ async function measure(file) {
     let t = performance.now();
     for (let i = 0; i < N; i++) ctx.chars.update(1 / 60, me, bc.camera.position);
     const chars = (performance.now() - t) / N;
+    // la repetición de muerte graba 30 muestras por segundo (lo que cuesta cada una)
+    let rec = null;
+    const RP = bc.session.replay;
+    if (RP) {
+      for (let i = 0; i < 60; i++) { RP.buf.next = -Infinity; RP.record(bc.match.time + i / 30, bc.match.game); }
+      t = performance.now();
+      for (let i = 0; i < N; i++) { RP.buf.next = -Infinity; RP.record(bc.match.time + 2 + i / 30, bc.match.game); }
+      rec = (performance.now() - t) / N;
+    }
     // el arma, recargando (la capa de la recarga por partes incluida)
     const w = me.weapon;
     w.ammo = Math.min(w.ammo, 5); w.cancelReload?.(); me.intent.reload = true; window.__step(1 / 60);
@@ -82,10 +91,10 @@ async function measure(file) {
       rounds.push(+((performance.now() - t) / 30).toFixed(3));
     }
     const falling2 = rounds.join(' / ');
-    return { calls, tris, chars, vm, pose, tick, falling, falling2, dead, render: med(ren) };
+    return { calls, tris, chars, rec, vm, pose, tick, falling, falling2, dead, render: med(ren) };
   });
   const f = (x, d = 3) => x.toFixed(d);
-  console.log(`${path.basename(file).padEnd(22)} ${r.calls} llamadas · ${(r.tris / 1000).toFixed(0)}k triángulos · personajes ${f(r.chars)} ms (con ${r.dead} cayendo ${f(r.falling)}, después ${r.falling2}) · arma ${f(r.vm)} ms por fotograma · poses ${f(r.pose)} ms · tick ${f(r.tick)} ms${errors.length ? ' · errores: ' + errors.join(' | ') : ''}`);
+  console.log(`${path.basename(file).padEnd(22)} ${r.calls} llamadas · ${(r.tris / 1000).toFixed(0)}k triángulos · personajes ${f(r.chars)} ms (con ${r.dead} cayendo ${f(r.falling)}, después ${r.falling2}) ${r.rec != null ? ` · grabar ${f(r.rec)} ms por muestra` : ''} · arma ${f(r.vm)} ms por fotograma · poses ${f(r.pose)} ms · tick ${f(r.tick)} ms${errors.length ? ' · errores: ' + errors.join(' | ') : ''}`);
   await page.close();
 }
 for (const f of files) await measure(f);

@@ -12,10 +12,11 @@ import { Match } from '../sim/match.js';
 import { BotSquad } from '../sim/bots.js';
 import { operatorLook } from '../render/character.js';
 import { PT } from '../render/ragdoll.js';
+import { DeathReplay } from './replay.js';
 import { MatchUI } from '../ui/matchui.js';
 import { BONE } from '../sim/skeleton.js';
 
-const DEATH_CAM = 3.0;   // segundos mirando tu propio cuerpo antes de observar a un compañero
+const DEATH_CAM = 3.0;   // segundos mirando tu propio cuerpo antes de observar a un compañero (si no hay repetición)
 
 export class MatchSession extends Session {
   constructor(ctx, opts = {}) {
@@ -34,7 +35,10 @@ export class MatchSession extends Session {
     this.disposers.push(() => this.wheel.close());
     this.holdFire = false;       // tras elegir en la rueda con clic, no disparar hasta soltar el botón
     this.deadAt = -1;
+    this.deathCamUntil = -1;   // hasta cuándo se mira tu cuerpo (sin repetición de muerte)
     this.spectating = null;
+    this.replay = new DeathReplay(ctx);
+    this._replayCam = { pose: () => this.replay.pose(this.ctx.settings.fov) };
     this.beepT = 0;
     this.lastTick = -1;
     this.promptText = '';
@@ -44,7 +48,13 @@ export class MatchSession extends Session {
       me: () => this.match.player,
       onMeDowned: () => { this.control.stance = 'prone'; this.feed.exit(); },
       onMeRevived: () => { this.control.stance = 'crouch'; },
-      onMeKilled: () => { this.deadAt = this.match.time; this.feed.exit(); hud.setDeath(true, `Observarás a tus compañeros · 5 ${this.mySide() === 'atk' ? 'drones' : 'cámaras'}`); },
+      onMeKilled: (ev) => {
+        this.deadAt = this.match.time; this.feed.exit();
+        // te mató un operador: repetición desde sus ojos y después directo a observar; si no
+        // (una caída, tu propia granada), 3 s mirando tu cuerpo, como siempre
+        if (this.replay.start(this.player, ev, this.match.time)) { this.deathCamUntil = Infinity; hud.setDeath(false); }
+        else { this.deathCamUntil = this.match.time + DEATH_CAM; hud.setDeath(true, `Observarás a tus compañeros · 5 ${this.mySide() === 'atk' ? 'drones' : 'cámaras'}`); }
+      },
     }));
     this._bindMatch();
     hud.setMode('match');
@@ -66,7 +76,7 @@ export class MatchSession extends Session {
     const p = m.player;
     if (!p) return null;
     if (p.state !== 'dead') return p;
-    if (m.time - this.deadAt < DEATH_CAM) return null;          // cámara de muerte (libre)
+    if (this._dying()) return null;                             // repetición o cámara de muerte (libre)
     if (!this.spectating || this.spectating.state === 'dead') this.spectating = this._nextMate(null);
     return this.spectating || null;
   }
@@ -75,6 +85,7 @@ export class MatchSession extends Session {
     const m = this.match;
     if (!m.running) return null;
     if (this.feed.active) return this.feed;
+    if (this.replay.active) return this._replayCam;
     const p = this.player;
     if (!p || p.state !== 'dead') return null;
     // detrás y por encima, mirando a donde cae el cuerpo (con la física por partes puede acabar
@@ -83,6 +94,28 @@ export class MatchSession extends Session {
     const c = r ? r.at(PT.pelvis) : b, y = r ? Math.min(b.y, r.floorY()) : b.y;
     const pose = { x: c.x + Math.sin(p.yaw) * 1.5, y: y + 2.1, z: c.z + Math.cos(p.yaw) * 1.5, yaw: p.yaw, pitch: -0.95, roll: 0, fov: this.ctx.settings.fov, feed: 0, staticK: 0 };
     return { pose: () => pose };
+  }
+
+  /** Muerto y aún en la repetición o en los segundos que se mira tu cuerpo. */
+  _dying() {
+    const p = this.player;
+    return !!p && p.state === 'dead' && (this.replay.active || this.match.time < this.deathCamUntil);
+  }
+  /** Arma en primera persona durante la repetición (la del que te mató), o null. */
+  get replayView() { return this.replay.active ? this.replay.vmOp : null; }
+  // Repetición de muerte: graba lo de este fotograma (ya pintado) y, si está en marcha, la pinta
+  // encima; al terminar (o si se acaba la ronda), directo a observar.
+  _replayFrame(dt) {
+    const m = this.match, R = this.replay;
+    if (m.running) R.record(m.time, m.game);
+    if (!R.active) return;
+    const live = m.running && (m.phase === 'prep' || m.phase === 'action' || m.phase === 'planted');
+    if (!live || !R.frame(this.ctx.paused ? 0 : dt)) this._endReplay();
+  }
+  _endReplay() {
+    this.replay.stop();
+    this.deathCamUntil = this.match.time;
+    this.ctx.resetView();
   }
 
   _nextMate(cur) {
@@ -114,7 +147,8 @@ export class MatchSession extends Session {
       hud.setDeath(false); hud.setDowned(false); hud.setRevive(null, 0);
       this.ui.hideBanner();
       this.ui.setPrepInfo(null);
-      this.deadAt = -1; this.spectating = null;
+      this.deadAt = -1; this.deathCamUntil = -1; this.spectating = null;
+      this.replay.reset();
       this.control.reset('stand');
       input.exitLock();
       hud.show(false);
@@ -183,6 +217,10 @@ export class MatchSession extends Session {
     });
     // si te hieren mientras miras un dron o una cámara, vuelves a tu cuerpo
     onGame('damaged', (t) => { if (t === this.player && this.feed.active && m.phase !== 'prep') this.feed.exit(); });
+    // la repetición de muerte guarda los disparos y los impactos
+    onGame('shot', (op, w, eye, fwd, results) => this.replay.onShot(m.time, op, w, eye, results));
+    onGame('damaged', (t, ev) => this.replay.onHit(m.time, t, ev));
+    onGame('killed', (t, ev) => this.replay.onHit(m.time, t, ev));
   }
 
   // ------------------------------------------------------------------ selección (desde la interfaz)
@@ -266,8 +304,10 @@ export class MatchSession extends Session {
   onKey() {
     const { input, audio, hud } = this.ctx;
     const m = this.match, p = this.player;
+    // repetición de muerte: Espacio la salta (y no cuenta para nada más)
+    if (this.replay.active && input.pressed('vault')) { this._endReplay(); return; }
     // observar: clic o espacio para cambiar de compañero (o de dron en la preparación)
-    if (p && p.state === 'dead' && m.running && m.time - this.deadAt >= DEATH_CAM && !this.feed.active) {
+    if (p && p.state === 'dead' && m.running && !this._dying() && !this.feed.active) {
       if (input.mouseClicked(0) || input.pressed('vault')) { this.spectating = this._nextMate(this.spectating); this.ctx.resetView(); }
     }
     if (this.feed.mode === 'drone' && !this.feed.piloting && input.mouseClicked(0)) {
@@ -293,7 +333,7 @@ export class MatchSession extends Session {
     }
     // 5: dron (ataque) o cámaras (defensa); muerto, tras la cámara de muerte, también
     const live = m.phase === 'prep' || m.phase === 'action' || m.phase === 'planted';
-    if (p && p.state === 'dead' && live && m.time - this.deadAt >= DEATH_CAM) {
+    if (p && p.state === 'dead' && live && !this._dying()) {
       if (input.pressed('drone')) {
         if (this.feed.active) { this.feed.exit(); this.ctx.resetView(); }
         else if (this.mySide() === 'atk') {
@@ -358,6 +398,7 @@ export class MatchSession extends Session {
     this._burnFx(dt);
     this._electricFx(dt);
     if (m.phase === 'select') { this.ui.updateSelect(m); return; }
+    this._replayFrame(dt);
     if (!m.running) { this.ui.updateMarkers([]); this.ui.showScoreboard(m, false); this.feed.frame(dt); return; }
     this._feedRules();
     this.ui.updateTop(m, dt);
@@ -419,9 +460,9 @@ export class MatchSession extends Session {
     // observar
     if (p && p.state === 'dead' && view && view !== p) this.ui.setSpectate(`Observando a <b>${view.name}</b> · clic para cambiar · 5 ${side === 'atk' ? 'drones' : 'cámaras'}`);
     else this.ui.setSpectate(null);
-    if (p && p.state === 'dead' && m.time - this.deadAt >= DEATH_CAM) hud.setDeath(false);
-    // marcadores
-    this.ui.updateMarkers(this._markers(view));
+    if (p && p.state === 'dead' && !this._dying()) hud.setDeath(false);
+    // marcadores (en la repetición no: son de ahora y ella es del pasado)
+    this.ui.updateMarkers(this.replay.active ? [] : this._markers(view));
     // pitidos del desactivador y cuenta atrás
     if (m.phase === 'planted') {
       const k = 1 - m.timeLeft / m.rules.fuseTime;

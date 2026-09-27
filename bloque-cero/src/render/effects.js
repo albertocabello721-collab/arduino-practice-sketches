@@ -390,7 +390,7 @@ export class Effects {
     this.scene.add(mesh);
     this.bloodMesh = mesh; this.bloodNext = 0;
   }
-  bloodHit(p, dir, head) {
+  bloodHit(p, dir, head, decal = true) {
     if (!this.bloodMesh) this._initBlood();
     const light = this.lightAt(p.x, p.y, p.z);
     const n = head ? 10 : 6;
@@ -399,8 +399,8 @@ export class Effects {
       this.spawnDust(p.x, p.y, p.z, (dir ? dir.x * sp : 0) + (Math.random() - 0.5) * 0.8, (Math.random() - 0.2) * 0.8, (dir ? dir.z * sp : 0) + (Math.random() - 0.5) * 0.8,
         0.07 + Math.random() * 0.08, [0.28 * light + 0.02, 0.02 * light, 0.015 * light], 0.35 + Math.random() * 0.3, 0.75);
     }
-    // salpicadura en la pared de detrás
-    if (!dir) return;
+    // salpicadura en la pared de detrás (la repetición de muerte no la vuelve a poner)
+    if (!dir || !decal) return;
     const hit = raycastFirst(this.world, p.x, p.y, p.z, dir.x, dir.y, dir.z, 2.2, SOLID, true);
     if (!hit) return;
     const N = FACE_N[hit.face];
