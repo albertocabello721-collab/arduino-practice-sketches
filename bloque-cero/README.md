@@ -483,8 +483,9 @@ Los atacantes suben y bajan por las fachadas de la casa colgados de una cuerda (
   baja, Espacio la salta como siempre.
 - **Colgado**: **W** sube a 1,5 m/s, **S** baja a 2,5 m/s y **A/D** van de lado a 1 m/s sin salir
   del tramo. Arriba del todo los ojos asoman sobre el pretil y **Espacio** sube al tejado (0,8 s).
-  Al tocar el suelo te sueltas de pie; **C** te suelta en el aire (con el daño de caída de
-  siempre: desde unos 2,8 m; desde arriba, unos 75).
+  Al tocar el suelo te sueltas de pie; **C** te suelta en el aire. Las caídas hacen daño a partir
+  de 4 m (25 de vida por cada metro de más: desde arriba del todo, unos 75); antes empezaban hacia
+  los 2,8 m, así que ahora dejarse caer por una trampilla de un piso a otro (3,5 m) no hace daño.
 - **Ventanas**: delante de una, **Espacio** entra (0,6 s) rompiendo el cristal. Si tiene barricada
   (las ventanas empiezan con ella), la rompe al entrar (1,2 s, con mucho ruido: los bots lo oyen a
   35 m); **V** también la rompe.

@@ -20,6 +20,9 @@ const SPEED = { walk: 3.3, sprint: 5.4, crouch: 1.85, prone: 0.8, crawl: 0.5, ad
 export const ARMOR_HP = { 1: 100, 2: 110, 3: 125 };
 export const BLEED_TIME = 20;       // segundos que aguanta un derribado sin ayuda
 export const REVIVE_TIME = 4;       // segundos manteniendo F para reanimar
+// Caídas: hacen daño a partir de 4 m (el documento), 25 de vida por cada metro de más (desde el
+// tejado, unos 75). La altura sale de la velocidad al llegar al suelo (gravedad de 22 m/s²).
+export const FALL = { safe: 4, perMeter: 25, gravity: 22 };
 const DOWNED_EYE = 0.48;
 
 export function makeIntent() {
@@ -268,8 +271,9 @@ export class Operator {
     this._nearLadder = b.onLadder;
     if (r.landed && r.impactSpeed > 3) {
       game.emit('land', this, r.impactSpeed);
-      // caída desde gran altura: daño
-      if (r.impactSpeed > 11) game.damage(this, (r.impactSpeed - 11) * 12, { by: null, zone: 'fall', noDown: false });
+      // caída de más de 4 m: daño
+      const h = r.impactSpeed * r.impactSpeed / (2 * FALL.gravity);
+      if (h > FALL.safe) game.damage(this, (h - FALL.safe) * FALL.perMeter, { by: null, zone: 'fall', noDown: false });
     }
     if (b.lastStep > 0) this.eyeHeight -= b.lastStep;
     this.eyeHeight = damp(this.eyeHeight, downed ? DOWNED_EYE : STANCES[this.stance].eye, 13, dt);

@@ -269,3 +269,19 @@ test('fachada este: desde el tejado del garaje (3,5 m) hasta el pretil', () => {
   run(g, RAPPEL.climbTop + 0.4);
   assert.ok(!op.rappel && Math.abs(op.body.pos.y - 7.0) < 0.05 && op.body.pos.x < 29.5, 'en el tejado de la casa');
 });
+
+test('las caídas hacen daño a partir de 4 m: 25 de vida por cada metro de más', () => {
+  const drop = (h) => {
+    const { g, op } = setup();
+    op.maxHp = op.hp = 200;
+    place(op, 10, h, -12);
+    op.body.onGround = false;
+    run(g, 2);
+    assert.ok(op.body.onGround, 'en el suelo');
+    return 200 - op.hp;
+  };
+  assert.equal(drop(3.9), 0, 'desde 3,9 m, nada');
+  const d45 = drop(4.5), d7 = drop(7);
+  assert.ok(Math.abs(d45 - 12.5) < 3, `desde 4,5 m, unos 12 (${d45.toFixed(1)})`);
+  assert.ok(Math.abs(d7 - 75) < 4, `desde 7 m, unos 75 (${d7.toFixed(1)})`);
+});
