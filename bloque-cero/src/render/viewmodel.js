@@ -7,6 +7,8 @@
 // (Fase 7.2, render/handanim.js: inspeccionar, lanzar, dron, colocar, reforzar,
 // barricada, plantar, desactivar y reanimar), con mezclas de 0,15 s. Los brazos se
 // colocan en el espacio de la cámara: pueden soltar el arma y trabajar con las dos manos.
+// Miras y accesorios (Fase 10.3): cada arma lleva todas las piezas que admite y se ven las del
+// equipo de quien la lleva (mira con su retícula, supresor, compensador o freno, empuñadura, láser).
 import * as THREE from 'three';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { damp, clamp } from '../core/math.js';
@@ -15,6 +17,7 @@ import { BLEND, sampleClip } from './anim.js';
 import { reloadClip, HOLD, SHELL_HOLD, LOADER_HOLD } from './reloadanim.js';
 import { inspectClip, throwClip, droneClip, channelClip } from './handanim.js';
 import { REVIVE_TIME } from '../sim/operator.js';
+import { KIT_RULES, defaultKit, WEAPONS } from '../sim/weapons.js';
 
 function std(color, rough = 0.6, metal = 0.0) {
   return new THREE.MeshStandardMaterial({ color, roughness: rough, metalness: metal });
@@ -29,7 +32,8 @@ const M = {
   sleeve: std(0x4a5263, 0.92, 0.0),
   sleeveCuff: std(0x363c47, 0.92, 0.0),
   watch: std(0x111111, 0.4, 0.3),
-  glass: new THREE.MeshStandardMaterial({ color: 0x1a3040, roughness: 0.05, metalness: 0.2, transparent: true, opacity: 0.55 }),
+  // cristal de las miras: casi transparente y sin escribir profundidad (la retícula se ve detrás)
+  glass: new THREE.MeshStandardMaterial({ color: 0x9ec3d8, roughness: 0.05, metalness: 0.1, transparent: true, opacity: 0.14, depthWrite: false }),
   dot: new THREE.MeshBasicMaterial({ color: new THREE.Color(8, 0.3, 0.2) }),
   wood: std(0x4a2f1b, 0.65, 0.0),
   brass: std(0xb08a3e, 0.35, 0.8),
@@ -69,6 +73,16 @@ function cyl(r, len, mat, x, y, z, parent, axis = 'z', seg = 12) {
   return m;
 }
 
+// Tubo abierto por los dos extremos (miras): se ve a través y, dentro, su pared.
+const TUBE_MAT = new Map();
+function tube(r, len, mat, x, y, z, parent, seg = 16) {
+  if (!TUBE_MAT.has(mat)) { const m = mat.clone(); m.side = THREE.DoubleSide; TUBE_MAT.set(mat, m); }
+  const m = new THREE.Mesh(new THREE.CylinderGeometry(r, r, len, seg, 1, true), TUBE_MAT.get(mat));
+  m.rotation.x = Math.PI / 2; m.position.set(x, y, z);
+  if (parent) parent.add(m);
+  return m;
+}
+
 // Parámetros de cada arma larga en primera persona.
 const LONG = {
   ar: { L: 1.0, mag: 'curved', optic: 'holo', stock: 'rifle', fore: 'rail', grip: true },
@@ -79,6 +93,149 @@ const LONG = {
   dmr: { L: 1.3, mag: 'box', optic: 'scope', stock: 'rifle', fore: 'rail', grip: false },
   shotgun: { L: 1.12, mag: 'tube', optic: 'bead', stock: 'wood', fore: 'pump', grip: false },
 };
+
+// ------------------------------------------------------------ miras y accesorios (Fase 10.3)
+// Retículas dibujadas una vez en un lienzo (blanco sobre transparente) y teñidas: rojas que brillan,
+// salvo la cruz de la 2,0x, oscura con un punto rojo en medio.
+const RETICLE = {};
+function reticle(kind) {
+  if (RETICLE[kind]) return RETICLE[kind];
+  const N = 128, C = N / 2, cv = document.createElement('canvas');
+  cv.width = cv.height = N;
+  const x = cv.getContext('2d');
+  x.strokeStyle = x.fillStyle = '#fff'; x.lineCap = 'round';
+  const dot = (r) => { x.beginPath(); x.arc(C, C, r, 0, Math.PI * 2); x.fill(); };
+  const ring = (r, w) => { x.lineWidth = w; x.beginPath(); x.arc(C, C, r, 0, Math.PI * 2); x.stroke(); };
+  const line = (x0, y0, x1, y1, w) => { x.lineWidth = w; x.beginPath(); x.moveTo(x0, y0); x.lineTo(x1, y1); x.stroke(); };
+  if (kind === 'reddot') dot(5);
+  else if (kind === 'holo') { ring(34, 3); dot(3.5); }
+  else if (kind === 'reflex') { line(C - 12, C + 12, C, C, 3.5); line(C, C, C + 12, C + 12, 3.5); }
+  else if (kind === 'x15') { ring(20, 2.5); dot(3); }
+  else if (kind === 'x20') { for (const [a, b, c, d] of [[4, C, C - 7, C], [C + 7, C, N - 4, C], [C, 4, C, C - 7], [C, C + 7, C, N - 4]]) line(a, b, c, d, 2); }
+  else if (kind === 'x25') {
+    line(C - 10, C + 10, C, C, 3); line(C, C, C + 10, C + 10, 3);
+    for (let i = 1; i <= 3; i++) line(C - 7 + i, C + 12 + i * 10, C + 7 - i, C + 12 + i * 10, 2);   // caída a 20, 30 y 40 m
+    line(10, C, C - 22, C, 2); line(C + 22, C, N - 10, C, 2);
+  }
+  const t = new THREE.CanvasTexture(cv);
+  const m = new THREE.MeshBasicMaterial({ map: t, transparent: true, depthWrite: false, color: kind === 'x20' ? new THREE.Color(0.02, 0.02, 0.02) : new THREE.Color(5, 0.28, 0.2) });
+  return (RETICLE[kind] = m);
+}
+function reticlePlane(kind, size, y, z, parent) {
+  const m = new THREE.Mesh(new THREE.PlaneGeometry(size, size), reticle(kind));
+  m.position.set(0, y, z); m.renderOrder = 3; parent.add(m);
+  return m;
+}
+// Una mira sobre el riel (y = altura del riel, z = su centro): {group, y} con y la altura de la línea
+// de mira (lo que se centra al apuntar).
+function buildSight(sight, at) {
+  const s = new THREE.Group(), Y = at.y, Z = at.z;
+  let y = Y + 0.03;
+  if (sight === 'iron') {
+    // alza con muesca atrás y punto de mira delante, sobre el riel
+    box(0.006, 0.02, 0.012, M.gunDark, -0.007, Y + 0.01, at.rear, s); box(0.006, 0.02, 0.012, M.gunDark, 0.007, Y + 0.01, at.rear, s);
+    box(0.003, 0.018, 0.006, M.gunDark, 0, Y + 0.009, at.front, s);
+    y = Y + 0.018;
+  } else if (sight === 'reddot') {
+    box(0.02, 0.012, 0.04, M.gunDark, 0, Y + 0.006, Z, s);
+    tube(0.016, 0.06, M.gunDark, 0, Y + 0.03, Z, s, 16);
+    const gl = new THREE.Mesh(new THREE.CircleGeometry(0.0135, 14), M.glass); gl.position.set(0, Y + 0.03, Z + 0.031); gl.renderOrder = 2; s.add(gl);
+    reticlePlane('reddot', 0.024, Y + 0.03, Z - 0.026, s);
+    y = Y + 0.03;
+  } else if (sight === 'holo') {
+    const w = 0.046;
+    box(w - 0.006, 0.012, 0.05, M.gunDark, 0, Y + 0.005, Z + 0.01, s);
+    box(0.004, 0.045, 0.05, M.gunDark, -w / 2 + 0.002, Y + 0.03, Z + 0.01, s);
+    box(0.004, 0.045, 0.05, M.gunDark, w / 2 - 0.002, Y + 0.03, Z + 0.01, s);
+    box(w, 0.004, 0.05, M.gunDark, 0, Y + 0.054, Z + 0.01, s);
+    const gl = box(w - 0.01, 0.04, 0.002, M.glass, 0, Y + 0.03, Z + 0.01, s); gl.renderOrder = 2;
+    reticlePlane('holo', 0.034, Y + 0.03, Z - 0.002, s);
+    y = Y + 0.03;
+  } else if (sight === 'reflex') {
+    box(0.026, 0.006, 0.04, M.gunDark, 0, Y + 0.003, Z, s);
+    box(0.003, 0.03, 0.008, M.gunDark, -0.0145, Y + 0.02, Z - 0.012, s); box(0.003, 0.03, 0.008, M.gunDark, 0.0145, Y + 0.02, Z - 0.012, s);
+    box(0.032, 0.003, 0.008, M.gunDark, 0, Y + 0.0355, Z - 0.012, s);
+    const gl = box(0.026, 0.028, 0.0015, M.glass, 0, Y + 0.021, Z - 0.012, s); gl.rotation.x = -0.12; gl.renderOrder = 2;
+    reticlePlane('reflex', 0.028, Y + 0.022, Z - 0.014, s);
+    y = Y + 0.022;
+  } else {
+    // visores: más largos y gruesos cuanto más aumentan; retícula junto al ocular
+    const [r, len] = { x15: [0.017, 0.09], x20: [0.019, 0.13], x25: [0.021, 0.2] }[sight];
+    const cy = Y + 0.032, cz = Z - 0.01;
+    box(0.03, 0.02, 0.05, M.gunDark, 0, Y + 0.008, cz, s);
+    tube(r, len, M.gunDark, 0, cy, cz, s);
+    tube(r + 0.006, 0.03, M.gunDark, 0, cy, cz - len / 2, s);
+    tube(r + 0.003, 0.02, M.gunDark, 0, cy, cz + len / 2 - 0.01, s);
+    const gl = new THREE.Mesh(new THREE.CircleGeometry(r * 0.85, 14), M.glass); gl.position.set(0, cy, cz + len / 2 + 0.001); gl.renderOrder = 2; s.add(gl);
+    reticlePlane(sight, r * 1.7, cy, cz + len / 2 - 0.004, s);
+    if (sight === 'x20') { const dot = new THREE.Mesh(new THREE.SphereGeometry(0.0009, 6, 4), M.dot); dot.position.set(0, cy, cz + len / 2 - 0.005); s.add(dot); }
+    y = cy;
+  }
+  return { group: s, y };
+}
+// Las piezas de la boca: {grupo, cuánto alarga el cañón}.
+function buildBarrel(kind, [mx, my, mz], small) {
+  const b = new THREE.Group(), k = small ? 0.7 : 1;
+  let len = 0;
+  if (kind === 'suppressor') { len = 0.16 * k; cyl(0.02 * k, len, M.gunDark, mx, my, mz - len / 2, b, 'z', 12); cyl(0.021 * k, 0.012, M.steel, mx, my, mz - 0.006, b, 'z', 12); }
+  else if (kind === 'compensator') {
+    len = 0.045 * k;
+    box(0.032 * k, 0.03 * k, len, M.gunDark, mx, my, mz - len / 2, b);
+    for (let i = 0; i < 3; i++) box(0.012 * k, 0.004, 0.006, M.steel, mx, my + 0.0155 * k, mz - 0.008 - i * 0.012 * k, b);   // ranuras arriba
+  } else if (kind === 'brake') {
+    len = 0.05 * k;
+    cyl(0.017 * k, len, M.gunDark, mx, my, mz - len / 2, b, 'z', 10);
+    for (const sx of [-1, 1]) box(0.006, 0.012 * k, 0.03 * k, M.steel, mx + sx * 0.016 * k, my, mz - len / 2, b);                  // lumbreras a los lados
+  }
+  return { group: b, len };
+}
+// Monta en el arma todo lo que admite (se ve lo del equipo, ver applyKit): info.kit guarda las piezas.
+function fitKit(kind, g, info, o) {
+  const R = KIT_RULES[kind] || { sights: ['iron'], barrels: ['none'], grips: false };
+  const K = info.kit = { sights: {}, barrels: {}, grips: {}, laser: null, muzzle: o.muzzle.slice(), key: null };
+  for (const sg of R.sights) {
+    if (sg === 'iron' && o.iron !== undefined) { K.sights.iron = { group: null, y: o.iron }; continue; }   // la de la corredera
+    if (sg === 'iron' && kind === 'shotgun') {
+      // punto de mira de la escopeta: un grano claro en la punta del riel (por encima: el riel no tapa)
+      const s = new THREE.Group(); box(0.006, 0.012, 0.008, M.brass, 0, o.sightAt.y + 0.006, o.sightAt.front, s); g.add(s);
+      K.sights.iron = { group: s, y: o.sightAt.y + 0.01 }; continue;
+    }
+    const at = o.sightAt;
+    const sgt = buildSight(sg, at);
+    (at.parent || g).add(sgt.group);
+    K.sights[sg] = { group: sgt.group, y: sgt.y + (at.base || 0) };
+  }
+  for (const b of R.barrels) if (b !== 'none') { const B = buildBarrel(b, o.muzzle, !o.grip); g.add(B.group); K.barrels[b] = B; }
+  if (R.grips && o.grip) {
+    const { zv, za, y0 } = o.grip, host = o.grip.parent || g;
+    const v = new THREE.Group(); box(0.022, 0.065, 0.026, M.gunDark, 0, y0 - 0.032, zv, v).rotation.x = 0.12; host.add(v);
+    const a = new THREE.Group(); box(0.024, 0.028, 0.065, M.gunDark, 0, y0 - 0.02, za - 0.02, a).rotation.x = -0.45; host.add(a);
+    K.grips.vertical = v; K.grips.angled = a;
+  }
+  // láser: cajita al costado (bajo el cañón en las cortas) con su lente roja
+  const [lx, ly, lz] = o.laser, L = new THREE.Group();
+  box(0.016, 0.018, 0.042, M.gunDark, lx, ly, lz, L);
+  box(0.008, 0.008, 0.002, M.dot, lx, ly, lz - 0.022, L);
+  g.add(L); K.laser = L;
+  applyKit(info, defaultKit(WEAPONS[kind]));
+}
+/** Enseña las piezas del equipo `kit` y deja la línea de mira y la boca donde tocan. */
+function applyKit(info, kit) {
+  const K = info.kit;
+  if (!K) return;
+  const key = `${kit.sight}|${kit.barrel}|${kit.grip}|${kit.laser ? 1 : 0}`;
+  if (K.key === key) return;
+  K.key = key;
+  const sg = K.sights[kit.sight] || K.sights.iron || Object.values(K.sights)[0];
+  for (const x of Object.values(K.sights)) if (x.group) x.group.visible = x === sg;
+  info.sightY = sg.y;
+  let len = 0;
+  for (const [b, B] of Object.entries(K.barrels)) { B.group.visible = b === kit.barrel; if (B.group.visible) len = B.len; }
+  for (const [n, G] of Object.entries(K.grips)) G.visible = n === kit.grip;
+  K.laser.visible = !!kit.laser;
+  info.muzzle.set(K.muzzle[0], K.muzzle[1], K.muzzle[2] - len);
+  info.suppressed = kit.barrel === 'suppressor';
+}
 
 // Construye un arma apuntando hacia -Z con la mira en (0, sightY, *).
 function buildGun(kind) {
@@ -135,30 +292,16 @@ function buildGun(kind) {
     if (P.stock === 'wood') { box(0.046, 0.07, 0.24, M.wood, 0, -0.005, 0.24, g); }
     else if (P.stock === 'fold') { box(0.02, 0.05, 0.16, M.gunDark, 0.03, 0.01, 0.18, g); box(0.04, 0.07, 0.02, M.gunDark, 0.03, -0.005, 0.26, g); }
     else { box(0.045, 0.06, 0.2, M.poly, 0, 0.0, 0.22, g); box(0.05, 0.085, 0.03, M.gunDark, 0, -0.005, 0.33, g); }
-    if (P.grip) box(0.02, 0.022, 0.07, M.gunDark, 0, -0.025, foreZ + 0.02, g);               // empuñadura vertical
     if (P.bipod) { box(0.008, 0.18, 0.008, M.gunDark, -0.025, -0.08, foreZ - foreLen / 2 + 0.03, g).rotation.x = 0.4; box(0.008, 0.18, 0.008, M.gunDark, 0.025, -0.08, foreZ - foreLen / 2 + 0.03, g).rotation.x = 0.4; }
-    // miras
-    if (P.optic === 'holo' || P.optic === 'reddot') {
-      const w = P.optic === 'holo' ? 0.046 : 0.034;
-      box(w - 0.006, 0.012, 0.05, M.gunDark, 0, 0.085, -0.02, g);
-      box(0.004, 0.045, 0.05, M.gunDark, -w / 2 + 0.002, 0.11, -0.02, g);
-      box(0.004, 0.045, 0.05, M.gunDark, w / 2 - 0.002, 0.11, -0.02, g);
-      box(w, 0.004, 0.05, M.gunDark, 0, 0.134, -0.02, g);
-      const gl = box(w - 0.01, 0.04, 0.002, M.glass, 0, 0.11, -0.02, g); gl.renderOrder = 2;
-      const dot = new THREE.Mesh(new THREE.SphereGeometry(0.0016, 6, 4), M.dot); dot.position.set(0, 0.11, -0.03); g.add(dot);
-      info.sightY = 0.11;
-    } else if (P.optic === 'acog' || P.optic === 'scope') {
-      const r = P.optic === 'scope' ? 0.021 : 0.019, len = P.optic === 'scope' ? 0.2 : 0.13;
-      box(0.03, 0.02, 0.05, M.gunDark, 0, 0.085, -0.03, g);
-      cyl(r, len, M.gunDark, 0, 0.112, -0.04, g, 'z', 14);
-      cyl(r + 0.006, 0.03, M.gunDark, 0, 0.112, -0.04 - len / 2, g, 'z', 14);
-      const gl = new THREE.Mesh(new THREE.CircleGeometry(r * 0.85, 14), M.glass); gl.position.set(0, 0.112, -0.04 + len / 2 + 0.001); g.add(gl);
-      const dot = new THREE.Mesh(new THREE.SphereGeometry(0.0012, 6, 4), M.dot); dot.position.set(0, 0.112, -0.04 + len / 2 - 0.01); g.add(dot);
-      info.sightY = 0.112;
-    } else {
-      box(0.004, 0.02, 0.01, M.gunDark, 0, 0.075, muzZ + 0.04, g);
-      info.sightY = 0.075;
-    }
+    // miras, piezas de la boca, empuñaduras y láser: todas las que admite; se ve la del equipo
+    const railZ = -0.1 - 0.05 * (L - 1), railFront = railZ - 0.22 * L;
+    fitKit(kind, g, info, {
+      sightAt: { y: 0.08, z: -0.03, front: railFront + 0.02, rear: 0.03 },
+      muzzle: [0, P.fore === 'pump' ? 0.045 : 0.035, muzZ - 0.05],
+      // (en la escopeta, las empuñaduras van en la bomba y se mueven con ella)
+      grip: P.fore === 'pump' ? { parent: info.pump, zv: 0.0, za: 0.02, y0: -0.029 } : { zv: foreZ + 0.03, za: foreZ, y0: P.fore === 'thick' ? -0.017 : -0.013 },
+      laser: [0.042, P.fore === 'pump' ? 0.0 : 0.02, foreZ - foreLen / 2 + 0.05],
+    });
     info.muzzle.set(0, P.fore === 'pump' ? 0.045 : 0.035, muzZ - 0.05);
     info.fore.set(0, -0.025, P.fore === 'pump' ? -0.36 * L : foreZ);
     return { group: g, info };
@@ -172,6 +315,7 @@ function buildGun(kind) {
     cyl(0.01, 0.17, M.steel, 0, 0.035, -0.16, g);
     box(0.004, 0.014, 0.01, M.gunDark, 0, 0.052, -0.24, g);
     info.sightY = 0.052; info.muzzle.set(0, 0.035, -0.25); info.mag = null;
+    fitKit(kind, g, info, { iron: 0.052, muzzle: [0, 0.035, -0.25], laser: [0, 0.008, -0.16] });
   } else {
     const auto = kind === 'mpistol';
     // corredera (con sus miras): va atrás al disparar y se queda atrás sin balas
@@ -189,6 +333,8 @@ function buildGun(kind) {
     info.magRest = arr(info.mag.position); info.magRot = info.mag.rotation.clone();
     info.sightY = 0.055;
     info.muzzle.set(0, 0.03, auto ? -0.18 : -0.16);
+    // (las miras con cristal de la PA-3 van sobre la corredera y se mueven con ella)
+    fitKit(kind, g, info, { iron: 0.055, sightAt: { y: 0.0175, z: 0.0, parent: slide, base: 0.03 }, muzzle: [0, 0.03, auto ? -0.18 : -0.16], laser: [0, -0.02, auto ? -0.12 : -0.1] });
   }
   info.grip.set(0, -0.05, 0.02);
   info.fore.set(0, -0.06, 0.0);
@@ -338,7 +484,8 @@ export class ViewModel {
     const heavy = this.current === 'shotgun' || this.current === 'revolver' || this.current === 'dmr';
     s.kick = Math.min(1.4, s.kick + (heavy ? 1.2 : this.current === 'pistol' ? 0.8 : 0.45));
     s.kickRot += (Math.random() - 0.5) * 0.03;
-    s.flashT = 0.045;
+    const G = this.guns[this.current];
+    s.flashT = G && G.info.suppressed ? 0 : 0.045;        // (con supresor, sin fogonazo)
     // piezas: la corredera va atrás, la escopeta se bombea y el tambor gira
     if (this.current === 'pistol' || this.current === 'mpistol') s.slideT = 1;
     else if (this.current === 'shotgun') s.pumpT = 1e-4;
@@ -358,6 +505,9 @@ export class ViewModel {
     const s = this.state;
     const w = op.weapon;
     this.setWeapon(w.def.model);
+    // la mira y los accesorios de cada arma que lleva (también de la que se guarda)
+    // (en la repetición de muerte el operador solo trae el arma en la mano)
+    for (const x of op.weapons || [w]) { const G = x && x.def && this.guns[x.def.model]; if (G) applyKit(G.info, x.def.kit || defaultKit(x.base || x.def)); }
     // cambio de arma: en la primera parte del desenfunde baja la que se guarda; luego sube la nueva
     const eq = Math.max(0.01, w.def.equip), el = eq - Math.max(0, w.equipT);
     if (w.equipT <= 0) this.prevKind = null;

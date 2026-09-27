@@ -15,6 +15,7 @@ import { PT } from '../render/ragdoll.js';
 import { DeathReplay } from './replay.js';
 import { MatchUI } from '../ui/matchui.js';
 import { BONE } from '../sim/skeleton.js';
+import { saveSettings } from '../core/settings.js';
 
 const DEATH_CAM = 3.0;   // segundos mirando tu propio cuerpo antes de observar a un compañero (si no hay repetición)
 
@@ -230,8 +231,18 @@ export class MatchSession extends Session {
   }
 
   // ------------------------------------------------------------------ selección (desde la interfaz)
-  pickOperator(id) { if (this.match.choose(this.meSlot, { opId: id })) this.ui.updateSelect(this.match, true); }
+  // (con el operador vienen la mira y los accesorios que le pusiste la última vez)
+  pickOperator(id) { if (this.match.choose(this.meSlot, { opId: id, kits: this.ctx.settings.kits[id] || {} })) this.ui.updateSelect(this.match, true); }
   pickWeapon(kind, i) { this.match.choose(this.meSlot, kind === 'primary' ? { primary: i } : { secondary: i }); this.ui.updateSelect(this.match, true); }
+  /** Mira o accesorio de un arma (part: sight, barrel, grip o laser); se guarda para el operador. */
+  pickKit(weapon, part, value) {
+    const me = this.meSlot;
+    if (!me || !me.opId || !this.match.choose(me, { kit: { weapon, [part]: part === 'laser' ? value === 'on' : value } })) return;
+    const S = this.ctx.settings;
+    S.kits[me.opId] = { ...(S.kits[me.opId] || {}), [weapon]: me.kits[weapon] };
+    saveSettings(S);
+    this.ui.updateSelect(this.match, true);
+  }
   pickGadget(i) { this.match.choose(this.meSlot, { gadget: i }); this.ui.updateSelect(this.match, true); }
   pickChoice(i) {
     if (this.mySide() === 'def') this.match.choose(this.meSlot, { location: i });

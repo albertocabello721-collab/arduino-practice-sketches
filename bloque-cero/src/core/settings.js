@@ -16,6 +16,7 @@ export const DEFAULT_SETTINGS = {
   allyVoice: false,     // leer en voz alta los avisos de radio de los aliados
   difficulty: 'normal',  // bots: 'novato' | 'normal' | 'veterano' | 'elite'
   startSide: 'random',   // partida rápida: 'random' | 'atk' | 'def'
+  kits: {},             // mira y accesorios elegidos: {operador (o 'campo'): {arma: {sight, barrel, grip, laser}}}
 };
 
 function storage() {
@@ -30,8 +31,23 @@ function storage() {
   }
 }
 
+// Lo guardado de miras y accesorios, solo con la forma esperada (lo demás se descarta; los valores
+// que un arma no admite los corrige la partida al usarlos).
+function cleanKits(raw) {
+  const out = {};
+  if (!raw || typeof raw !== 'object') return out;
+  for (const [who, weapons] of Object.entries(raw)) {
+    if (!weapons || typeof weapons !== 'object') continue;
+    for (const [id, k] of Object.entries(weapons)) {
+      if (!k || typeof k !== 'object') continue;
+      (out[who] = out[who] || {})[id] = { sight: String(k.sight || ''), barrel: String(k.barrel || ''), grip: String(k.grip || ''), laser: !!k.laser };
+    }
+  }
+  return out;
+}
+
 export function loadSettings() {
-  const out = { ...DEFAULT_SETTINGS };
+  const out = { ...DEFAULT_SETTINGS, kits: {} };
   try {
     const s = storage();
     if (!s) return out;
@@ -39,6 +55,7 @@ export function loadSettings() {
     if (!raw) return out;
     const parsed = JSON.parse(raw);
     for (const k of Object.keys(DEFAULT_SETTINGS)) if (k in parsed && typeof parsed[k] === typeof DEFAULT_SETTINGS[k]) out[k] = parsed[k];
+    out.kits = cleanKits(parsed.kits);
     if (out.difficulty === 'recluta') out.difficulty = 'novato';   // nombre anterior
   } catch (e) { /* valores por defecto */ }
   return out;

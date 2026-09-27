@@ -9,6 +9,7 @@ import { makePoseState, computePose, BONE_COUNT } from './skeleton.js';
 import { reloadTrack, smooth, ACT_BLEND, THROW_ANIM, DRONE_ANIM, HAND_CHANNELS } from './poselayers.js';
 import { clamp, damp, DEG } from '../core/math.js';
 import { SOUND } from '../world/materials.js';
+import { raycastFirst } from '../world/raycast.js';
 
 const RECOVER = 0.7;     // parte del retroceso no compensado que se recupera al dejar de disparar
 
@@ -54,7 +55,8 @@ export class Operator {
     this.vault = null;       // {t, dur, from, to}
     this.intent = makeIntent();
     const loadout = opts.loadout || ['ar', 'pistol'];
-    this.weapons = loadout.map((k) => new WeaponState(WEAPONS[k]));
+    // (opts.kits: mira y accesorios de cada arma, por su id; sin ellos, los de serie)
+    this.weapons = loadout.map((k) => new WeaponState(WEAPONS[k], opts.kits ? opts.kits[k] : null));
     this.weaponIndex = 0;
     this.recoilPending = { pitch: 0, yaw: 0 };
     this.recoilOffset = { pitch: 0, yaw: 0 };   // retroceso aún no compensado (se recupera al dejar de disparar)
@@ -105,6 +107,23 @@ export class Operator {
     return out;
   }
   get roll() { return -this.leanAllowed * LEAN_ROLL; }
+  /** ¿Se ve el haz de su láser? Arma con láser en la mano (ya desenfundada), sin estar derribado. */
+  get laserOn() { const w = this.weapon; return this.state === 'alive' && !!w && !!w.def.laser && w.equipT <= 0; }
+  /**
+   * El haz del láser: sale del costado del arma, hacia donde mira, hasta la primera pared (como
+   * mucho 30 m). {o, d, len}; se calcula una vez por tick.
+   */
+  laserBeam(world, now) {
+    const L = this._laser || (this._laser = { t: -1, o: { x: 0, y: 0, z: 0 }, d: { x: 0, y: 0, z: 0 }, len: 0 });
+    if (L.t === now) return L;
+    L.t = now;
+    const e = this.eyePos(L.o), d = this.viewDir(L.d);
+    const rx = Math.cos(this.yaw), rz = -Math.sin(this.yaw);
+    e.x += d.x * 0.45 + rx * 0.09; e.y += d.y * 0.45 - 0.12; e.z += d.z * 0.45 + rz * 0.09;
+    const hit = raycastFirst(world, e.x, e.y, e.z, d.x, d.y, d.z, 30);
+    L.len = hit ? hit.t : 30;
+    return L;
+  }
   // centro del torso (para la IA y el sonido)
   center(out = { x: 0, y: 0, z: 0 }) {
     const b = this.body.pos;

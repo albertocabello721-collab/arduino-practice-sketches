@@ -171,7 +171,7 @@ export class DeathReplay {
       muzzle = { x: g.p.x + R.y.x * 0.04 + R.z.x * lz, y: g.p.y + R.y.y * 0.04 + R.z.y * lz, z: g.p.z + R.y.z * 0.04 + R.z.z * lz };
     }
     const ends = results.map((r) => ({ x: r.origin.x + r.dir.x * r.end, y: r.origin.y + r.dir.y * r.end, z: r.origin.z + r.dir.z * r.end }));
-    this.buf.push({ t, kind: 'shot', op, sound: w.def.sound, pellets: w.def.pellets || 1, eye: { ...eye }, muzzle, ends });
+    this.buf.push({ t, kind: 'shot', op, sound: w.def.sound, quiet: !!w.def.suppressed, pellets: w.def.pellets || 1, eye: { ...eye }, muzzle, ends });
   }
   /** Un impacto en alguien (evento 'damaged'): la sangre. */
   onHit(t, target, ev) {
@@ -282,10 +282,10 @@ export class DeathReplay {
         const hip = 1 - this.vmOp.ads, rx = Math.cos(P.yaw), rz = -Math.sin(P.yaw);
         m = { x: P.x + fx * 0.55 + rx * 0.12 * hip, y: P.y + fy * 0.55 - 0.1 * hip - 0.03, z: P.z + fz * 0.55 + rz * 0.12 * hip };
         vm.onShot();
-        audio.gunshot(e.sound, e.eye, true, 0);
-      } else audio.gunshot(e.sound, e.eye, false, this.ctx.hear ? this.ctx.hear(e.eye) : 0);
+        audio.gunshot(e.sound, e.eye, true, 0, e.quiet);
+      } else audio.gunshot(e.sound, e.eye, false, this.ctx.hear ? this.ctx.hear(e.eye) : 0, e.quiet);
       if (!m) continue;
-      effects.flash(m.x, m.y, m.z, 9, 5.4, 2.4, 5.5, 0.06);
+      if (!e.quiet) effects.flash(m.x, m.y, m.z, 9, 5.4, 2.4, 5.5, 0.06);
       for (const end of e.ends) if (e.pellets === 1 || Math.random() < 0.35) effects.addTracer(m, end);
     }
   }

@@ -253,6 +253,25 @@
   .wpn b { display: block; font-family: var(--display); font-size: 16px; letter-spacing: .06em; }
   .wpn span { font-size: 11.5px; color: var(--muted); }
   .wpn.sel { border-color: var(--yellow); background: rgba(242,193,78,.1); }
+  /* panel de equipo del campo de pruebas (O) */
+  #kitpanel { position: fixed; inset: 0; z-index: 22; display: flex; align-items: center; justify-content: center; background: rgba(4,6,8,.55); overflow-y: auto; }
+  #kitpanel .box { width: min(1120px, 96vw); max-height: 92vh; overflow-y: auto; padding: 16px 18px; background: rgba(10,13,17,.95); border: 1px solid var(--line); }
+  #kitpanel h3 { margin: 0 0 10px; font-family: var(--display); font-size: 20px; letter-spacing: .14em; text-transform: uppercase; }
+  #kitpanel .grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px 16px; }
+  #kitpanel .kit { margin: 0; }
+  #kitpanel .note { margin: 10px 0 0; font-size: 12.5px; color: var(--muted); }
+  @media (max-width: 760px) { #kitpanel .grid { grid-template-columns: 1fr; } }
+  /* mira y accesorios del arma elegida */
+  .kit { margin: -4px 0 12px; padding: 8px 10px; background: rgba(255,255,255,.025); border-left: 2px solid var(--line); }
+  .kit .kh { margin-bottom: 4px; font-size: 12px; color: var(--muted); }
+  .kit .kh b { color: var(--text); font-weight: 600; }
+  .kr { display: grid; grid-template-columns: 104px minmax(0, 1fr); gap: 6px; align-items: center; margin: 3px 0; }
+  .kr > span { font-family: var(--display); font-size: 12px; letter-spacing: .16em; text-transform: uppercase; color: var(--muted); }
+  .kr > div { display: flex; flex-wrap: wrap; gap: 4px; }
+  .kt { padding: 3px 7px; background: rgba(255,255,255,.04); border: 1px solid var(--line); color: var(--text); cursor: pointer; font-family: var(--ui); font-size: 12px; }
+  .kt:hover, .kt:focus-visible { background: rgba(255,255,255,.09); outline: none; }
+  .kt.sel { border-color: var(--yellow); background: rgba(242,193,78,.12); color: #fff; }
+  .kit .ks { margin-top: 6px; font-size: 12px; color: var(--muted); }
   #select .sfoot { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr) auto; gap: 18px; align-items: end; padding: 12px clamp(16px, 3vw, 36px) 18px; border-top: 1px solid var(--line); }
   .chs { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
   .ch { padding: 10px 12px; text-align: left; background: rgba(255,255,255,.04); border: 1px solid var(--line); color: var(--text); cursor: pointer; font-family: var(--ui); }
@@ -453,7 +472,7 @@
   <div id="scoreboard" class="hidden"></div>
   <div id="where"><div class="lbl">Ubicación</div><div class="loc" id="hud-loc">—</div></div>
   <div id="hints" data-mode="range">
-    <b>Campo de pruebas:</b> maniquís dentro de la villa (uno dispara). Tiro a la cabeza = baja; al torso, derribo. <kbd>F</kbd> reanima a tu compañero (<kbd>J</kbd> lo derriba), <kbd>K</kbd> reinicia el campo, <kbd>G</kbd> abre un boquete, <kbd>1</kbd>–<kbd>4</kbd> armas, <kbd>L</kbd> cambia de arsenal. En la calle, a tu espalda, los 16 operadores en fila: apunta a uno para ver quién es.
+    <b>Campo de pruebas:</b> maniquís dentro de la villa (uno dispara). Tiro a la cabeza = baja; al torso, derribo. <kbd>F</kbd> reanima a tu compañero (<kbd>J</kbd> lo derriba), <kbd>K</kbd> reinicia el campo, <kbd>G</kbd> abre un boquete, <kbd>1</kbd>–<kbd>4</kbd> armas, <kbd>L</kbd> cambia de arsenal, <kbd>O</kbd> mira y accesorios. En la calle, a tu espalda, los 16 operadores en fila: apunta a uno para ver quién es.
   </div>
   <div id="killfeed"></div>
   <div id="chat"></div>
@@ -488,6 +507,13 @@
   <div id="pausehint" class="hidden">Clic para seguir jugando</div>
 </div>
 
+<div id="kitpanel" class="hidden">
+  <div class="box">
+    <h3>Mira y accesorios</h3>
+    <div class="grid" id="kp-body"></div>
+    <p class="note"><kbd>O</kbd> o <kbd>Esc</kbd> para volver. Se guarda para la próxima vez.</p>
+  </div>
+</div>
 <div id="select" class="hidden">
   <div class="shead">
     <div class="rd" id="sel-round">Ronda 1</div>

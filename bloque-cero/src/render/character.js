@@ -6,6 +6,7 @@ import { BONE, BONE_COUNT } from '../sim/skeleton.js';
 import { LIGHTING_GLSL } from './shaders.js';
 import { KITS, BUILDS } from './kits.js';
 import { Ragdoll, deathImpulse, RAG, PT } from './ragdoll.js';
+import { WEAPONS, defaultKit } from '../sim/weapons.js';
 
 // ------------------------------------------------------------ camuflaje procedural
 function makeCamoTexture() {
@@ -129,7 +130,8 @@ export function operatorLook(def, team) {
   return { ...def.look, ...(kit && kit.look), armor: def.armor, kit: kit ? def.id : null, accent: TEAM_ACCENT[team === 0 ? 0 : 1] };
 }
 
-export function buildOperatorGeometry(look, primaryModel, secondaryModel) {
+// kits: [mira y accesorios de la principal, de la secundaria] (sin ellos, los de serie).
+export function buildOperatorGeometry(look, primaryModel, secondaryModel, kits = []) {
   const b = new RigBuilder();
   const L = look;
   // complexión según el blindaje (render/kits.js): 1 ligero · 2 medio (la de siempre) · 3 pesado
@@ -269,8 +271,8 @@ export function buildOperatorGeometry(look, primaryModel, secondaryModel) {
   if (kit) for (const [bone, shape, o] of kit.parts(L)) b.add(bone, shapeGeo(shape), o);
   // ---------------- armas (ranuras: 17 = arma principal, 18 = secundaria; el cargador de la
   // principal va en su propio hueso, 19, para sacarlo al recargar)
-  addWeapon(b, BONE.gun, primaryModel, BONE.mag);
-  addWeapon(b, BONE.holster, secondaryModel, BONE.holster);
+  addWeapon(b, BONE.gun, primaryModel, BONE.mag, kits[0]);
+  addWeapon(b, BONE.holster, secondaryModel, BONE.holster, kits[1]);
   return b.build();
 }
 
@@ -313,15 +315,40 @@ export function thirdPersonDrops(op, part) {
 }
 
 // Armas en tercera persona (empuñadura en el origen, cañón hacia -Z). El cargador va en `magBone`.
-function addWeapon(b, bone, model, magBone = bone) {
+// Con su mira y sus accesorios (Fase 10.3): supresor, compensador o freno en la boca, empuñadura
+// bajo el guardamanos y láser al costado.
+function addWeapon(b, bone, model, magBone = bone, kit = null) {
   const dark = { color: '#1b1d20', rough: 0.45, metal: 0.55 };
   const poly = { color: '#262829', rough: 0.7, metal: 0.05 };
+  const lens = { color: '#ff3020', rough: 0.3, metal: 0.0 };
   const A = (geo, at, o = dark, rot = [0, 0, 0]) => b.add(bone, geo, { at, rot, ...o });
+  const Z = [Math.PI / 2, 0, 0];
+  const k = kit || (WEAPONS[model] ? defaultKit(WEAPONS[model]) : { sight: 'iron', barrel: 'none', grip: 'none', laser: false });
+  // mira sobre el arma (y: su base)
+  const sight = (y, z) => {
+    if (k.sight === 'reddot') A(Cyl(0.017, 0.017, 0.06, 8), [0, y + 0.02, z], dark, Z);
+    else if (k.sight === 'holo') A(Box(0.04, 0.05, 0.06), [0, y + 0.02, z]);
+    else if (k.sight === 'reflex') A(Box(0.03, 0.032, 0.03), [0, y + 0.015, z - 0.01]);
+    else if (k.sight === 'x15' || k.sight === 'x20' || k.sight === 'x25') {
+      const [r, len] = { x15: [0.018, 0.1], x20: [0.02, 0.14], x25: [0.022, 0.2] }[k.sight];
+      A(Cyl(r, r, len, 10), [0, y + 0.022, z - 0.01], dark, Z);
+    }
+  };
+  // boca: lo que se pone delante del cañón (mz: donde acaba)
+  const barrel = (y, mz, s = 1) => {
+    if (k.barrel === 'suppressor') A(Cyl(0.021 * s, 0.021 * s, 0.16 * s, 10), [0, y, mz - 0.08 * s], dark, Z);
+    else if (k.barrel === 'compensator') A(Box(0.034 * s, 0.03 * s, 0.045 * s), [0, y, mz - 0.022 * s]);
+    else if (k.barrel === 'brake') A(Cyl(0.019 * s, 0.019 * s, 0.05 * s, 8), [0, y, mz - 0.025 * s], dark, Z);
+  };
+  const laser = (x, y, z) => { if (k.laser) { A(Box(0.02, 0.022, 0.05), [x, y, z]); A(Box(0.012, 0.012, 0.004), [x, y, z - 0.026], lens); } };
   const pistolish = model === 'pistol' || model === 'revolver' || model === 'mpistol';
   if (pistolish) {
     A(Box(0.03, 0.1, 0.045), [0, -0.05, 0.01], poly, [-0.2, 0, 0]);
     if (model === 'revolver') { A(Cyl(0.02, 0.02, 0.045, 8), [0, 0.03, -0.02], dark, [Math.PI / 2, 0, 0]); A(Cyl(0.009, 0.009, 0.16, 6), [0, 0.035, -0.12], dark, [Math.PI / 2, 0, 0]); }
     else { A(Box(0.03, 0.035, model === 'mpistol' ? 0.2 : 0.18), [0, 0.025, -0.07]); if (model === 'mpistol') b.add(magBone, Box(0.025, 0.12, 0.03), { at: [0, -0.1, 0.0], ...dark }); }
+    sight(0.042, -0.05);
+    barrel(0.03, model === 'mpistol' ? -0.17 : model === 'revolver' ? -0.2 : -0.16, 0.7);
+    laser(0, -0.006, -0.1);
     return;
   }
   const long = { ar: 0.62, ar2: 0.68, smg: 0.48, smg2: 0.42, lmg: 0.78, dmr: 0.85, shotgun: 0.74 }[model] || 0.6;
@@ -333,8 +360,11 @@ function addWeapon(b, bone, model, magBone = bone) {
   if (model === 'lmg') { b.add(magBone, Box(0.1, 0.1, 0.12), { at: [-0.02, -0.04, -0.12], color: MAG_3P.lmg.color, rough: 0.6, metal: 0.2 }); A(Cyl(0.006, 0.006, 0.25, 5), [0.03, -0.08, -0.55], dark, [0.8, 0, 0]); }
   else if (model === 'shotgun') A(Cyl(0.017, 0.017, 0.3, 8), [0, 0.0, -0.3], poly, [Math.PI / 2, 0, 0]);
   else b.add(magBone, Box(0.03, 0.13, 0.055), { at: [0, -0.07, -0.09], rot: [0.15, 0, 0], ...dark });        // cargador
-  if (model === 'dmr' || model === 'ar2') A(Cyl(0.02, 0.02, 0.16, 10), [0, 0.1, -0.06], dark, [Math.PI / 2, 0, 0]);  // visor
-  else A(Box(0.04, 0.05, 0.06), [0, 0.1, -0.05], dark);                       // mira holográfica
+  sight(0.075, -0.05);
+  barrel(0.04, -0.3 - long * 0.56);
+  if (k.grip === 'vertical') A(Box(0.025, 0.07, 0.03), [0, -0.035, -0.25 - long * 0.1], poly, [0.12, 0, 0]);
+  else if (k.grip === 'angled') A(Box(0.028, 0.03, 0.07), [0, -0.012, -0.27 - long * 0.12], poly, [-0.45, 0, 0]);
+  laser(0.036, 0.03, -0.25 - long * 0.3);
 }
 
 // ------------------------------------------------------------ material
@@ -492,7 +522,7 @@ export class CharacterRenderer {
 
   add(op, look) {
     const models = [op.weapons[0]?.def.model || 'ar', op.weapons[1]?.def.model || 'pistol'];
-    const geo = buildOperatorGeometry(look, models[0], models[1]);
+    const geo = buildOperatorGeometry(look, models[0], models[1], [op.weapons[0]?.kit, op.weapons[1]?.kit]);
     const mesh = new THREE.Mesh(geo, this._material());
     mesh.frustumCulled = false;
     this.scene.add(mesh);

@@ -51,9 +51,10 @@ export function bindGameFx(ctx, game, view) {
 
   on('shot', (op, w, eye, fwd, results) => {
     const local = op === viewer();
-    audio.gunshot(w.def.sound, eye, local, local ? 0 : heard(eye));
+    const quiet = !!w.def.suppressed;            // con supresor: suena bajo y sin fogonazo
+    audio.gunshot(w.def.sound, eye, local, local ? 0 : heard(eye), quiet);
     const m = muzzleWorld(op);
-    effects.flash(m.x, m.y, m.z, 9, 5.4, 2.4, 5.5, 0.06);
+    if (!quiet) effects.flash(m.x, m.y, m.z, 9, 5.4, 2.4, 5.5, 0.06);
     if (local) { vm.onShot(); ctx.shake = Math.min(1, ctx.shake + (w.def.pellets > 1 ? 0.8 : 0.25)); }
     for (const r of results) {
       const end = { x: r.origin.x + r.dir.x * r.end, y: r.origin.y + r.dir.y * r.end, z: r.origin.z + r.dir.z * r.end };

@@ -162,7 +162,8 @@ export class AudioEngine {
   }
 
   // ------------------------------------------------------------ disparos
-  gunshot(kind, pos, local = false, occl = 0) {
+  // quiet: con supresor (F10.3): sin chasquido ni grano, un soplo apagado y mucho más bajo
+  gunshot(kind, pos, local = false, occl = 0, quiet = false) {
     if (!this.ctx) return;
     const ctx = this.ctx, t = ctx.currentTime + 0.002;
     const P = {
@@ -173,7 +174,15 @@ export class AudioEngine {
     }[kind] || { crack: 1, body: 1, bodyF: 220, thump: 1, thumpF: 110, click: 0.2, len: 0.15 };
     const vary = 0.9 + Math.random() * 0.2;
     const dist = pos ? Math.hypot(pos.x - this.listener.x, pos.y - this.listener.y, pos.z - this.listener.z) : 0;
-    const out = this._out(local ? null : pos, { gain: local ? 0.9 : 1.6, ref: 3, rolloff: 1.0, occl, reverb: local ? 0.55 : 0.6, direct: local });
+    const out = this._out(local ? null : pos, { gain: (local ? 0.9 : 1.6) * (quiet ? 0.32 : 1), ref: quiet ? 2 : 3, rolloff: 1.0, occl, reverb: (local ? 0.55 : 0.6) * (quiet ? 0.4 : 1), direct: local });
+    if (quiet) {
+      // supresor: un «pff» de gas (ruido que baja de tono), el cuerpo apagado y un golpe corto
+      this._burst(out, t, { type: 'bandpass', freq: 1500 * vary, q: 0.8, a: 0.001, peak: 0.9, d: 0.06 });
+      this._burst(out, t + 0.002, { type: 'lowpass', freq: 700 * vary, q: 0.6, a: 0.002, peak: P.body * 0.8, d: P.len * 0.8, pink: true });
+      this._tone(out, t, { f0: P.thumpF * 1.4 * vary, f1: P.thumpF * 0.5, a: 0.001, peak: P.thump * 0.5, d: 0.05 });
+      if (local || dist < 8) this._burst(out, t + 0.012, { type: 'bandpass', freq: 4200, q: 3, a: 0.0005, peak: P.click * (local ? 1.6 : 0.8), d: 0.012 });
+      return;
+    }
     const bus = ctx.createGain();
     if (local) { bus.connect(this.shaper); bus.connect(out); }
     else {

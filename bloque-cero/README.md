@@ -19,7 +19,7 @@ Es un único archivo HTML autónomo: no necesita servidor ni conexión.
 | F6 | Operadores 8 + 8 y contrajuego de gadgets | ✅ arsenal · plantilla de 16 · granadas y explosivos · gadgets defensivos · 16 habilidades · la defensa bot coloca gadgets y habilidades · el ataque bot los usa según la dificultad · contrajuego de la defensa bot y gadgets de acción |
 | F7 | Animaciones en primera y tercera persona, con la recarga por partes (antes F8) | ✅ recarga por partes en primera persona · resto de la primera persona · siluetas de los 16 · tercera persona por capas · muerte con física por partes · repetición de muerte |
 | F9 | Audio 3D con oclusión | ✅ paredes, suelos y rodeo por puertas y agujeros · ambiente · música en menús y últimos 30 s |
-| F10 | Pulido, pruebas de partidas completas y publicación (con rappel en Villa: tejado y fachada) | pendiente |
+| F10 | Miras y accesorios, rappel en Villa (tejado y fachada, también los bots), equilibrio de Élite, pulido y publicación | en curso: ✅ miras y accesorios |
 | — | Mapa Residencia del Lago | pendiente |
 
 ## Arsenal (Fase 6)
@@ -49,6 +49,34 @@ Las 10 armas de la tabla del documento:
   disparar la vista recupera el 70 % de lo que no hayas compensado tirando del ratón.
   Agachado −10 %, tumbado −20 %.
 - Modos de disparo con **B**: automático, ráfaga de 3 y tiro a tiro según el arma.
+
+### Miras y accesorios (Fase 10.3)
+
+En la selección, debajo de cada arma, eliges su mira y sus accesorios (y en el campo de pruebas con
+**O**). Se guardan por operador y arma para la próxima vez. Debajo, lo que queda: aumento, tiempo
+de apuntado y daño.
+
+| Pieza | Qué hace |
+| --- | --- |
+| Hierro, punto rojo, holográfica, réflex | Sin aumento (el del arma: 1,1–1,3x), cada una con su retícula |
+| 1,5x · 2,0x · 2,5x | Ese aumento; retícula de punto con anillo, de cruz y de flecha con marcas de caída |
+| Supresor | −10 % de daño, sin fogonazo y suena bajo: los bots lo oyen a 15 m en vez de 45 |
+| Compensador | −20 % de retroceso lateral |
+| Freno de boca | −30 % de retroceso en el primer disparo (mejor tiro a tiro) |
+| Empuñadura vertical | −15 % de retroceso vertical |
+| Empuñadura angular | Apuntas un 20 % más rápido (la FA-7, en 0,27 s en vez de 0,34) |
+| Láser | −20 % de dispersión desde la cadera, pero su haz se ve: un bot que lo ve a 20 m o menos sabe dónde estás |
+
+- Qué admite cada arma: fusiles, ametralladora y tirador, todas las miras; subfusiles y PA-3,
+  hasta 1,5x; escopeta, sin aumento; pistola y revólver, hierro. Empuñaduras, solo las
+  principales; la escopeta solo admite el supresor y el revólver no lleva nada en la boca.
+- De serie, cada arma lleva la mira de siempre y ningún accesorio (la FA-9 y la AL-60, 1,5x; la
+  T-308, 2,0x). Los bots llevan un equipo fijo por arma: compensador y empuñadura vertical en
+  fusiles, subfusiles y ametralladora; freno y vertical en el tirador; sin supresor ni láser.
+- Se ven en tu arma en primera persona y en la de los demás; el haz del láser, una línea roja
+  fina con un punto donde acaba, lo ve todo el mundo.
+- Antes, las miras con aumento se veían como un disco oscuro al apuntar y la escopeta tapaba la
+  vista con el riel; ahora se ve a través, con su retícula.
 
 ### Animaciones en primera persona (Fase 7.2)
 
@@ -567,6 +595,7 @@ o no la fuente:
 | 5 | (Muerto) cámaras (defensa) o drones que queden (ataque; Q/E otro dron); 5 otra vez, a observar |
 | G | (Campo de pruebas) carga de brecha en la pared que miras |
 | J / K / L | (Campo de pruebas) derribar al compañero / reiniciar el campo / cambiar de arsenal |
+| O | (Campo de pruebas) mira y accesorios de las armas |
 | F3 | Medidor de rendimiento |
 | P | Depuración: rejilla de navegación, rutas y conos de visión de los bots, su estado y los FPS |
 | Esc | Pausa |
@@ -598,6 +627,7 @@ node tools/smoke-repeticion.mjs <carpeta>  # repetición de muerte: desde el que
 node tools/smoke-audio.mjs [html]  # audio 3D: música del menú, viento y zumbido, pared, suelo y puerta, música de los últimos 30 s
 node tools/smoke-menu.mjs <carpeta> [html]  # el fondo del menú sin superficies oscuras (Baja, Media y Alta) y sin la primera persona
 node tools/medir-audio.mjs [motor]  # lo que sale por los altavoces (sin gráficos): disparos libres y tapados, de cerca y de lejos, y pasos
+node tools/smoke-accesorios.mjs <carpeta> [html]  # miras y accesorios: selección, primera persona, zoom, supresor, láser, panel O y capturas
 node tools/perf-partida.mjs [html...]  # llamadas de dibujo, triángulos y CPU con 10 operadores a la vista (con 5 cayendo y lo que cuesta grabar)
 node tools/mapslice.mjs <carpeta> # cortes cenitales del mapa por planta
 ```

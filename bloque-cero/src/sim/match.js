@@ -23,6 +23,7 @@ import { RNG } from '../core/rng.js';
 import { Game } from './game.js';
 import { Operator } from './operator.js';
 import { OP_BY_ID, opsForSide, GADGETS } from './operators.js';
+import { WEAPONS, BOT_KITS, normalizeKit } from './weapons.js';
 import { boxFree } from './physics.js';
 import { SOLID } from '../world/materials.js';
 import { Fortify } from './fortify.js';
@@ -79,7 +80,7 @@ export class Match extends Emitter {
     for (let t = 0; t < 2; t++) {
       for (let i = 0; i < 5; i++) {
         const isHuman = human && t === 0 && i === 0;
-        this.slots.push({ key: `t${t}s${i}`, team: t, index: i, human: isHuman, humanName: isHuman ? humanName : null, opId: null, primary: 0, secondary: 0, gadget: 0, spawn: 0, stats: newStats(), op: null, ready: !isHuman });
+        this.slots.push({ key: `t${t}s${i}`, team: t, index: i, human: isHuman, humanName: isHuman ? humanName : null, opId: null, primary: 0, secondary: 0, gadget: 0, kits: {}, spawn: 0, stats: newStats(), op: null, ready: !isHuman });
       }
     }
     this.round = 0;
@@ -199,8 +200,12 @@ export class Match extends Emitter {
     slot.gadget = this.rng.int(0, def.gadgets.length - 1);
   }
 
-  /** Elección del jugador en la pantalla de selección. Devuelve false si no es válida. */
-  choose(slot, { opId, primary, secondary, gadget, spawn, location } = {}) {
+  /**
+   * Elección del jugador en la pantalla de selección. Devuelve false si no es válida. `kits`:
+   * {id de arma: {sight, barrel, grip, laser}}, todas a la vez (las guardadas del operador);
+   * `kit`: {weapon, ...}, solo esa arma. Lo que el arma no admite se queda de serie.
+   */
+  choose(slot, { opId, primary, secondary, gadget, spawn, location, kits, kit } = {}) {
     if (this.phase !== 'select') return false;
     const side = this.sideOf(slot.team);
     if (opId !== undefined) {
@@ -209,13 +214,21 @@ export class Match extends Emitter {
       // si un compañero bot lo tenía, cambia a otro (el jugador manda)
       const holder = this.slotsOf(slot.team).find((s) => s !== slot && s.opId === opId);
       slot.opId = opId;
-      slot.primary = 0; slot.secondary = 0; slot.gadget = 0;
+      slot.primary = 0; slot.secondary = 0; slot.gadget = 0; slot.kits = {};
       if (holder) { if (holder.human) return false; holder.opId = null; this._botPick(holder); }
     }
     const def = slot.opId ? OP_BY_ID[slot.opId] : null;
     if (def && primary !== undefined) slot.primary = Math.max(0, Math.min(def.primaries.length - 1, primary));
     if (def && secondary !== undefined) slot.secondary = Math.max(0, Math.min(def.secondaries.length - 1, secondary));
     if (def && gadget !== undefined) slot.gadget = Math.max(0, Math.min(def.gadgets.length - 1, gadget));
+    if (kits) {
+      slot.kits = {};
+      for (const [id, k] of Object.entries(kits)) if (WEAPONS[id]) slot.kits[id] = normalizeKit(WEAPONS[id], k);
+    }
+    if (kit && WEAPONS[kit.weapon]) {
+      const w = WEAPONS[kit.weapon];
+      slot.kits[kit.weapon] = normalizeKit(w, { ...normalizeKit(w, slot.kits[kit.weapon]), ...kit });
+    }
     if (spawn !== undefined && side === 'atk') slot.spawn = Math.max(0, Math.min(this.map.attackerSpawns.length - 1, spawn));
     if (location !== undefined && side === 'def') {
       this.locationVotes[slot.key] = location;
@@ -290,6 +303,7 @@ export class Match extends Emitter {
       name: def.name, team: slot.team, x, y, z, yaw, armor: def.armor, bot: !slot.human,
       // (MURALLA no lleva arma principal: solo pistola; el escudo es su habilidad)
       loadout: [def.primaries[slot.primary] || def.primaries[0], def.secondaries[slot.secondary] || def.secondaries[0]].filter(Boolean),
+      kits: slot.human ? slot.kits : BOT_KITS,
       meta: { opId: def.id },
     });
     // gadget secundario elegido y habilidad (cargas)

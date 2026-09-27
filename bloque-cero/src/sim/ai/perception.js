@@ -6,6 +6,7 @@
 import { lineOfSight } from '../../world/raycast.js';
 import { BONE } from '../skeleton.js';
 import { thermalOn, THERMAL_SCOPE } from '../abilities.js';
+import { KIT } from '../weapons.js';
 
 export const MEMORY = 10;       // segundos que dura el recuerdo de dónde estaba un enemigo
 
@@ -57,7 +58,29 @@ export class Perception {
       this.visible.push(t);
       this.memory.set(t, { x: t.body.pos.x, y: t.body.pos.y, z: t.body.pos.z, t: now, seen: true, precise: true });
     }
+    // el haz de un láser a la vista, a 20 m o menos: sabe dónde está quien lo lleva (sin verlo)
+    for (const t of enemies) {
+      if (!t.laserOn || this.visible.includes(t) || !this._seesLaser(t, e, vx, vz, cosFov)) continue;
+      this.memory.set(t, { x: t.body.pos.x, y: t.body.pos.y, z: t.body.pos.z, t: now, seen: false, precise: true });
+    }
     return true;
+  }
+
+  // ¿Ve algún punto del haz (o el punto rojo donde acaba)? Como mucho 3 líneas de visión.
+  _seesLaser(t, e, vx, vz, cosFov) {
+    const w = this.game.world, B = t.laserBeam(w, this.game.time), R = KIT.laserSeen;
+    let tries = 0;
+    for (const s of [B.len - 0.05, 0.3, 2, 5, 9, 14]) {
+      if (s < 0 || s > B.len) continue;
+      const px = B.o.x + B.d.x * s, py = B.o.y + B.d.y * s, pz = B.o.z + B.d.z * s;
+      const dx = px - e.x, dy = py - e.y, dz = pz - e.z;
+      if (dx * dx + dy * dy + dz * dz > R * R) continue;
+      const hd = Math.hypot(dx, dz) || 1;
+      if ((dx * vx + dz * vz) / hd < cosFov && hd > 1.5) continue;
+      if (lineOfSight(w, e.x, e.y, e.z, px, py, pz)) return true;
+      if (++tries >= 3) return false;
+    }
+    return false;
   }
 
   // Oye algo en `pos` con intensidad `loud` (0..1+). `src` puede ser el operador que lo hizo.

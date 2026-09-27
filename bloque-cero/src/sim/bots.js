@@ -32,6 +32,7 @@ import { SOLID, HARD, PEN_COST } from '../world/materials.js';
 import { angleDiff, clamp } from '../core/math.js';
 import { BONE } from './skeleton.js';
 import { shieldFaces } from './abilities.js';
+import { KIT } from './weapons.js';
 
 // Dificultad (tabla de IA del documento): reacción, error inicial de puntería (grados) que
 // se corrige mientras sigue al blanco, y lo que sabe hacer cada nivel.
@@ -100,7 +101,7 @@ export class BotSquad {
   _bind() {
     const g = this.game, m = this.match;
     const on = (em, ev, fn) => this._subs.push(em.on(ev, fn));
-    on(g, 'shot', (op, w, eye) => this._noise(op, eye, 'shot', 45));
+    on(g, 'shot', (op, w, eye) => this._noise(op, eye, 'shot', w.def.suppressed ? 45 * KIT.suppressedHearing : 45));   // (con supresor, 15 m)
     on(g, 'footstep', (op, mat, loud) => this._noise(op, op.body.pos, 'step', 3 + 20 * loud));
     on(g, 'melee', (op, info) => this._noise(op, (info && info.point) || op.body.pos, 'melee', 14));
     on(g, 'vault', (op) => this._noise(op, op.body.pos, 'vault', 9));

@@ -16,6 +16,8 @@ import { defaultLook, operatorLook } from '../render/character.js';
 import { raycastFirst } from '../world/raycast.js';
 import { breachRect, explodeSphere } from '../world/destruction.js';
 import { MATS, SOLID } from '../world/materials.js';
+import { kitPanel } from '../ui/matchui.js';
+import { saveSettings } from '../core/settings.js';
 
 const SPAWN = { x: 15.5, y: 0, z: -4.5, yaw: Math.PI };
 const LOADOUTS = [['ar', 'pistol', 'shotgun', 'smg'], ['ar2', 'revolver', 'lmg', 'dmr'], ['smg2', 'mpistol', 'shotgun', 'ar']];
@@ -28,7 +30,7 @@ export class RangeSession extends Session {
     ctx.effects.clearAll();
     this._game = new Game({ world, map, seed: 20260923 });
     this.loadoutIdx = 0;
-    this._player = this._game.addOperator(new Operator('jugador', { name: 'Tú', team: 0, x: SPAWN.x, y: SPAWN.y, z: SPAWN.z, yaw: SPAWN.yaw, loadout: LOADOUTS[0], armor: 2 }));
+    this._player = this._game.addOperator(new Operator('jugador', { name: 'Tú', team: 0, x: SPAWN.x, y: SPAWN.y, z: SPAWN.z, yaw: SPAWN.yaw, loadout: LOADOUTS[0], kits: this._kits(), armor: 2 }));
     this.dummies = spawnRangeDummies(this._game);
     this.lineup = spawnLineup(this._game, OPERATORS);
     // en el campo de pruebas el jugador puede reforzar, poner barricadas y usar drones sin límite
@@ -52,6 +54,42 @@ export class RangeSession extends Session {
     }));
     hud.setMode('range');
     hud.setDeath(false); hud.setDowned(false);
+    // panel de equipo (O): mira y accesorios de las cuatro armas, con el ratón suelto
+    this.kitOpen = false;
+    this._kitEl = document.getElementById('kitpanel');
+    const onClick = (e) => { const b = e.target.closest('[data-act="kit"]'); if (b) { ctx.audio.ui('click'); this.pickKit(b.dataset.w, b.dataset.p, b.dataset.v); } };
+    const onKey = (e) => { if (this.kitOpen && e.code === 'Escape') { e.preventDefault(); this.closeKit(); } };
+    this._kitEl.addEventListener('click', onClick);
+    window.addEventListener('keydown', onKey);
+    this.disposers.push(() => { this._kitEl.removeEventListener('click', onClick); window.removeEventListener('keydown', onKey); this._kitEl.classList.add('hidden'); });
+  }
+  // lo elegido en el campo de pruebas, por arma (se guarda en los ajustes)
+  _kits() { return this.ctx.settings.kits.campo || {}; }
+  openKit() {
+    this.kitOpen = true; this.wantsPointer = false;
+    this.ctx.input.exitLock();
+    this._renderKit();
+    this._kitEl.classList.remove('hidden');
+  }
+  closeKit() {
+    this.kitOpen = false; this.wantsPointer = true;
+    this._kitEl.classList.add('hidden');
+    this.ctx.input.requestLock();
+    this._dropMouse = 3;      // (al volver a capturar el ratón llega un salto: no mueve la vista)
+  }
+  _renderKit() {
+    document.getElementById('kp-body').innerHTML = this._player.weapons.map((w) => kitPanel(w.base.id, w.kit)).join('');
+  }
+  /** Mira o accesorio de un arma del arsenal (part: sight, barrel, grip o laser). */
+  pickKit(id, part, v) {
+    const w = this._player.weapons.find((x) => x.base.id === id);
+    if (!w) return;
+    w.setKit({ ...w.kit, [part]: part === 'laser' ? v === 'on' : v });
+    const S = this.ctx.settings;
+    S.kits.campo = { ...(S.kits.campo || {}), [id]: w.kit };
+    saveSettings(S);
+    this.ctx.chars.remove(this._player); this.ctx.chars.add(this._player, defaultLook(0, 0));
+    this._renderKit();
   }
   get player() { return this._player; }
   get game() { return this._game; }
@@ -59,10 +97,15 @@ export class RangeSession extends Session {
   get viewCam() { return this.feed.active ? this.feed : null; }
 
   input(active) {
+    if (this.kitOpen) {
+      const I = this._player.intent; I.moveX = 0; I.moveZ = 0; I.fire = false; I.ads = false; I.interact = false;
+      return { dx: 0, dy: 0 };
+    }
     if (this.feed.active) {
       const I = this._player.intent; I.moveX = 0; I.moveZ = 0; I.fire = false; I.ads = false; I.interact = false;
       return this.feed.input(active, 0);
     }
+    if (this._dropMouse > 0) { this._dropMouse--; this.ctx.input.consumeMouse(); }
     return super.input(active);
   }
 
@@ -83,6 +126,8 @@ export class RangeSession extends Session {
       else { const d = this.recon.droneOf(this._player) || this.recon.deployDrone(this._player, { thrown: true }); if (d) this.feed.enterDrone(d, true); }
     }
     if (this.feed.active) return;
+    if (take('KeyO')) { if (this.kitOpen) this.closeKit(); else this.openKit(); }
+    if (this.kitOpen) return;
     if (take('Digit3')) I.switchTo = 2;
     if (take('Digit4')) I.switchTo = 3;
     if (input.pressed('gadget')) this.testBreach();
@@ -106,7 +151,7 @@ export class RangeSession extends Session {
   setLoadout(i) {
     const p = this._player;
     this.loadoutIdx = i % LOADOUTS.length;
-    p.weapons = LOADOUTS[this.loadoutIdx].map((k) => new WeaponState(WEAPONS[k]));
+    p.weapons = LOADOUTS[this.loadoutIdx].map((k) => new WeaponState(WEAPONS[k], this._kits()[k]));
     p.weaponIndex = 0;
     p.weapon.equipT = p.weapon.def.equip;
     this.ctx.chars.remove(p); this.ctx.chars.add(p, defaultLook(0, 0));

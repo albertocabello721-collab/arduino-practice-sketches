@@ -12,6 +12,9 @@
 //     poco de azar. Se recupera al dejar de disparar. Agachado −10 %, tumbado −20 %.
 //   Modos de disparo (B): automático, ráfaga de 3 y tiro a tiro según el arma.
 //   Recarga por partes (reloadPlan): la munición cambia en su parte, no al final.
+//   Miras y accesorios (Fase 10.3, KIT_RULES): cada arma en mano lleva los suyos (WeaponState.kit) y
+//     su `def` ya trae lo que cambian (kitDef): aumento, retroceso, dispersión, apuntado y daño.
+//     adsZoom es el aumento con las miras sin aumento (hierro, punto rojo, holográfica, réflex).
 
 // Penetración común: 2 vóxeles de pladur (coste 0,07 cada uno) → 70 % del daño.
 const PEN = 0.07 * 2 / 0.3;
@@ -27,7 +30,7 @@ export const WEAPONS = {
   },
   ar2: {
     id: 'ar2', name: 'FA-9 Lince', kind: 'Fusil de asalto', cls: 'rifle', auto: true, modes: ['auto', 'burst', 'semi'], rpm: 860, damage: 39, pellets: 1,
-    mag: 30, reserve: 150, reload: 2.3, reloadEmpty: 3.0, equip: 0.55, adsTime: 0.32, adsZoom: 1.4,
+    mag: 30, reserve: 150, reload: 2.3, reloadEmpty: 3.0, equip: 0.55, adsTime: 0.32, adsZoom: 1.3,
     spreadHip: 2.5, spreadAds: 0.05, spreadMove: 1.8, bloom: 0.33,
     recoil: { v: 0.5, h: 0.4, first: 1.3, jitter: 0.1, seed: 2 },
     penetration: PEN, extraBreak: 0, falloff: [25, 35, 0.75], range: 120, sound: 'rifle', model: 'ar2',
@@ -50,7 +53,7 @@ export const WEAPONS = {
   // ---------------- ametralladora ligera
   lmg: {
     id: 'lmg', name: 'AL-60 Oso', kind: 'Ametralladora ligera', cls: 'lmg', auto: true, modes: ['auto', 'semi'], rpm: 700, damage: 47, pellets: 1,
-    mag: 80, reserve: 160, reload: 5.0, reloadEmpty: 5.0, noChamber: true, equip: 0.8, adsTime: 0.45, adsZoom: 1.35,
+    mag: 80, reserve: 160, reload: 5.0, reloadEmpty: 5.0, noChamber: true, equip: 0.8, adsTime: 0.45, adsZoom: 1.3,
     spreadHip: 3.4, spreadAds: 0.1, spreadMove: 2.6, bloom: 0.35,
     recoil: { v: 0.5, h: 0.46, first: 1.3, jitter: 0.12, seed: 5 },
     penetration: PEN, extraBreak: 0.15, falloff: [25, 35, 0.75], range: 140, sound: 'rifle', model: 'lmg',
@@ -58,7 +61,7 @@ export const WEAPONS = {
   // ---------------- tirador semiautomático
   dmr: {
     id: 'dmr', name: 'T-308 Búho', kind: 'Tirador semiautomático', cls: 'dmr', auto: false, modes: ['semi'], rpm: 380, damage: 67, pellets: 1,
-    mag: 10, reserve: 60, reload: 2.6, reloadEmpty: 3.3, equip: 0.6, adsTime: 0.4, adsZoom: 2.2,
+    mag: 10, reserve: 60, reload: 2.6, reloadEmpty: 3.3, equip: 0.6, adsTime: 0.4, adsZoom: 1.3,
     spreadHip: 3.0, spreadAds: 0.02, spreadMove: 2.4, bloom: 0.6,
     recoil: { v: 2.0, h: 0.3, first: 1.0, jitter: 0.1, seed: 6 },
     penetration: PEN, extraBreak: 0.1, falloff: [30, 45, 0.8], range: 180, sound: 'rifle', model: 'dmr',
@@ -94,6 +97,112 @@ export const WEAPONS = {
     penetration: PEN, extraBreak: 0, falloff: [20, 30, 0.7], range: 70, sound: 'smg', model: 'mpistol',
   },
 };
+
+// ------------------------------------------------------------ miras y accesorios (Fase 10.3)
+// Una mira y hasta tres accesorios por arma (uno de cada tipo):
+//   Miras: hierro, punto rojo, holográfica y réflex (con el aumento propio del arma, adsZoom) y
+//     1,5x, 2,0x y 2,5x. Fusiles, ametralladora y tirador, todas; subfusiles y PA-3, hasta 1,5x;
+//     escopeta, sin aumento; pistola y revólver, hierro.
+//   Cañón: supresor (−10 % de daño, sin fogonazo y suena bajo: los bots lo oyen a un tercio de la
+//     distancia), compensador (−20 % de retroceso lateral) o freno de boca (−30 % de retroceso en
+//     el primer disparo). La escopeta solo admite el supresor y el revólver, nada.
+//   Empuñadura (armas principales): vertical (−15 % de retroceso vertical) o angular (apunta un
+//     20 % más rápido).
+//   Láser: −20 % de dispersión desde la cadera, pero su haz se ve (un bot que lo ve a menos de
+//     20 m sabe dónde estás).
+export const SIGHTS = {
+  iron: { name: 'Hierro', zoom: 0 },
+  reddot: { name: 'Punto rojo', zoom: 0 },
+  holo: { name: 'Holográfica', zoom: 0 },
+  reflex: { name: 'Réflex', zoom: 0 },
+  x15: { name: '1,5x', zoom: 1.5 },
+  x20: { name: '2,0x', zoom: 2.0 },
+  x25: { name: '2,5x', zoom: 2.5 },
+};
+export const BARRELS = {
+  none: { name: 'Nada', desc: '' },
+  suppressor: { name: 'Supresor', desc: '−10 % de daño · sin fogonazo · suena bajo' },
+  compensator: { name: 'Compensador', desc: '−20 % de retroceso lateral' },
+  brake: { name: 'Freno de boca', desc: '−30 % de retroceso en el primer disparo' },
+};
+export const GRIPS = {
+  none: { name: 'Nada', desc: '' },
+  vertical: { name: 'Vertical', desc: '−15 % de retroceso vertical' },
+  angled: { name: 'Angular', desc: 'apuntas un 20 % más rápido' },
+};
+export const KIT = {
+  suppressorDamage: 0.9, compensatorSide: 0.8, brakeFirst: 0.7, verticalUp: 0.85, angledAds: 0.8, laserHip: 0.8,
+  suppressedHearing: 1 / 3,   // hasta dónde oyen los bots un disparo con supresor (de 45 m a 15 m)
+  laserSeen: 20,              // m: un bot que ve el haz a esta distancia o menos sabe dónde estás
+};
+const ALL_SIGHTS = Object.keys(SIGHTS);
+const UP_TO_15 = ['iron', 'reddot', 'holo', 'reflex', 'x15'];
+const NO_ZOOM = ['iron', 'reddot', 'holo', 'reflex'];
+const ALL_BARRELS = Object.keys(BARRELS);
+// qué admite cada arma y la mira que lleva de serie (la de siempre; sin accesorios)
+export const KIT_RULES = {
+  ar: { sights: ALL_SIGHTS, barrels: ALL_BARRELS, grips: true, sight: 'holo' },
+  ar2: { sights: ALL_SIGHTS, barrels: ALL_BARRELS, grips: true, sight: 'x15' },
+  smg: { sights: UP_TO_15, barrels: ALL_BARRELS, grips: true, sight: 'holo' },
+  smg2: { sights: UP_TO_15, barrels: ALL_BARRELS, grips: true, sight: 'reddot' },
+  lmg: { sights: ALL_SIGHTS, barrels: ALL_BARRELS, grips: true, sight: 'x15' },
+  dmr: { sights: ALL_SIGHTS, barrels: ALL_BARRELS, grips: true, sight: 'x20' },
+  shotgun: { sights: NO_ZOOM, barrels: ['none', 'suppressor'], grips: true, sight: 'iron' },
+  pistol: { sights: ['iron'], barrels: ALL_BARRELS, grips: false, sight: 'iron' },
+  revolver: { sights: ['iron'], barrels: ['none'], grips: false, sight: 'iron' },
+  mpistol: { sights: UP_TO_15, barrels: ALL_BARRELS, grips: false, sight: 'iron' },
+};
+// los bots llevan un equipo fijo y sensato por arma (sin supresor ni láser)
+export const BOT_KITS = {
+  ar: { sight: 'holo', barrel: 'compensator', grip: 'vertical' },
+  ar2: { sight: 'x15', barrel: 'compensator', grip: 'vertical' },
+  smg: { sight: 'holo', barrel: 'compensator', grip: 'vertical' },
+  smg2: { sight: 'reddot', barrel: 'compensator', grip: 'vertical' },
+  lmg: { sight: 'x15', barrel: 'compensator', grip: 'vertical' },
+  dmr: { sight: 'x20', barrel: 'brake', grip: 'vertical' },
+  shotgun: { sight: 'iron' },
+  pistol: { sight: 'iron' },
+  revolver: { sight: 'iron' },
+  mpistol: { sight: 'iron', barrel: 'compensator' },
+};
+
+/** Lo que lleva un arma de serie: su mira de siempre y ningún accesorio. */
+export function defaultKit(def) {
+  const R = KIT_RULES[def.id];
+  return { sight: R ? R.sight : 'iron', barrel: 'none', grip: 'none', laser: false };
+}
+/** Una elección válida para el arma: lo que no admite se queda como de serie. */
+export function normalizeKit(def, kit) {
+  const R = KIT_RULES[def.id], base = defaultKit(def);
+  if (!kit || !R) return base;
+  return {
+    sight: R.sights.includes(kit.sight) ? kit.sight : base.sight,
+    barrel: R.barrels.includes(kit.barrel) ? kit.barrel : 'none',
+    grip: R.grips && GRIPS[kit.grip] ? kit.grip : 'none',
+    laser: !!kit.laser,
+  };
+}
+/** El arma con lo que le cambian la mira y los accesorios (el resto, igual que en la tabla). */
+export function kitDef(def, kit) {
+  const d = Object.create(def);
+  d.kit = kit;
+  d.adsZoom = SIGHTS[kit.sight].zoom || def.adsZoom;
+  d.adsTime = def.adsTime * (kit.grip === 'angled' ? KIT.angledAds : 1);
+  d.spreadHip = def.spreadHip * (kit.laser ? KIT.laserHip : 1);
+  d.damage = def.damage * (kit.barrel === 'suppressor' ? KIT.suppressorDamage : 1);
+  d.suppressed = kit.barrel === 'suppressor';
+  d.laser = kit.laser;
+  const R = def.recoil;
+  if (R) {
+    d.recoil = {
+      ...R,
+      v: R.v * (kit.grip === 'vertical' ? KIT.verticalUp : 1),
+      h: R.h * (kit.barrel === 'compensator' ? KIT.compensatorSide : 1),
+      first: R.first * (kit.barrel === 'brake' ? KIT.brakeFirst : 1),
+    };
+  }
+  return d;
+}
 
 export const FIRE_MODE_NAME = { auto: 'Automático', burst: 'Ráfaga', semi: 'Tiro a tiro' };
 export const BURST = 3;
@@ -168,8 +277,10 @@ export function reloadPlan(def, ammo, reserve, magOut = false) {
 }
 
 export class WeaponState {
-  constructor(def) {
-    this.def = def;
+  constructor(def, kit = null) {
+    this.base = def;                      // el arma de la tabla
+    this.kit = normalizeKit(def, kit);    // su mira y sus accesorios
+    this.def = kitDef(def, this.kit);     // el arma con lo que cambian
     this.ammo = def.mag;
     this.reserve = def.reserve;
     this.cooldown = 0;
@@ -186,6 +297,8 @@ export class WeaponState {
     this.burstLeft = 0;        // disparos que quedan de la ráfaga en curso
     this.mode = (def.modes && def.modes[0]) || (def.auto ? 'auto' : 'semi');
   }
+  /** Cambiar mira y accesorios (campo de pruebas): lo demás del arma sigue como esté. */
+  setKit(kit) { this.kit = normalizeKit(this.base, kit); this.def = kitDef(this.base, this.kit); }
   get reloading() { return this.reloadT > 0; }
   get ready() { return this.reloadT <= 0 && this.equipT <= 0; }
   /** Cambia al siguiente modo de disparo del arma (B). Devuelve el nuevo modo. */

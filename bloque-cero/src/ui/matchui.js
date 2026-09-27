@@ -2,7 +2,7 @@
 // selección de operador, marcadores de objetivo, avisos de fase, fin de ronda,
 // marcador (Tab) y pantalla final. Solo toca el DOM cuando cambia algo.
 import { OP_BY_ID, opsForSide, GADGETS, ARMOR_SPEED } from '../sim/operators.js';
-import { WEAPONS } from '../sim/weapons.js';
+import { WEAPONS, SIGHTS, BARRELS, GRIPS, KIT_RULES, normalizeKit, kitDef } from '../sim/weapons.js';
 import { emblemURL } from './emblems.js';
 
 const $ = (id) => document.getElementById(id);
@@ -11,6 +11,25 @@ export const fmtTime = (t) => { t = Math.max(0, Math.ceil(t)); return `${Math.fl
 const pips = (n, max = 3) => '▮'.repeat(n) + '▯'.repeat(max - n);
 const SIDE_NAME = { atk: 'Ataque', def: 'Defensa' };
 const PHASE_NAME = { select: 'Selección', prep: 'Preparación', action: 'Acción', planted: 'Desactivador', roundEnd: 'Fin de ronda', matchEnd: 'Fin' };
+
+// Mira y accesorios de un arma (selección y campo de pruebas): una fila por cada cosa que admite y,
+// debajo, lo que queda (aumento, apuntado, daño). Botones con data-act="kit".
+const fmtN = (n, d = 2) => String(+n.toFixed(d)).replace('.', ',');
+export function kitPanel(id, chosen) {
+  const w = WEAPONS[id], R = KIT_RULES[id];
+  if (!w || !R) return '';
+  const k = normalizeKit(w, chosen), d = kitDef(w, k);
+  const chip = (part, v, name, desc, on) => `<button class="kt${on ? ' sel' : ''}" data-act="kit" data-w="${id}" data-p="${part}" data-v="${v}"${desc ? ` title="${esc(desc)}"` : ''}>${esc(name)}</button>`;
+  const row = (label, chips) => `<div class="kr"><span>${label}</span><div>${chips}</div></div>`;
+  let h = `<div class="kh">Mira y accesorios · <b>${esc(w.name)}</b></div>`;
+  h += row('Mira', R.sights.map((sg) => chip('sight', sg, SIGHTS[sg].name, `aumento ${fmtN(SIGHTS[sg].zoom || w.adsZoom)}x`, k.sight === sg)).join(''));
+  if (R.barrels.length > 1) h += row('Cañón', R.barrels.map((b) => chip('barrel', b, BARRELS[b].name, BARRELS[b].desc, k.barrel === b)).join(''));
+  if (R.grips) h += row('Empuñadura', Object.keys(GRIPS).map((g) => chip('grip', g, GRIPS[g].name, GRIPS[g].desc, k.grip === g)).join(''));
+  h += row('Láser', chip('laser', 'off', 'No', '', !k.laser) + chip('laser', 'on', 'Sí', '−20 % de dispersión desde la cadera · su haz se ve', k.laser));
+  const dmg = d.pellets > 1 ? `${fmtN(d.damage, 1)}×${d.pellets}` : fmtN(d.damage, 1);
+  h += `<div class="ks">Aumento ${fmtN(d.adsZoom)}x · apuntado ${fmtN(d.adsTime)} s · daño ${dmg}${k.barrel === 'suppressor' ? ' · sin fogonazo' : ''}</div>`;
+  return `<div class="kit">${h}</div>`;
+}
 
 export class MatchUI {
   constructor(ctx, session) {
@@ -38,6 +57,7 @@ export class MatchUI {
       else if (a === 'pri') this.s.pickWeapon('primary', +v);
       else if (a === 'sec') this.s.pickWeapon('secondary', +v);
       else if (a === 'gad') this.s.pickGadget(+v);
+      else if (a === 'kit') this.s.pickKit(b.dataset.w, b.dataset.p, v);
       else if (a === 'ch') this.s.pickChoice(+v);
       else if (a === 'ready') this.s.ready();
     };
@@ -242,6 +262,7 @@ export class MatchUI {
         return `<button class="wpn${idx === cur ? ' sel' : ''}" data-act="${act}" data-v="${idx}"><b>${w.name}</b><span>${w.kind} · ${w.damage}${w.pellets > 1 ? '×' + w.pellets : ''} daño · ${rate} · ${w.mag}${w.pellets === 1 && !w.noChamber ? '+1' : ''} balas</span></button>`;
       };
       const gbtn = (id, idx) => `<button class="wpn${idx === me.gadget ? ' sel' : ''}" data-act="gad" data-v="${idx}"><b>${esc(GADGETS[id].name)}</b><span>×${GADGETS[id].count}</span></button>`;
+      const kitRows = (id) => kitPanel(id, me.kits[id]);
       this.el.selDetail.innerHTML = `
         <div class="opd">
           <img src="${emblemURL(def.id, def.color, 128)}" alt="">
@@ -253,7 +274,9 @@ export class MatchUI {
         </div>
         <div class="ld">
           <h4>Principal</h4><div class="row">${def.primaries.length ? def.primaries.map((id, i) => wbtn(id, 'pri', i, me.primary)).join('') : '<p class="note">Sin arma principal: lleva el escudo balístico.</p>'}</div>
+          ${def.primaries.length ? kitRows(def.primaries[me.primary] || def.primaries[0]) : ''}
           <h4>Secundaria</h4><div class="row">${def.secondaries.map((id, i) => wbtn(id, 'sec', i, me.secondary)).join('')}</div>
+          ${kitRows(def.secondaries[me.secondary] || def.secondaries[0])}
           <h4>Gadget secundario</h4><div class="row">${def.gadgets.map((id, i) => gbtn(id, i)).join('')}</div>
         </div>`;
     }
