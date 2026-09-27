@@ -63,7 +63,7 @@ export class Session {
         if (!d.alive) continue;
         const p = d.body.pos;
         const local = feed && feed.drone === d && feed.piloting;
-        audio.droneLoop(d.id, { x: p.x, y: p.y + 0.1, z: p.z }, d.moveSpeed, local || !this.ctx.occlusion ? 0 : this.ctx.occlusion(p), local);
+        audio.droneLoop(d.id, { x: p.x, y: p.y + 0.1, z: p.z }, d.moveSpeed, local || !this.ctx.hear ? 0 : this.ctx.hear(p), local);
       }
       audio.droneSweep();
     }

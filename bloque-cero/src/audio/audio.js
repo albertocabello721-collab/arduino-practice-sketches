@@ -1,7 +1,11 @@
 // Motor de audio sintetizado con Web Audio: sin archivos. Disparos por capas
 // (chasquido, cuerpo, golpe grave, mecánica, cola de reverberación), impactos,
 // roturas por material, pasos, recargas y casquillos. Sonido 3D con HRTF.
-// (La Fase 9 añade oclusión por vóxeles y reverberación por sala.)
+// Fase 9: la oclusión viene de propagation.js (por dónde llega cada sonido), y hay ambiente
+// (viento fuera, zumbido eléctrico dentro) y música tensa en los menús y los últimos 30 s.
+
+// La oclusión multiplicada (sirve el número o lo que devuelve la propagación, {x, y, z, occl})
+const scaleOccl = (o, k) => (o && typeof o === 'object' ? { x: o.x, y: o.y, z: o.z, occl: o.occl * k } : o * k);
 
 const SND = { none: 0, grass: 1, dirt: 2, concrete: 3, wood: 4, metal: 5, glass: 6, carpet: 7, tile: 8, plaster: 9, fabric: 10, gravel: 11, brick: 12 };
 
@@ -97,9 +101,11 @@ export class AudioEngine {
     this.revOutGain.gain.setTargetAtTime(0.32 * (1 - k), t, 0.2);
   }
 
-  // Nodo de salida: posicional (HRTF) o directo. opts.occl 0..1 atenúa y filtra.
+  // Nodo de salida: posicional (HRTF) o directo. opts.occl 0..1 atenúa y filtra; puede ser también
+  // lo que devuelve la propagación ({x, y, z, occl}): entonces suena desde ese punto (una puerta).
   _out(pos, { gain = 1, ref = 2, rolloff = 1.2, occl = 0, reverb = 0.3, direct = false } = {}) {
     const ctx = this.ctx;
+    if (occl && typeof occl === 'object') { if (pos) pos = occl; occl = occl.occl; }
     const g = ctx.createGain();
     g.gain.value = gain * (1 - occl * 0.55);
     let head = g;
@@ -168,7 +174,17 @@ export class AudioEngine {
     const vary = 0.9 + Math.random() * 0.2;
     const dist = pos ? Math.hypot(pos.x - this.listener.x, pos.y - this.listener.y, pos.z - this.listener.z) : 0;
     const out = this._out(local ? null : pos, { gain: local ? 0.9 : 1.6, ref: 3, rolloff: 1.0, occl, reverb: local ? 0.55 : 0.6, direct: local });
-    const bus = ctx.createGain(); bus.connect(this.shaper); bus.connect(out);
+    const bus = ctx.createGain();
+    if (local) { bus.connect(this.shaper); bus.connect(out); }
+    else {
+      // el grano de los disparos de otros también va por su posición y lo que tapa (antes sonaba
+      // igual de fuerte a cualquier distancia y sin tapar); juntos suman más, así que todo va a
+      // 0,66: de cerca suena igual de fuerte que antes
+      const mix = ctx.createGain(); mix.gain.value = 0.66; mix.connect(out);
+      const sh = ctx.createWaveShaper(); sh.curve = this.shaper.curve;
+      const k = ctx.createGain(); k.gain.value = 1 / 1.6;
+      bus.connect(mix); bus.connect(sh).connect(k).connect(mix);
+    }
     bus.gain.value = local ? 0.55 : 0.5;
     // chasquido supersónico
     this._burst(bus, t, { type: 'highpass', freq: 2200 * vary, q: 0.7, a: 0.0006, peak: P.crack * (dist > 30 ? 0.5 : 1), d: 0.035 });
@@ -455,7 +471,7 @@ export class AudioEngine {
   reinforce(pos, stage, occl = 0) {
     if (!this.ctx) return;
     const t = this.ctx.currentTime;
-    const out = this._out(pos, { gain: 1.0, ref: 3, rolloff: 0.9, occl: occl * 0.6, reverb: 0.45 });
+    const out = this._out(pos, { gain: 1.0, ref: 3, rolloff: 0.9, occl: scaleOccl(occl, 0.6), reverb: 0.45 });
     if (stage === 'place') {
       this._tone(out, t, { f0: 95, f1: 55, a: 0.003, peak: 0.9, d: 0.35 });
       this._burst(out, t, { type: 'lowpass', freq: 500, q: 0.8, a: 0.002, peak: 0.6, d: 0.12 });
@@ -513,6 +529,7 @@ export class AudioEngine {
   // Motor de dron: bucle por dron que se actualiza cada fotograma (volumen según velocidad).
   droneLoop(id, pos, speed, occl = 0, local = false) {
     if (!this.ctx) return;
+    if (occl && typeof occl === 'object') { pos = occl; occl = occl.occl; }
     this._drones = this._drones || new Map();
     let d = this._drones.get(id);
     const ctx = this.ctx, t = ctx.currentTime;
@@ -536,7 +553,7 @@ export class AudioEngine {
     d.seen = t;
     const k = Math.min(1, speed / 3.5);
     d.o.frequency.setTargetAtTime(80 + k * 70, t, 0.08);
-    d.lp.frequency.setTargetAtTime(500 + k * 900, t, 0.08);
+    d.lp.frequency.setTargetAtTime((500 + k * 900) * (1 - occl * 0.6), t, 0.08);
     d.out.gain.setTargetAtTime((0.02 + k * 0.16) * (1 - occl * 0.6), t, 0.08);
     if (d.p.positionX) { d.p.positionX.setValueAtTime(pos.x, t); d.p.positionY.setValueAtTime(pos.y, t); d.p.positionZ.setValueAtTime(pos.z, t); }
     else d.p.setPosition(pos.x, pos.y, pos.z);
@@ -729,6 +746,89 @@ export class AudioEngine {
     const t = this.ctx.currentTime;
     const out = this._out(pos, { gain: 0.5, ref: 3, rolloff: 1.0, occl, reverb: 0.25 });
     this._tone(out, t, { f0: 2100 + urgency * 500, f1: 2080 + urgency * 500, a: 0.002, peak: 0.6, d: 0.07, type: 'square' });
+  }
+
+  // ------------------------------------------------------------ ambiente y música (Fase 9)
+  /**
+   * Ambiente de fondo, cada fotograma: viento según el cielo que hay encima (0..1) y zumbido
+   * eléctrico según lo dentro que se está (0..1). Sin sonido 3D: rodea al que escucha.
+   */
+  ambience(sky, indoor) {
+    if (!this.ctx) return;
+    const ctx = this.ctx, t = ctx.currentTime;
+    if (!this._amb) {
+      const out = ctx.createGain(); out.gain.value = 1; out.connect(this.master);
+      // viento: ruido rosa por un paso banda que se mueve despacio, con rachas
+      const wind = this._noiseSrc(true, 0.5); wind.loop = true;
+      const bp = ctx.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = 380; bp.Q.value = 0.7;
+      const wg = ctx.createGain(); wg.gain.value = 0;
+      const gust = ctx.createGain(); gust.gain.value = 1;
+      const lfo = ctx.createOscillator(); lfo.frequency.value = 0.11;
+      const lfoAmt = ctx.createGain(); lfoAmt.gain.value = 0.45;
+      lfo.connect(lfoAmt).connect(gust.gain);
+      const lfo2 = ctx.createOscillator(); lfo2.frequency.value = 0.07;
+      const lfo2Amt = ctx.createGain(); lfo2Amt.gain.value = 160;
+      lfo2.connect(lfo2Amt).connect(bp.frequency);
+      wind.connect(bp).connect(gust).connect(wg).connect(out);
+      // zumbido eléctrico: 100 Hz y armónicos (red de 50 Hz), muy bajo
+      const hg = ctx.createGain(); hg.gain.value = 0;
+      const hlp = ctx.createBiquadFilter(); hlp.type = 'lowpass'; hlp.frequency.value = 900;
+      const hums = [[100, 0.6], [200, 0.25], [50, 0.2], [300, 0.08]].map(([f, a]) => {
+        const o = ctx.createOscillator(); o.type = f === 100 ? 'sawtooth' : 'sine'; o.frequency.value = f;
+        const g = ctx.createGain(); g.gain.value = a; o.connect(g).connect(hlp); o.start(); return o;
+      });
+      hlp.connect(hg).connect(out);
+      wind.start(); lfo.start(); lfo2.start();
+      this._amb = { wg, hg, nodes: [wind, lfo, lfo2, ...hums] };
+    }
+    this.ambLevel = { wind: 0.05 * sky * sky, hum: 0.012 * indoor };
+    this._amb.wg.gain.setTargetAtTime(this.ambLevel.wind, t, 0.6);
+    this._amb.hg.gain.setTargetAtTime(this.ambLevel.hum, t, 0.6);
+  }
+
+  /**
+   * Música tensa sintetizada, cada fotograma: 0 nada, 1 en los menús (lenta y suave), 2 en los
+   * últimos 30 s de la ronda (más rápida: pulso en cada tiempo, tictac y arpegio). Se programa un
+   * poco por delante con el reloj del audio.
+   */
+  music(level) {
+    if (!this.ctx) return;
+    const ctx = this.ctx, t = ctx.currentTime;
+    if (!this._mus) {
+      const bus = ctx.createGain(); bus.gain.value = 0; bus.connect(this.master);
+      // colchón: La y Mi graves, desafinados, con el filtro abriéndose despacio
+      const lp = ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 380; lp.Q.value = 2;
+      const pad = ctx.createGain(); pad.gain.value = 0.05;
+      const oscs = [55, 55.4, 82.41, 110.2].map((f) => { const o = ctx.createOscillator(); o.type = 'sawtooth'; o.frequency.value = f; o.connect(lp); o.start(); return o; });
+      const lfo = ctx.createOscillator(); lfo.frequency.value = 0.05;
+      const la = ctx.createGain(); la.gain.value = 180; lfo.connect(la).connect(lp.frequency); lfo.start();
+      lp.connect(pad).connect(bus);
+      this._mus = { bus, pad, oscs: [...oscs, lfo], level: 0, next: 0, step: 0 };
+    }
+    const M = this._mus;
+    if (level !== M.level) {
+      M.bus.gain.setTargetAtTime(level ? (level === 2 ? 0.55 : 0.4) : 0, t, level ? 1.2 : 0.8);
+      if (level && !M.level) { M.next = t + 0.1; M.step = 0; }
+      M.level = level;
+    }
+    if (!level) return;
+    // notas hasta 0,25 s por delante: dieciseisavos a 84 (menús) o 112 pulsaciones (final de ronda)
+    const tense = level === 2, dt16 = 60 / (tense ? 112 : 84) / 4;
+    const arp = [220, 261.63, 329.63, 440, 329.63, 261.63, 196, 261.63];
+    while (M.next < t + 0.25) {
+      const k = M.step, at = M.next;
+      const beat = k % 4 === 0, bar = k % 16 === 0;
+      // pulso grave (como un latido): en cada tiempo en tensión; cada compás en los menús
+      if ((tense && beat) || (!tense && bar)) this._tone(M.bus, at, { f0: 72, f1: 42, a: 0.004, peak: tense ? 0.32 : 0.22, d: 0.28 });
+      if (tense && k % 4 === 2) this._burst(M.bus, at, { type: 'highpass', freq: 7000, q: 0.7, a: 0.001, peak: 0.05, d: 0.03 });
+      // arpegio: dieciseisavos en tensión; en los menús, una nota suave cada dos tiempos
+      if (tense || k % 8 === 0) {
+        const f = arp[(tense ? k : k / 8) % arp.length];
+        this._tone(M.bus, at, { f0: f, f1: f * 0.999, a: 0.006, peak: tense ? 0.05 : 0.07, d: tense ? 0.11 : 0.9, type: tense ? 'square' : 'triangle' });
+      }
+      M.step++;
+      M.next += dt16;
+    }
   }
 }
 

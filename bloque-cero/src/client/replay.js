@@ -283,7 +283,7 @@ export class DeathReplay {
         m = { x: P.x + fx * 0.55 + rx * 0.12 * hip, y: P.y + fy * 0.55 - 0.1 * hip - 0.03, z: P.z + fz * 0.55 + rz * 0.12 * hip };
         vm.onShot();
         audio.gunshot(e.sound, e.eye, true, 0);
-      } else audio.gunshot(e.sound, e.eye, false, this.ctx.occlusion ? this.ctx.occlusion(e.eye) : 0);
+      } else audio.gunshot(e.sound, e.eye, false, this.ctx.hear ? this.ctx.hear(e.eye) : 0);
       if (!m) continue;
       effects.flash(m.x, m.y, m.z, 9, 5.4, 2.4, 5.5, 0.06);
       for (const end of e.ends) if (e.pellets === 1 || Math.random() < 0.35) effects.addTracer(m, end);

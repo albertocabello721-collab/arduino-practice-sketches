@@ -9,6 +9,7 @@ import { Effects } from './render/effects.js';
 import { ViewModel } from './render/viewmodel.js';
 import { PostFX } from './render/postfx.js';
 import { AudioEngine } from './audio/audio.js';
+import { Hearing } from './client/hearing.js';
 import { Input } from './input/input.js';
 import { HUD } from './ui/hud.js';
 import { loadSettings, saveSettings } from './core/settings.js';
@@ -115,7 +116,8 @@ async function boot() {
   let lockFailed = false;
   const ctx = {
     THREE, renderer, scene, camera, world, map, nav, wr, effects, chars, props, vm, post, audio, input, hud, settings, canvas,
-    shake: 0, damageFlash: 0, camEye: camera.position, occlusion: null, paused: false,
+    shake: 0, damageFlash: 0, camEye: camera.position, hear: null, paused: false,
+    hearing: new Hearing(world, camera.position),   // por dónde llega cada sonido a la cámara (F9)
     // la cámara salta al operador visto sin interpolar (cambio de vista, reaparición)
     resetView() { view.op = null; },
     place(x, y, z, yaw, pitch = 0) {
@@ -141,6 +143,8 @@ async function boot() {
     ctx.damageFlash = 0; ctx.shake = 0;
     hud.setDeath(false); hud.setDowned(false); hud.setRevive(null, 0);
   }
+  // el audio arranca con el primer clic (los navegadores no dejan antes): así ya suena la música del menú
+  window.addEventListener('pointerdown', () => audio.init(), { once: true });
   function enterPlay() {
     audio.init();
     state.mode = 'play';
@@ -272,6 +276,7 @@ async function boot() {
     const dt = Math.min(0.1, (now - last) / 1000);
     last = now;
     renderer.info.reset();
+    ctx.hearing.frame();
     const s = state.mode === 'play' ? session : null;
     const paused = !!s && s.wantsPointer && !input.locked && !lockFailed;
     ctx.paused = paused;
@@ -344,6 +349,9 @@ async function boot() {
       fwdV.set(0, 0, -1).applyEuler(camera.rotation); upV.set(0, 1, 0).applyEuler(camera.rotation);
       audio.setListener(camera.position, fwdV, upV);
       audio.setIndoor(lightS.sky < 0.85 ? 1 : 0);
+      // ambiente (viento fuera, zumbido dentro) y música: en los menús y en los últimos 30 s
+      audio.ambience(lightS.sky, clamp((0.85 - lightS.sky) / 0.45, 0, 1));
+      audio.music(state.mode === 'menu' ? 1 : s && s.musicLevel ? s.musicLevel : 0);
     }
     wr.update(dt, camera.position, 6);
     wr.renderShadowIfNeeded();

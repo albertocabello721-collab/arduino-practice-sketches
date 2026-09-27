@@ -18,7 +18,7 @@ Es un único archivo HTML autónomo: no necesita servidor ni conexión.
 | F5 | Bots: navegación, percepción, combate, tácticas por bando, órdenes (H), marcas (T), chat de equipo, depuración (P) | ✅ |
 | F6 | Operadores 8 + 8 y contrajuego de gadgets | ✅ arsenal · plantilla de 16 · granadas y explosivos · gadgets defensivos · 16 habilidades · la defensa bot coloca gadgets y habilidades · el ataque bot los usa según la dificultad · contrajuego de la defensa bot y gadgets de acción |
 | F7 | Animaciones en primera y tercera persona, con la recarga por partes (antes F8) | ✅ recarga por partes en primera persona · resto de la primera persona · siluetas de los 16 · tercera persona por capas · muerte con física por partes · repetición de muerte |
-| F9 | Audio 3D con oclusión | pendiente |
+| F9 | Audio 3D con oclusión | ✅ paredes, suelos y rodeo por puertas y agujeros · ambiente · música en menús y últimos 30 s |
 | F10 | Pulido, pruebas de partidas completas y publicación (con rappel en Villa: tejado y fachada) | pendiente |
 | — | Mapa Residencia del Lago | pendiente |
 
@@ -512,6 +512,36 @@ Reglas de Siege, contra bots:
   con su tarea, etapa, movimiento y objetivo. Enciende también la línea de FPS. Solo lee la
   simulación: la partida es la misma con la capa encendida o apagada.
 
+## Audio 3D (Fase 9)
+
+Cada sonido se oye desde donde llega de verdad (`src/audio/propagation.js`), no solo según se vea
+o no la fuente:
+
+- **Lo que tapa**: se cuenta lo que cruza la línea recta entre la fuente y tú: cada pared 0,35 y
+  cada suelo o techo 0,6, hasta 1. Tapado, se oye más bajo y más apagado (el filtro de antes: con 1,
+  un 55 % menos de volumen y casi solo los graves). Un disparo en el piso de arriba suena más
+  apagado que uno detrás de una pared del mismo piso. Un impacto en la pared que ves no está tapado.
+- **Rodeo**: si está tapado, se prueban 8 puntos a 1,5 m de la fuente; si el sonido llega a alguno
+  y desde él se te ve (una puerta abierta, un agujero en la pared, una ventana), llega desde allí,
+  con 0,35. Con la puerta abierta, al del otro lado lo oyes por la puerta.
+- **Límite de trabajo**: como mucho 12 rodeos por fotograma (`src/client/hearing.js`); los demás
+  sonidos se oyen en línea recta y los pasos que no caben suenan en el fotograma siguiente. Más
+  allá de 60 m no se calcula (tapado del todo). Cada sonido cuesta de 3 a 6 µs.
+- **Disparos de otros**: una parte de cada disparo (el grano) sonaba igual de fuerte a cualquier
+  distancia, en el centro y sin tapar, y tapaba todo lo anterior; ahora va con el resto por su
+  posición y lo que tapa. De cerca suena igual de fuerte que antes; a 8 m, tras una pared baja 2 dB
+  y los agudos 4 dB, y en otro piso 3,5 dB y los agudos 18 dB (antes, menos de 1 y 2); a 30 m
+  suena 11 dB menos que a 8 m (antes, 2).
+- **Pasos**: como antes, más fuertes corriendo que andando, y agachado casi no se oyen (6 dB menos
+  que andando); detrás de una pared se sabe por dónde vienen.
+- **Ambiente**: viento según el cielo que tienes encima (en la calle) y un zumbido eléctrico dentro
+  de la casa; cambia al entrar y al salir.
+- **Música** sintetizada: suave en los menús y la selección, y tensa en los últimos 30 s de la
+  ronda (también en los últimos 30 s del desactivador plantado); el resto de la partida, nada. El
+  navegador no deja sonar nada hasta el primer clic.
+- Es solo el oído: la simulación, cómo oyen los bots, las reglas y el equilibrio no cambian, y los
+  sonidos son los mismos (solo cambia desde dónde y cómo de tapados llegan).
+
 ## Controles
 
 | Tecla | Acción |
@@ -565,6 +595,8 @@ node tools/smoke-siluetas.mjs <carpeta>  # los 16 de cerca (frente, espalda, per
 node tools/smoke-tercera.mjs <carpeta>  # tercera persona: recarga por partes (y lo que cae), plantar, reforzar y lanzar
 node tools/smoke-muerte.mjs <carpeta>  # muerte con física: de frente, contra una pared, en la escalera, explosión y doce a la vez
 node tools/smoke-repeticion.mjs <carpeta>  # repetición de muerte: desde el que te mata, tarjeta, después a observar y Espacio
+node tools/smoke-audio.mjs [html]  # audio 3D: música del menú, viento y zumbido, pared, suelo y puerta, música de los últimos 30 s
+node tools/medir-audio.mjs [motor]  # lo que sale por los altavoces (sin gráficos): disparos libres y tapados, de cerca y de lejos, y pasos
 node tools/perf-partida.mjs [html...]  # llamadas de dibujo, triángulos y CPU con 10 operadores a la vista (con 5 cayendo y lo que cuesta grabar)
 node tools/mapslice.mjs <carpeta> # cortes cenitales del mapa por planta
 ```
@@ -580,7 +612,7 @@ node tools/mapslice.mjs <carpeta> # cortes cenitales del mapa por planta
 - `src/client/` sesiones de juego (campo de pruebas, partida), control del jugador y puente
   eventos → sonido/efectos/HUD.
 - `src/render/` Three.js: texturas PBR procedurales, mallado voraz por celdas de 16³, shader PBR con volumen de luz y sombra del sol, efectos, arma en primera persona, post-proceso (bloom + ACES).
-- `src/audio/` síntesis de sonido con Web Audio (sin archivos).
+- `src/audio/` síntesis de sonido con Web Audio (sin archivos) y por dónde llega cada sonido (`propagation.js`).
 - `src/ui/`, `src/input/` HUD, interfaz de partida (selección, reloj, marcador), emblemas
   de operador dibujados con Canvas, menús y controles.
 

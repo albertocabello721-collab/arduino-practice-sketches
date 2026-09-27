@@ -101,6 +101,12 @@ export class MatchSession extends Session {
     const p = this.player;
     return !!p && p.state === 'dead' && (this.replay.active || this.match.time < this.deathCamUntil);
   }
+  /** Música (F9): 1 eligiendo operador, 2 en los últimos 30 s de la ronda, 0 el resto. */
+  get musicLevel() {
+    const m = this.match;
+    if (m.phase === 'select') return 1;
+    return (m.phase === 'action' || m.phase === 'planted') && m.timeLeft <= 30 ? 2 : 0;
+  }
   /** Arma en primera persona durante la repetición (la del que te mató), o null. */
   get replayView() { return this.replay.active ? this.replay.vmOp : null; }
   // Repetición de muerte: graba lo de este fotograma (ya pintado) y, si está en marcha, la pinta
@@ -470,7 +476,7 @@ export class MatchSession extends Session {
       if (this.beepT <= 0) {
         this.beepT = 1.0 - k * 0.8;
         const P = def.plantPos;
-        audio.defuserBeep({ x: P.x, y: P.y + 0.2, z: P.z }, k, this.ctx.occlusion ? this.ctx.occlusion(P) : 0);
+        audio.defuserBeep({ x: P.x, y: P.y + 0.2, z: P.z }, k, this.ctx.hear ? this.ctx.hear({ x: P.x, y: P.y + 0.2, z: P.z }) : 0);
       }
     }
     if (m.phase === 'action' && m.timeLeft <= 10) {
