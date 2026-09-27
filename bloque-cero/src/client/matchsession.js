@@ -11,6 +11,7 @@ import { PLACE_LABEL } from '../sim/gadgets.js';
 import { Match } from '../sim/match.js';
 import { BotSquad } from '../sim/bots.js';
 import { operatorLook } from '../render/character.js';
+import { PT } from '../render/ragdoll.js';
 import { MatchUI } from '../ui/matchui.js';
 import { BONE } from '../sim/skeleton.js';
 
@@ -76,8 +77,11 @@ export class MatchSession extends Session {
     if (this.feed.active) return this.feed;
     const p = this.player;
     if (!p || p.state !== 'dead') return null;
-    const b = p.body.pos;
-    const pose = { x: b.x + Math.sin(p.yaw) * 1.2, y: b.y + 2.1, z: b.z + Math.cos(p.yaw) * 1.2, yaw: p.yaw, pitch: -0.95, roll: 0, fov: this.ctx.settings.fov, feed: 0, staticK: 0 };
+    // detrás y por encima, mirando a donde cae el cuerpo (con la física por partes puede acabar
+    // lejos de donde estabas); hasta que empieza a caer, a donde estabas
+    const b = p.body.pos, v = this.ctx.chars.views.get(p.id), r = v && v.rag;
+    const c = r ? r.at(PT.pelvis) : b, y = r ? Math.min(b.y, r.floorY()) : b.y;
+    const pose = { x: c.x + Math.sin(p.yaw) * 1.5, y: y + 2.1, z: c.z + Math.cos(p.yaw) * 1.5, yaw: p.yaw, pitch: -0.95, roll: 0, fov: this.ctx.settings.fov, feed: 0, staticK: 0 };
     return { pose: () => pose };
   }
 
