@@ -77,6 +77,9 @@ de apuntado y daño.
   fina con un punto donde acaba, lo ve todo el mundo.
 - Antes, las miras con aumento se veían como un disco oscuro al apuntar y la escopeta tapaba la
   vista con el riel; ahora se ve a través, con su retícula.
+- Equilibrio (160 partidas de bots por dificultad, las mismas semillas que en la F7.4): rondas
+  ganadas por el ataque, Normal 51,9 % → 51,1 % y Élite 56,2 % → 54,7 % (±1,6 puntos: dentro del
+  ruido). Bajas por ronda, tiros a la cabeza y plantados, igual.
 
 ### Animaciones en primera persona (Fase 7.2)
 
