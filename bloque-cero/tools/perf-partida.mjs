@@ -63,10 +63,29 @@ async function measure(file) {
     t = performance.now();
     for (let i = 0; i < 300; i++) window.__step(1 / 60);
     const tick = (performance.now() - t) / 300;
-    return { calls, tris, chars, vm, pose, tick, render: med(ren) };
+    // cinco muertos a la vez, de un tiro de frente: los personajes mientras caen (medio segundo)
+    // (sin la placa de CORAZA, que los dejaría derribados)
+    for (const o of ops.filter((x) => x !== me).slice(0, 5)) { const c = o.rig[2].p; o.plate = false; bc.match.game.damage(o, 500, { by: null, zone: 'body', dir: { x: 0, y: -0.03, z: 1 }, point: { x: c.x, y: c.y + 0.1, z: c.z }, weapon: { name: 'FA-7' }, noDown: true }); }
+    t = performance.now();
+    for (let i = 0; i < 30; i++) ctx.chars.update(1 / 60, me, bc.camera.position);
+    const falling = (performance.now() - t) / 30;
+    const dead = ops.filter((o) => o.state === 'dead').length;
+    // otra vez, varias (ya compilado)
+    const again = ops.filter((o) => o.state === 'dead'), rounds = [];
+    for (let k = 0; k < 4; k++) {
+      for (const o of again) { o.state = 'alive'; o.hp = o.maxHp; o.pose.dead = 0; }
+      ctx.chars.update(1 / 60, me, bc.camera.position);
+      for (let i = 0; i < 10; i++) window.__step(1 / 60);
+      for (const o of again) { const c = o.rig[2].p; o.plate = false; bc.match.game.damage(o, 500, { by: null, zone: 'body', dir: { x: 0.3, y: -0.03, z: 1 }, point: { x: c.x, y: c.y + 0.1, z: c.z }, weapon: { name: 'FA-7' }, noDown: true }); }
+      t = performance.now();
+      for (let i = 0; i < 30; i++) ctx.chars.update(1 / 60, me, bc.camera.position);
+      rounds.push(+((performance.now() - t) / 30).toFixed(3));
+    }
+    const falling2 = rounds.join(' / ');
+    return { calls, tris, chars, vm, pose, tick, falling, falling2, dead, render: med(ren) };
   });
   const f = (x, d = 3) => x.toFixed(d);
-  console.log(`${path.basename(file).padEnd(22)} ${r.calls} llamadas · ${(r.tris / 1000).toFixed(0)}k triángulos · personajes ${f(r.chars)} ms · arma ${f(r.vm)} ms por fotograma · poses ${f(r.pose)} ms · tick ${f(r.tick)} ms${errors.length ? ' · errores: ' + errors.join(' | ') : ''}`);
+  console.log(`${path.basename(file).padEnd(22)} ${r.calls} llamadas · ${(r.tris / 1000).toFixed(0)}k triángulos · personajes ${f(r.chars)} ms (con ${r.dead} cayendo ${f(r.falling)}, después ${r.falling2}) · arma ${f(r.vm)} ms por fotograma · poses ${f(r.pose)} ms · tick ${f(r.tick)} ms${errors.length ? ' · errores: ' + errors.join(' | ') : ''}`);
   await page.close();
 }
 for (const f of files) await measure(f);

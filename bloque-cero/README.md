@@ -17,7 +17,7 @@ Es un único archivo HTML autónomo: no necesita servidor ni conexión.
 | F4 | Preparación: refuerzos, barricadas, trampillas, drones, cámaras, cuerpo a cuerpo | ✅ |
 | F5 | Bots: navegación, percepción, combate, tácticas por bando, órdenes (H), marcas (T), chat de equipo, depuración (P) | ✅ |
 | F6 | Operadores 8 + 8 y contrajuego de gadgets | ✅ arsenal · plantilla de 16 · granadas y explosivos · gadgets defensivos · 16 habilidades · la defensa bot coloca gadgets y habilidades · el ataque bot los usa según la dificultad · contrajuego de la defensa bot y gadgets de acción |
-| F7 | Animaciones en primera y tercera persona, con la recarga por partes (antes F8) | en curso: recarga por partes en primera persona ✅ · resto de la primera persona ✅ · siluetas de los 16 ✅ · tercera persona por capas ✅ · muerte con física |
+| F7 | Animaciones en primera y tercera persona, con la recarga por partes (antes F8) | ✅ recarga por partes en primera persona · resto de la primera persona · siluetas de los 16 · tercera persona por capas · muerte con física por partes |
 | F9 | Audio 3D con oclusión | pendiente |
 | F10 | Pulido, pruebas de partidas completas y publicación (con rappel en Villa: tejado y fachada) | pendiente |
 | — | Mapa Residencia del Lago | pendiente |
@@ -95,6 +95,27 @@ las duraciones de la simulación (`src/sim/poselayers.js`):
 - Equilibrio (160 partidas de bots por dificultad, con las mismas semillas antes y después): rondas
   ganadas por el ataque, Normal 51,1 % → 51,9 % y Élite 55,2 % → 56,2 % (±1,6 puntos de error
   típico: el cambio está dentro del ruido). Bajas por ronda, tiros a la cabeza y plantados, igual.
+
+### Muerte con física por partes (Fase 7.5)
+
+Al morir, el cuerpo deja de seguir la pose de la simulación y cae como un muñeco de trapo ligero
+(`src/render/ragdoll.js`): una partícula en cada articulación, unidas por varillas, con el tronco
+rígido (ancho de espalda y de pecho, para que no ruede solo) y el cuello, las rodillas y los codos
+sin doblarse al revés.
+
+- **Empujón**: el tiro lo empuja en su dirección, más arriba que abajo (de frente cae de espaldas):
+  2,2 m/s, algo más de cerca, 3,5 m/s con escopeta y un poco más en la cabeza si es un tiro a la
+  cabeza. Una explosión lo aparta hacia fuera (2,5–4,5 m/s y algo hacia arriba). Sin empujón
+  (desangrado, caída, gas) se desploma. También conserva la velocidad que llevaba.
+- **Choca con los vóxeles** (suelo, paredes, escalones, bordillos; por caras, aristas y esquinas):
+  contra una pared queda sentado y apoyado; en la escalera cae sobre los escalones. El arma que
+  llevaba en la mano cae aparte.
+- Se queda quieto en cuanto para, y como mucho a los 3 s; quieto no gasta nada. Si se rompe el
+  suelo debajo (una trampilla), vuelve a moverse. Se mueven como mucho 10 a la vez (el más antiguo
+  se queda quieto donde esté).
+- Es solo dibujo: la simulación, las zonas de impacto y las reglas no cambian (a un muerto no le
+  dan las balas). Las mismas llamadas de dibujo y los mismos triángulos que antes; un cuerpo
+  cayendo cuesta unos 35 µs por fotograma (la primera vez algo más, mientras se compila).
 
 ### Recarga por partes (Fase 7.1)
 
@@ -524,7 +545,8 @@ node tools/smoke-recarga.mjs <carpeta>  # recarga por partes de cada familia de 
 node tools/smoke-manos.mjs <carpeta>  # cambio de arma, inspeccionar, reforzar, barricada, reanimar y lanzar
 node tools/smoke-siluetas.mjs <carpeta>  # los 16 de cerca (frente, espalda, perfil, arma colgada) y a 25 m
 node tools/smoke-tercera.mjs <carpeta>  # tercera persona: recarga por partes (y lo que cae), plantar, reforzar y lanzar
-node tools/perf-partida.mjs [html...]  # llamadas de dibujo, triángulos y CPU con 10 operadores a la vista
+node tools/smoke-muerte.mjs <carpeta>  # muerte con física: de frente, contra una pared, en la escalera, explosión y doce a la vez
+node tools/perf-partida.mjs [html...]  # llamadas de dibujo, triángulos y CPU con 10 operadores a la vista (y con 5 cayendo)
 node tools/mapslice.mjs <carpeta> # cortes cenitales del mapa por planta
 ```
 

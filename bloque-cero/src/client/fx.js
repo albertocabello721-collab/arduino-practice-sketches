@@ -200,6 +200,7 @@ export function bindGameFx(ctx, game, view) {
     if (target === me() && view.onMeDowned) view.onMeDowned();
   });
   on('killed', (target, ev) => {
+    chars.killed(target, ev);            // el cuerpo cae empujado por lo que lo mató (F7.5)
     const w = ev.weapon ? ev.weapon.name : ev.zone === 'bleed' ? 'desangrado' : ev.zone === 'fall' ? 'caída' : '';
     hud.feed(`${nameHtml(ev.by || null)} <span class="w">${w}</span> ${nameHtml(target)}${ev.headshot ? ' <span class="hs">⌖</span>' : ''}`, mine(ev.by, target) ? 'mine' : '');
     if (ev.by && ev.by === me() && target !== me()) { hud.hitmarker(ev.headshot ? 'head' : 'kill'); audio.hitConfirm(ev.headshot ? 'head' : 'kill'); }

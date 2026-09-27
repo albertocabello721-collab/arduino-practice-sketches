@@ -73,7 +73,7 @@ async function boot() {
   const camera = new THREE.PerspectiveCamera(settings.fov, window.innerWidth / window.innerHeight, 0.03, 1200);
   camera.rotation.order = 'YXZ';
   const effects = new Effects(scene, world, wr);
-  const chars = new CharacterRenderer(scene, wr.uniforms);
+  const chars = new CharacterRenderer(scene, wr.uniforms, world);
   const props = new PropRenderer(scene, wr);
   const vm = new ViewModel();
   vm.initEnvironment(renderer);

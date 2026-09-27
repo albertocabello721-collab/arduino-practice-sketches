@@ -5,6 +5,7 @@ import * as THREE from 'three';
 import { BONE, BONE_COUNT } from '../sim/skeleton.js';
 import { LIGHTING_GLSL } from './shaders.js';
 import { KITS, BUILDS } from './kits.js';
+import { Ragdoll, deathImpulse, RAG, PT } from './ragdoll.js';
 
 // ------------------------------------------------------------ camuflaje procedural
 function makeCamoTexture() {
@@ -78,13 +79,17 @@ class RigBuilder {
     // lo que no se sube a la tarjeta: qué vértices son equipo (para las pruebas) y hasta dónde
     // llega por detrás lo que va a la espalda (el arma principal colgada va por fuera)
     let backZ = 0.135, gunIn = 0;
+    // y lo que abulta cada arma a lo largo del cañón y de arriba abajo (para que caiga al morir): [z0, z1, y0, y1]
+    const gunBox = [[0, 0, 0, 0], [0, 0, 0, 0]];
     for (let i = 0; i < this.bone.length; i++) {
-      const y = this.pos[i * 3 + 1];
-      if (this.gear[i] && this.bone[i] === BONE.chest && y > -0.15 && y < 0.35) backZ = Math.max(backZ, this.pos[i * 3 + 2]);
-      if (this.bone[i] === BONE.gun || this.bone[i] === BONE.mag) gunIn = Math.min(gunIn, this.pos[i * 3]);
+      const y = this.pos[i * 3 + 1], z = this.pos[i * 3 + 2], bn = this.bone[i];
+      if (this.gear[i] && bn === BONE.chest && y > -0.15 && y < 0.35) backZ = Math.max(backZ, z);
+      if (bn === BONE.gun || bn === BONE.mag) gunIn = Math.min(gunIn, this.pos[i * 3]);
+      const gb = bn === BONE.gun || bn === BONE.mag ? gunBox[0] : bn === BONE.holster ? gunBox[1] : null;
+      if (gb) { gb[0] = Math.min(gb[0], z); gb[1] = Math.max(gb[1], z); gb[2] = Math.min(gb[2], y); gb[3] = Math.max(gb[3], y); }
     }
     // (colgada, la cara -X del arma mira a la espalda: ver SLING)
-    g.userData = { gear: Uint8Array.from(this.gear), backZ, sling: backZ - gunIn + 0.005 };
+    g.userData = { gear: Uint8Array.from(this.gear), backZ, sling: backZ - gunIn + 0.005, gunBox };
     return g;
   }
 }
@@ -401,6 +406,8 @@ const SLING = new THREE.Matrix4().makeBasis(new THREE.Vector3(0, 0, 1), new THRE
 // al dibujarla se lleva por fuera, a la funda del modelo.
 const HOLSTER_OUT = 0.2;
 
+const UP = new THREE.Vector3(0, 1, 0);
+
 function rigToMatrices(rig, out) {
   for (let i = 0; i < BONE_COUNT; i++) {
     const b = rig[i];
@@ -414,9 +421,21 @@ function rigToMatrices(rig, out) {
 }
 
 export class CharacterRenderer {
-  constructor(scene, worldUniforms) {
+  constructor(scene, worldUniforms, world = null) {
     this.scene = scene;
     this.U = worldUniforms;
+    // muertos con física por partes (F7.5): chocan con este mundo; si cambia debajo de uno que ya
+    // está quieto (una trampilla que salta), vuelve a moverse
+    this.world = world;
+    this.born = 0;
+    if (world) world.onChange((x0, y0, z0, x1, y1, z1) => {
+      for (const v of this.views.values()) {
+        const r = v.rag;
+        if (!r || r.awake) continue;
+        const p = r.at(PT.pelvis);
+        if (p.x > world.wx(x0) - 1.5 && p.x < world.wx(x1 + 1) + 1.5 && p.y > world.wy(y0) - 1.5 && p.y < world.wy(y1 + 1) + 1.5 && p.z > world.wz(z0) - 1.5 && p.z < world.wz(z1 + 1) + 1.5) r.wake();
+      }
+    });
     this.camo = makeCamoTexture();
     this.views = new Map();  // op.id -> view
     // sombras de contacto (manchas suaves bajo los pies)
@@ -477,7 +496,7 @@ export class CharacterRenderer {
     mesh.frustumCulled = false;
     this.scene.add(mesh);
     const M = MAG_3P[magKind(models[0])];
-    const view = { op, mesh, look, hit: 0, prim: 0, sling: geo.userData.sling, magAt: M ? M.at : null };
+    const view = { op, mesh, look, hit: 0, prim: 0, sling: geo.userData.sling, magAt: M ? M.at : null, backZ: geo.userData.backZ, gunBox: geo.userData.gunBox, rag: null, impulse: null };
     this.views.set(op.id, view);
     return view;
   }
@@ -489,6 +508,42 @@ export class CharacterRenderer {
   }
   clear() { for (const v of [...this.views.values()]) this.remove(v.op); }
   flashHit(op) { const v = this.views.get(op.id); if (v) v.hit = 1; }
+  /** Baja (evento 'killed', al momento: el cuerpo aún lleva su velocidad): cómo lo empuja al caer. */
+  killed(op, ev) { const v = this.views.get(op.id); if (v) v.impulse = deathImpulse(ev, op); }
+
+  // Empieza a caer: desde la pose de la simulación de ahora, con el empujón de la muerte. Si ya hay
+  // RAG.cap cuerpos moviéndose, el más antiguo se queda quieto donde esté.
+  _startRag(v) {
+    const op = v.op, awake = [];
+    for (const w of this.views.values()) if (w.rag && w.rag.awake) awake.push(w.rag);
+    awake.sort((a, b) => a.born - b.born);
+    while (awake.length >= RAG.cap) awake.shift().sleep();
+    v.rag = new Ragdoll(op.rig, { gunBox: v.gunBox[op.weaponIndex === 1 ? 1 : 0], backZ: v.backZ, impulse: v.impulse || deathImpulse(null, op) });
+    v.rag.born = this.born++;
+    v.ragDrawn = false;
+    v.impulse = null;
+  }
+
+  // Ranuras de las armas y el cargador, sobre los huesos ya puestos
+  _slots(v, bones) {
+    // ranura del arma: la activa va a la mano; la otra, a la funda (secundaria) o a la espalda (principal)
+    const active = v.op.weaponIndex;
+    if (active === 1) {
+      // principal colgada a la espalda: copiar la matriz del pecho con un desplazamiento
+      const o = BONE.gun * 16, c = BONE.chest * 16, h = BONE.holster * 16;
+      const gunCopy = bones.slice(o, o + 16);
+      for (let i = 0; i < 16; i++) bones[h + i] = gunCopy[i];
+      for (let i = 0; i < 16; i++) bones[o + i] = bones[c + i];
+      // plana y en diagonal, pegada a lo que lleve a la espalda
+      this._m.fromArray(bones, o).multiply(this._sling.copy(SLING).setPosition(0.08, 0.05, v.sling));
+      this._m.toArray(bones, o);
+    } else {
+      // pistola en la funda, por fuera del muslo derecho (el hueso de la funda cae por dentro)
+      const h = BONE.holster * 16;
+      bones[h + 12] -= bones[h] * HOLSTER_OUT; bones[h + 13] -= bones[h + 1] * HOLSTER_OUT; bones[h + 14] -= bones[h + 2] * HOLSTER_OUT;
+    }
+    this._placeMag(v, active, bones);
+  }
 
   // Cargador de la principal (hueso 19): en el arma, el nuevo en la mano izquierda o fuera (se
   // soltó y cae como objeto aparte); lo dice la pose de la simulación (pose.mag, F7.4).
@@ -513,26 +568,22 @@ export class CharacterRenderer {
       const hidden = op === localOp || op.frozen;
       v.mesh.visible = !hidden;
       const bones = v.mesh.material.uniforms.uBones.value;
-      // reutiliza la pose que la simulación ya calculó este tick (misma que las zonas de impacto)
-      rigToMatrices(op.rig, bones);
-      // ranura del arma: la activa va a la mano; la otra, a la funda (secundaria) o a la espalda (principal)
-      const active = op.weaponIndex;
-      if (active === 1) {
-        // principal colgada a la espalda: copiar la matriz del pecho con un desplazamiento
-        const o = BONE.gun * 16, c = BONE.chest * 16, h = BONE.holster * 16;
-        const gunCopy = bones.slice(o, o + 16);
-        for (let i = 0; i < 16; i++) bones[h + i] = gunCopy[i];
-        for (let i = 0; i < 16; i++) bones[o + i] = bones[c + i];
-        // plana y en diagonal, pegada a lo que lleve a la espalda
-        this._m.fromArray(bones, o).multiply(this._sling.copy(SLING).setPosition(0.08, 0.05, v.sling));
-        this._m.toArray(bones, o);
+      // muerto: cae con física por partes (ragdoll.js) y, quieto, sus huesos ya no cambian
+      if (op.state !== 'dead') v.rag = null;
+      else if (!v.rag && this.world && op.rig[BONE.pelvis]) this._startRag(v);
+      if (v.rag) {
+        if (v.rag.update(dt, this.world) || !v.ragDrawn) {
+          v.rag.write(bones);
+          this._slots(v, bones);
+          v.ragDrawn = true;
+          v.mesh.material.uniformsNeedUpdate = true;
+        }
       } else {
-        // pistola en la funda, por fuera del muslo derecho (el hueso de la funda cae por dentro)
-        const h = BONE.holster * 16;
-        bones[h + 12] -= bones[h] * HOLSTER_OUT; bones[h + 13] -= bones[h + 1] * HOLSTER_OUT; bones[h + 14] -= bones[h + 2] * HOLSTER_OUT;
+        // reutiliza la pose que la simulación ya calculó este tick (misma que las zonas de impacto)
+        rigToMatrices(op.rig, bones);
+        this._slots(v, bones);
+        v.mesh.material.uniformsNeedUpdate = true;
       }
-      this._placeMag(v, active, bones);
-      v.mesh.material.uniformsNeedUpdate = true;
       v.hit = Math.max(0, v.hit - dt * 5);
       v.mesh.material.uniforms.uHit.value = v.hit;
       // visor térmico: los enemigos cercanos, calientes y por encima del humo
@@ -545,12 +596,17 @@ export class CharacterRenderer {
         v.mesh.material.transparent = hot;
         v.mesh.renderOrder = hot ? 20 : 0;
       }
-      // mancha de contacto
+      // mancha de contacto (bajo el cuerpo caído, a lo largo de él)
       if (!hidden && nb < 16) {
         const p = op.body.pos;
         const lying = op.state !== 'alive' || op.stance === 'prone';
-        this._v.set(p.x, p.y + 0.012, p.z);
-        this._q.setFromAxisAngle(new THREE.Vector3(0, 1, 0), op.yaw);
+        let yaw = op.yaw;
+        if (v.rag) {
+          const r = v.rag, a = r.at(PT.pelvis), hd = r.at(PT.head), fl = r.at(PT.anL), fr = r.at(PT.anR);
+          this._v.set(a.x, r.floorY() + 0.012, a.z);
+          yaw = Math.atan2(hd.x - (fl.x + fr.x) / 2, hd.z - (fl.z + fr.z) / 2);
+        } else this._v.set(p.x, p.y + 0.012, p.z);
+        this._q.setFromAxisAngle(UP, yaw);
         this._s.set(lying ? 0.9 : 0.75, 1, lying ? 1.9 : 0.75);
         this._m.compose(this._v, this._q, this._s);
         this.blobs.setMatrixAt(nb++, this._m);
