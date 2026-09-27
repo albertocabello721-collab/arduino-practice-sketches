@@ -19,6 +19,14 @@ await page.goto(file);
 await page.waitForFunction(() => window.__bc && window.__bc.state.mode === 'menu');
 await page.evaluate(() => { window.__bc.settings.quality = 'baja'; });
 const shot = async (name, wait = 900) => { await page.waitForTimeout(wait); await page.screenshot({ path: `${out}/${name}.png` }); };
+// si la baja se atribuye a quien le había dado antes, hay repetición de muerte (F7.6): se salta con Espacio
+const skipReplay = async (label) => {
+  if (!(await page.evaluate(() => !!(window.__bc.session.replay && window.__bc.session.replay.active)))) return;
+  await page.keyboard.press('Space');
+  const ok = await page.waitForFunction(() => !window.__bc.session.replay.active, null, { timeout: 20000 }).then(() => true).catch(() => false);
+  console.log(`repetición de muerte (${label}): ${ok ? 'saltada con Espacio' : 'NO se salta'}`);
+  if (!ok) errors.push(`la repetición de muerte (${label}) no se salta con Espacio`);
+};
 const ticks = (n, body = '') => page.evaluate(([n, body]) => {
   const bc = window.__bc; const f = body ? new Function('bc', body) : null;
   for (let i = 0; i < n; i++) { if (f) f(bc); bc.session.tick(1 / 60); }
@@ -178,6 +186,8 @@ console.log('apagada:', JSON.stringify(off));
 
 // ---------------- 4) muerto en defensa: 5 → cámaras, D → otra, 5 → observar
 await page.evaluate(() => { const bc = window.__bc; if (bc.player.state !== 'dead') bc.game.kill(bc.player, { by: null }); });
+await ticks(10);
+await skipReplay('defensa');
 await ticks(60 * 3.3);
 let deadCams = null;
 if (await page.evaluate(() => { const m = window.__bc.match; return m.phase === 'action' || m.phase === 'planted'; })) {
@@ -211,6 +221,8 @@ await page.waitForFunction(() => window.__bc.match.phase === 'prep', null, { tim
 await ticks(3, "if (bc.match.phase === 'prep') bc.match.timer = Math.min(bc.match.timer, 0.02);");
 await ticks(60 * 2);
 await page.evaluate(() => { const bc = window.__bc; bc.game.kill(bc.player, { by: null }); });
+await ticks(10);
+await skipReplay('ataque');
 await ticks(60 * 3.3);
 console.log('antes de 5:', JSON.stringify(await page.evaluate(() => { const bc = window.__bc, m = bc.match, s = bc.session; return { fase: m.phase, muerto: bc.player.state, desde: +(m.time - s.deadAt).toFixed(2), drones: m.recon.drones.filter((d) => d.alive && d.team === 0).length, lado: s.mySide(), feed: s.feed.mode, pausa: !document.getElementById('pausehint').classList.contains('hidden') }; })));
 await page.keyboard.press('Digit5');
