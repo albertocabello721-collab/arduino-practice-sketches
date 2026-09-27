@@ -596,6 +596,7 @@ node tools/smoke-tercera.mjs <carpeta>  # tercera persona: recarga por partes (y
 node tools/smoke-muerte.mjs <carpeta>  # muerte con física: de frente, contra una pared, en la escalera, explosión y doce a la vez
 node tools/smoke-repeticion.mjs <carpeta>  # repetición de muerte: desde el que te mata, tarjeta, después a observar y Espacio
 node tools/smoke-audio.mjs [html]  # audio 3D: música del menú, viento y zumbido, pared, suelo y puerta, música de los últimos 30 s
+node tools/smoke-menu.mjs <carpeta> [html]  # el fondo del menú sin superficies oscuras (Baja, Media y Alta) y sin la primera persona
 node tools/medir-audio.mjs [motor]  # lo que sale por los altavoces (sin gráficos): disparos libres y tapados, de cerca y de lejos, y pasos
 node tools/perf-partida.mjs [html...]  # llamadas de dibujo, triángulos y CPU con 10 operadores a la vista (con 5 cayendo y lo que cuesta grabar)
 node tools/mapslice.mjs <carpeta> # cortes cenitales del mapa por planta
