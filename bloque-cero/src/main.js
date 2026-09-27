@@ -351,7 +351,7 @@ async function boot() {
     const thermal = !!v && thermalOn(v);
     chars.setHeat(thermal, v ? v.team : 0, THERMAL_SCOPE.range, camera.position);
     effects.setThermal(thermal);
-    chars.update(dt, v, camera.position);
+    chars.update(paused ? 0 : dt, v, camera.position);      // (en pausa, los que caen se quedan quietos)
     if (debugView.on) { camera.updateMatrixWorld(); debugView.update(dt, s, camera); }
     if (!s) props.clear();
     ctx.damageFlash = Math.max(0, ctx.damageFlash - dt * 1.4);
