@@ -53,6 +53,11 @@ export const DIFFICULTY = {
   veterano: { label: 'Veterano', react: 0.30, aimErr: 0.6 * DEG, settle: 0.45, turn: 6.0, burst: 0.48, pause: [0.25, 0.5], fov: FOV, range: 42, head: 0.28, recoil: 0.75, hearing: 1.15, wallbang: 0.6, strafe: 0.6, prefire: 0.8, flank: 0.4, reposition: 0.65, kit: 0.75, kitLate: [0.2, 0.7], kitErr: 0.5, coord: 0.5 },
   elite: { label: 'Élite', react: 0.22, aimErr: 0.35 * DEG, settle: 0.35, turn: 7.5, burst: 0.55, pause: [0.18, 0.4], fov: FOV, range: 48, head: 0.38, recoil: 0.85, hearing: 1.3, wallbang: 0.8, strafe: 0.8, prefire: 1.0, flank: 0.6, reposition: 1.0, kit: 0.85, kitLate: [0, 0.15], kitErr: 0.2, coord: 1 },
 };
+// Merodeadores de la defensa (F10.1): cuántos (`roamers`, si hay al menos 3 bots y siempre con
+// 2 anclas), cuándo vuelven al sitio (`roamBack`: segundos que quedan de ronda; también al saber
+// que hay atacantes en el sitio), si vuelven al oír una brecha del ataque en el sitio
+// (`roamBreach`) y si no se alejan más de una sala del sitio, ni para cazar (`roamNear`).
+for (const d of Object.values(DIFFICULTY)) Object.assign(d, { roamers: 1, roamBack: 60, roamBreach: false, roamNear: false });
 DIFFICULTY.recluta = DIFFICULTY.novato;   // nombre antiguo (ajustes guardados)
 export const DIFFICULTY_KEYS = ['novato', 'normal', 'veterano', 'elite'];
 
@@ -65,6 +70,8 @@ export function navFor(world, map) {
 }
 
 const LEVEL = { B: -1, 1: 0, 2: 1 };
+// Explosiones del ataque que abren una brecha (para los merodeadores que vuelven al oírla).
+const BREACHES = new Set(['breach', 'breachround', 'thermal']);
 const HEAR_COOLDOWN = 0.3;     // un mismo oyente no procesa dos ruidos de la misma fuente tan seguidos
 
 export class BotSquad {
@@ -115,9 +122,9 @@ export class BotSquad {
     on(g, 'wireRustle', (op) => this._noise(op, op.body.pos, 'wire', 14));
     // rappel: el enganche, y la barricada o el cristal al entrar por la ventana
     on(g, 'rappelHook', (op) => this._noise(op, op.body.pos, 'rappel', 12));
-    on(g, 'rappelBreach', (op, w) => this._noise(op, { x: w.x, y: (w.y0 + w.y1) / 2, z: w.z }, 'breach', 35));
+    on(g, 'rappelBreach', (op, w) => { const p = { x: w.x, y: (w.y0 + w.y1) / 2, z: w.z }; this._noise(op, p, 'breach', 35); this._siteBreach(p, 35); });
     on(g, 'rappelGlass', (op, w) => this._noise(op, { x: w.x, y: (w.y0 + w.y1) / 2, z: w.z }, 'glass', 22));
-    on(g, 'explosion', (kind, p, spec, owner) => this._noise(owner, p, 'blast', 45));
+    on(g, 'explosion', (kind, p, spec, owner) => { this._noise(owner, p, 'blast', 45); if (owner && owner.side === 'atk' && BREACHES.has(kind)) this._siteBreach(p, 45); });
     on(g, 'damaged', (t, ev) => this._hurt(t, ev));
     on(g, 'downed', (t, ev) => { this._hurt(t, ev); if (t.isBot) this.radio.say(t, 'downed', 'Estoy derribado', { force: true }); this._checkLastOne(); });
     on(g, 'killed', () => this._checkLastOne());
@@ -129,6 +136,21 @@ export class BotSquad {
     // el desactivador se oye desde lejos; plantado y en el suelo, lo sabe todo el equipo
     on(m, 'plantStart', (op) => this._noise(op, op.body.pos, 'plant', 30));
     on(m, 'disableStart', (op) => { for (const B of this.brains.values()) if (B.side === 'atk') B.per.hear(op.body.pos, 'disable', op, 999); });
+  }
+  // Brecha del ataque en el sitio o junto a él (carga de brecha, térmica, proyectil de ROMPE, o la
+  // barricada de una ventana al entrar con cuerda): la oyen los merodeadores (F10.1).
+  _siteBreach(p, range) {
+    const plan = this.defPlan;
+    if (!plan) return;
+    if (plan.rooms.some((r) => p.x > r.x0 - 3 && p.x < r.x1 + 3 && p.z > r.z0 - 3 && p.z < r.z1 + 3 && Math.abs(p.y - r.floorY) < 2.5)) {
+      this.siteBreach = { t: this.game.time, p: { x: p.x, y: p.y, z: p.z }, range };
+    }
+  }
+  siteBreachHeard(B) {
+    const s = this.siteBreach;
+    if (!s || this.game.time - s.t > 1) return false;
+    const b = B.op.body.pos;
+    return Math.hypot(s.p.x - b.x, s.p.z - b.z) < s.range * B.diff.hearing;
   }
   isOutsideNode(n) {
     let v = this._outside.get(n);
@@ -350,6 +372,7 @@ export class BotSquad {
     this._lastOne = [false, false];
     this.defPlan = null;
     this.atkPlan = null;
+    this.siteBreach = null;
     this.pickupBy = null;
     this.kitEntry = null;
     this.kitTargets = null;
@@ -372,9 +395,9 @@ export class BotSquad {
     for (const r of rooms) for (const e of entrancesOf(map, r)) if (e.kind === 'door' || e.kind === 'arch') ents.push({ ...e, room: r, watchers: 0 });
     if (!ents.length) for (const r of rooms) for (const e of entrancesOf(map, r)) if (!e.kind.startsWith('hatch')) ents.push({ ...e, room: r, watchers: 0 });
     this.defPlan = { rooms, ents, adj: adjacentRooms(map, rooms), holds: [] };
-    // papeles: un merodeador (si hay bastantes bots), el resto anclas. (El documento dice 2, pero
-    // con 2 el ataque bot ganaba el 59 % de las rondas en Élite; con 1 queda más parejo.)
-    const nRoam = defs.length >= 3 ? 1 : 0;
+    // papeles: los merodeadores de la dificultad (si hay bastantes bots, y siempre con 2 anclas) y
+    // el resto anclas. (El documento dice 2; en Élite se eligió midiendo: F10.1.)
+    const nRoam = defs.length >= 3 ? Math.max(0, Math.min(this.diff.roamers, defs.length - 2)) : 0;
     const order = rng.shuffle([...defs]);
     order.forEach((B, i) => { B.role = i < nRoam ? 'roam' : 'anchor'; });
     if (!M.fort) return;
@@ -778,8 +801,9 @@ class Brain {
     if (this.fort.length && early) return this._setTask({ kind: 'fortify', key: 'fortify' });
     if (!plan) return this._setTask({ kind: 'anchor', key: 'anchor' });
     if (this.role === 'roam') {
-      const late = phase === 'action' && M.timer < 60;
-      if (late || this._attackersAtSite()) this.role = 'anchor';
+      const D = this.diff, late = phase === 'action' && M.timer < D.roamBack;
+      const breach = D.roamBreach && this.sq.siteBreachHeard(this);
+      if (late || breach || this._attackersAtSite()) { this.role = 'anchor'; this.roamBack = late ? 'tiempo' : breach ? 'brecha' : 'atacantes'; }
     }
     // caza: un enemigo conocido y cercano, sin verlo (los merodeadores salen a buscarlo)
     const f = this.per.freshest(3, true) || this._boardNear(12);
@@ -787,9 +811,11 @@ class Brain {
       const p = this.op.body.pos;
       const d = Math.hypot(f.x - p.x, f.z - p.z);
       const inSite = plan.rooms.some((r) => f.x > r.x0 && f.x < r.x1 && f.z > r.z0 && f.z < r.z1 && Math.abs(f.y - r.floorY) < 1.5);
-      // (los merodeadores no siempre salen a por el ruido: a veces esperan en su ángulo)
+      // (los merodeadores no siempre salen a por el ruido: a veces esperan en su ángulo; con
+      // `roamNear`, solo dentro del sitio o de sus salas vecinas)
       if (this.role === 'roam' && d < 10 && this.huntRoll === undefined) this.huntRoll = this.rng.next() < this.diff.flank;
-      if ((this.role === 'roam' && d < 10 && this.huntRoll) || (inSite && d < 7)) return this._setTask({ kind: 'hunt', key: 'hunt', pos: { x: f.x, y: f.y, z: f.z }, until: this.game.time + 5 });
+      const reach = !this.diff.roamNear || this._nearSite(f);
+      if ((this.role === 'roam' && d < 10 && this.huntRoll && reach) || (inSite && d < 7)) return this._setTask({ kind: 'hunt', key: 'hunt', pos: { x: f.x, y: f.y, z: f.z }, until: this.game.time + 5 });
     }
     if (this.task && this.task.kind === 'hunt' && this.game.time < this.task.until && this.mover.status !== 'arrived') return;
     // cambiar de ángulo tras ser visto: marcado por un dron o una cámara, o tras un tiroteo sin rematar
@@ -804,6 +830,12 @@ class Brain {
     return this._setTask({ kind: 'anchor', key: 'anchor' });
   }
 
+  // ¿Está el punto en el sitio o en una sala vecina (a una sala del sitio)?
+  _nearSite(p) {
+    const plan = this.sq.defPlan;
+    const inR = (r) => p.x > r.x0 - 0.5 && p.x < r.x1 + 0.5 && p.z > r.z0 - 0.5 && p.z < r.z1 + 0.5 && Math.abs(p.y - r.floorY) < 1.5;
+    return plan.rooms.some(inR) || plan.adj.some((a) => inR(a.room));
+  }
   _attackersAtSite() {
     const plan = this.sq.defPlan, now = this.game.time;
     for (const k of this.board.recent(now, 6)) {

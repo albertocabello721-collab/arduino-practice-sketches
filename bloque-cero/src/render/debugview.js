@@ -232,6 +232,7 @@ function ropeState(B) {
   return 'en la cuerda';
 }
 const ROLE = { anchor: 'ancla', roam: 'merodeador' };
+const BACK = { tiempo: 'el tiempo', brecha: 'una brecha', atacantes: 'atacantes en el sitio' };
 const MOVE = { idle: 'quieto', planning: 'calculando ruta', moving: 'andando', arrived: 'en su sitio', failed: 'sin ruta' };
 export function describe(B) {
   const op = B.op;
@@ -242,7 +243,7 @@ export function describe(B) {
     const k = B.task ? B.task.kind : null;
     let t = k ? TASK[k] || k : 'sin tarea';
     if (B.stage && B.side === 'atk' && ['approach', 'stack', 'clear', 'siteHold'].includes(k)) t = STAGE[B.stage] || B.stage;
-    if (B.role && B.side === 'def') t += ` (${ROLE[B.role] || B.role})`;
+    if (B.role && B.side === 'def') t += ` (${ROLE[B.role] || B.role}${B.roamBack ? ', volvió por ' + (BACK[B.roamBack] || B.roamBack) : ''})`;
     parts.push(t);
     if (op.rappel) parts.push(ropeState(B));
     else if (B.mover) parts.push(MOVE[B.mover.status] || B.mover.status);
