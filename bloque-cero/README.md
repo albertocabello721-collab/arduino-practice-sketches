@@ -19,7 +19,7 @@ Es un único archivo HTML autónomo: no necesita servidor ni conexión.
 | F6 | Operadores 8 + 8 y contrajuego de gadgets | ✅ arsenal · plantilla de 16 · granadas y explosivos · gadgets defensivos · 16 habilidades · la defensa bot coloca gadgets y habilidades · el ataque bot los usa según la dificultad · contrajuego de la defensa bot y gadgets de acción |
 | F7 | Animaciones en primera y tercera persona, con la recarga por partes (antes F8) | ✅ recarga por partes en primera persona · resto de la primera persona · siluetas de los 16 · tercera persona por capas · muerte con física por partes · repetición de muerte |
 | F9 | Audio 3D con oclusión | ✅ paredes, suelos y rodeo por puertas y agujeros · ambiente · música en menús y últimos 30 s |
-| F10 | Miras y accesorios, rappel en Villa (tejado y fachada, también los bots), equilibrio de Élite, pulido y publicación | en curso: ✅ miras y accesorios · ✅ rappel del jugador |
+| F10 | Miras y accesorios, rappel en Villa (tejado y fachada, también los bots), equilibrio de Élite, pulido y publicación | en curso: ✅ miras y accesorios · ✅ rappel del jugador · ✅ rappel de los bots |
 | — | Mapa Residencia del Lago | pendiente |
 
 ## Arsenal (Fase 6)
@@ -491,10 +491,62 @@ Los atacantes suben y bajan por las fachadas de la casa colgados de una cuerda (
   35 m); **V** también la rompe.
 - Colgado se dispara y se apunta, con la dispersión de andar. Nada de gadgets, habilidades, dron,
   F, agacharse ni asomarse; el escudo baja. Si te derriban, caes.
-- **Quién**: el ataque en la acción (los bots aún no lo usan: F10.2b); en el campo de pruebas, tú.
+- **Quién**: el ataque en la acción (personas y bots: F10.2b); en el campo de pruebas, tú.
 - **Se ve y se oye**: la cuerda del pretil al arnés, el cuerpo sentado en el arnés con los pies en
   la pared, el mosquetón, la cuerda al bajar deprisa y las botas en la pared (los bots las oyen
   como pasos). Un aviso abajo dice qué puedes hacer en cada momento.
+
+## Rappel de los bots (Fase 10.2b)
+
+Los bots del ataque también hacen rappel. `src/sim/ai/ropeai.js` decide quién y por qué ventana, y
+el seguidor de rutas (`src/sim/ai/mover.js`) hace el paso de cuerda como lo harías tú: Espacio al
+pie de la fachada, W/S y A/D colgado y Espacio para entrar.
+
+- **Rutas**: la rejilla de navegación tiene 31 pasos de cuerda, solo para el ataque: del pie de las
+  fachadas a cada ventana de la planta alta por la que se puede entrar y al tejado, y del tejado a
+  esas ventanas. (Tras dos ventanas de arriba, una del Dormitorio principal y otra de la habitación
+  de invitados, hay una cama; colgado no se entra por ellas, tampoco tú.) Cada paso
+  cuesta lo que se tarda en hacerlo (engancharse, subir o bajar, ir de lado y entrar rompiendo la
+  barricada, o subir al tejado), pasado a metros a 4 m/s, lo que corre de media un bot. El
+  enganche queda al lado de las ventanas de abajo, para que Espacio no las salte.
+- **Con el sitio en la planta alta**:
+  - En Élite entran 1 o 2 (mitad y mitad) por ventanas del sitio: la más cercana a cada uno, lejos
+    de los defensores que marcaron los drones. Esperan al pie de la fachada, sin engancharse, hasta
+    que alguien del equipo entra en la casa (la cuerda se oye; como mucho 30 s). Entonces suben y esperan colgados a
+    un lado de la ventana, fuera del hueco, como mucho 20 s, a que el equipo empuje: alguien ya en
+    una sala del sitio, o combatiendo en su planta a menos de 8 m. Luego rompen la barricada y entran.
+  - En Normal y Veterano, 1 en el 30 % de las rondas, sin esperar. En Novato, nadie.
+  - El resto del ataque va por dentro, como siempre.
+- **Otros sitios**: los pasos de cuerda solo entran en sus rutas si se las acortan. En la Villa no
+  pasa: las ventanas de arriba no acortan el camino a la planta baja ni al sótano.
+- **En la cuerda**:
+  - Disparan a lo que ven sin moverse.
+  - Si les disparan mientras suben, bajan, y esa ronda no vuelven a la cuerda. Si les descubren ya
+    junto a la ventana, entran sin esperar (con gas, bajan).
+  - Nunca pasan más de 25 s colgados: a los 21 s dejan de esperar, a los 22,5 s entran si tienen la
+    ventana delante (si no, bajan) y a los 25 s se sueltan. Si en 3 s no avanzan, bajan y buscan otro
+    camino sin ese paso.
+- **La defensa bot no cambia**: los oye (enganche, botas en la pared, barricada) y los ve con lo que
+  ya tenía; a veces dispara a través de la pared al oír la cuerda.
+- **Con P**: los pasos de cuerda en cian (en la rejilla, donde se engancha; en la ruta de cada bot,
+  por la fachada hasta la ventana o el tejado) y la etiqueta dice «rappel» y qué hace en la cuerda:
+  enganchándose, en la cuerda, esperando (con los segundos), entrando por la ventana o bajando.
+- **Medido** (`tools/rappel-bots.mjs`: cuatro procesos de 25 rondas, semillas 1, 1001, 2001 y 3001):
+  - En 100 rondas en Élite con el sitio arriba hay rappel en el 59 %. Entran por la ventana en el 42 %
+    de esas; en el resto caen al atravesarla o bajan. Al romper la barricada pasan 0,75 s dentro
+    del hueco sin poder disparar, y los anclas de la defensa suelen estar a 1 o 2 m de la ventana.
+  - Nadie pasa de 22,9 s colgado ni se queda sin avanzar en la cuerda.
+  - En partidas completas (160 por dificultad), en Élite hay 232 enganches y 87 entradas por la
+    ventana. En Normal, donde la defensa apunta peor, hay 60 enganches y 44 entradas. Todo con el
+    sitio arriba.
+  - El ataque gana el 51,7 % de las rondas en Normal (antes 51,1 %) y el 53,8 % en Élite (antes
+    54,7 %). Son las mismas semillas que en la F10.3 e incluye el cambio de las caídas.
+- Las tiradas del plan usan su propia secuencia aleatoria, así que no cambian los demás números
+  aleatorios de la partida.
+- **Arreglo de paso**: con Espacio pegado a una pared, a veces se atravesaba. La comprobación del
+  salto por encima de las astillas de una barricada rota recibía mal sus datos, y pasaba desde la
+  fase de las ventanas con barricada, a ti y a los bots. Ahora las paredes no se atraviesan, la
+  barricada rota se sigue saltando y Espacio al pie de la fachada norte engancha la cuerda.
 
 ## Bots (Fase 5)
 
@@ -564,9 +616,10 @@ Los atacantes suben y bajan por las fachadas de la casa colgados de una cuerda (
   recoger el desactivador, plantarlo (con el sitio a la vista o menos de 50 s) y retomar el
   plantado mandan sobre la orden; si caes, vuelven por libre; cada ronda empieza sin órdenes.
 - **Depuración (P)**: puntos de la rejilla de navegación a menos de 14 m (verde de pie,
-  amarillo solo agachado, magenta barricada por romper, azul pie de escalera), la ruta que
-  sigue cada bot, su cono de visión de 100° (rojo si tiene a alguien a tiro) y una etiqueta
-  con su tarea, etapa, movimiento y objetivo. Enciende también la línea de FPS. Solo lee la
+  amarillo solo agachado, magenta barricada por romper, azul pie de escalera, cian donde se
+  engancha una cuerda), la ruta que sigue cada bot (en cian, los pasos de cuerda por la
+  fachada), su cono de visión de 100° (rojo si tiene a alguien a tiro) y una etiqueta
+  con su tarea, etapa, movimiento (o lo que hace en la cuerda) y objetivo. Enciende también la línea de FPS. Solo lee la
   simulación: la partida es la misma con la capa encendida o apagada.
 
 ## Audio 3D (Fase 9)
@@ -658,6 +711,8 @@ node tools/smoke-menu.mjs <carpeta> [html]  # el fondo del menú sin superficies
 node tools/medir-audio.mjs [motor]  # lo que sale por los altavoces (sin gráficos): disparos libres y tapados, de cerca y de lejos, y pasos
 node tools/smoke-accesorios.mjs <carpeta> [html]  # miras y accesorios: selección, primera persona, zoom, supresor, láser, panel O y capturas
 node tools/smoke-rappel.mjs <carpeta> [html]  # rappel: engancharse en la calle, subir, ventana con barricada, pretil, tejado y otro colgado en tercera persona
+node tools/smoke-rappel-bots.mjs <carpeta> [html]  # rappel de un aliado bot en Élite: con P, su ruta por la fachada en cian; sube y entra en el Estudio
+node tools/rappel-bots.mjs [rondas] [dificultad] [semilla]  # rondas solo de bots con el sitio arriba: cuántas con rappel, cuántas entran, tiempo colgados
 node tools/perf-partida.mjs [html...]  # llamadas de dibujo, triángulos y CPU con 10 operadores a la vista (con 5 cayendo y lo que cuesta grabar)
 node tools/mapslice.mjs <carpeta> # cortes cenitales del mapa por planta
 ```

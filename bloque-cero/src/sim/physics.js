@@ -220,7 +220,8 @@ export function findVault(world, b, dirX, dirZ, { throughWood = false } = {}) {
   const p = b.pos;
   // con `throughWood`, las astillas de una barricada rota no cuentan (se arrastran al saltar)
   const solidAt = throughWood ? (x, y, z) => { const m = world.getWorld(x, y, z); return SOLID[m] === 1 && m !== MAT.BARRICADE; } : (x, y, z) => world.solidAtWorld(x, y, z);
-  const boxFree = throughWood ? (x, y, z, r, h) => !boxHasSolidExcept(world, x - r, y, z - r, x + r, y + h, z + r, MAT.BARRICADE) : boxFreeAll;
+  // (misma firma que boxFree: con `world` delante)
+  const boxFree = throughWood ? (w, x, y, z, r, h) => !boxHasSolidExcept(w, x - r, y, z - r, x + r, y + h, z + r, MAT.BARRICADE) : boxFreeAll;
   const topAt = (cx, cz) => {
     for (let h = 1.35; h >= 0.28; h -= VS) {
       if (solidAt(cx, p.y + h, cz)) return Math.floor((p.y + h - world.oy) * 8 + 1) / 8 + world.oy;

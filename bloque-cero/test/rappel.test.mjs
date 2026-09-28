@@ -1,7 +1,8 @@
 // F10.2a · Rappel en la Villa: tramos marcados en las fachadas; engancharse desde el suelo o desde
 // el tejado; subir a 1,5 m/s, bajar a 2,5 m/s y de lado a 1 m/s sin salir del tramo; arriba, al
 // tejado; delante de una ventana, dentro (rompiendo la barricada y el cristal); soltarse con C; se
-// dispara colgado con la dispersión de andar; sin gadgets; solo quien pueda (el ataque en la acción).
+// dispara colgado con la dispersión de andar; sin gadgets; solo quien pueda (el ataque en la acción,
+// personas y bots desde la F10.2b).
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createVillaWorld, buildVilla } from '../src/world/maps/villa.js';
@@ -238,7 +239,10 @@ test('solo quien puede: la defensa no, el ataque en la preparación no, en la ac
   assert.equal(check(def), false, 'la defensa, no');
   const bot = m.game.operators.find((o) => o.side === 'atk' && o.isBot);
   bot.frozen = false;
-  assert.equal(check(bot), false, 'los bots, todavía no (F10.2b)');
+  assert.equal(check(bot), true, 'los bots del ataque, también (F10.2b)');
+  const defBot = m.game.operators.find((o) => o.side === 'def' && o.isBot);
+  defBot.frozen = false;
+  assert.equal(check(defBot), false, 'los de la defensa, no');
   // fuera de los tramos: el balcón (sur, x 17), el acceso al sótano (oeste, z 4)
   const { g, rp, op } = setup();
   place(op, 17, 0, -2.6, FACE_S);

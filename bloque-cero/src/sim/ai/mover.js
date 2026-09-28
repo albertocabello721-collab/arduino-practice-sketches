@@ -5,17 +5,39 @@
 // línea recta al punto más lejano al que se puede llegar sin tropezar. No decide
 // hacia dónde mira el bot (eso lo hace el cerebro: puede mirar a un lado y andar
 // hacia otro), salvo cuando hace falta encarar algo (escalera, barricada).
+// Pasos de cuerda (F10.2b): al punto de enganche, encarar la fachada (o hacia fuera, desde el
+// tejado) y Espacio; colgado, W/S y A/D hasta la ventana (o arriba del todo) y Espacio para entrar
+// (o subir). Puede esperar junto a la ventana (`rope.wait`) y quedarse quieto combatiendo
+// (`rope.hold`). Nunca más de 25 s colgado: a los 21 deja de esperar, a los 22,5 entra si tiene la
+// ventana delante y si no baja, y a los 25 se suelta. Si no avanza en 3 s, o se le pide bajar,
+// baja; ese paso no vuelve a usarlo y busca otra ruta.
 import { angleDiff, clamp } from '../../core/math.js';
 import { MAT, SOLID, MELEE, HARD } from '../../world/materials.js';
 import { raycastFirst } from '../../world/raycast.js';
+import { ropeTopY } from '../rappel.js';
 
 const LOOKAHEAD = 8;
+export const ROPE_AI = {
+  maxHang: 25,      // s colgado como mucho (a partir de ahí, se suelta)
+  waitMax: 20,      // s esperando junto a la ventana
+  forceAt: 21,      // s colgado: deja de esperar (y de quedarse quieto combatiendo)
+  bailAt: 22.5,     // s colgado: entra si tiene la ventana delante; si no, baja
+  stuck: 3,         // s sin avanzar hacia donde va: baja
+  hookMax: 5,       // s para engancharse desde que llega al pie (si no, otro camino)
+  tol: 0.05,        // m: tolerancia al colocarse en la cuerda
+};
 
 export class Mover {
-  constructor(op, nav, { drone = false } = {}) {
+  constructor(op, nav, { drone = false, game = null } = {}) {
     this.op = op;
     this.nav = nav;
     this.drone = drone;
+    this.game = game;             // (para la cuerda: game.rappel)
+    this.rope = null;             // colgado siguiendo un paso de cuerda: {rp, t, arrived, down, ...}
+    this.ropeBan = new Set();     // pasos de cuerda que han fallado (no se vuelven a usar)
+    this.ropeLast = null;         // cómo acabó el último: {rp, ok, t, stuck, shot}
+    this.ropeStuck = 0;           // lo más que ha estado colgado sin avanzar (sin contar esperas)
+    this.hookFor = null; this.hookT = 0;
     this.goal = null;
     this.path = null;
     this.job = null;
@@ -49,6 +71,9 @@ export class Mover {
    * la ruta actual mientras se calcula la nueva). Si ya va hacia ese punto, no replanifica.
    */
   go(goal, opts = {}) {
+    // colgado de la cuerda: se termina el paso antes de cambiar de ruta
+    if (this.op.rappel) return this.status;
+    if (this.rope) this._ropeEnd();
     if (this.pending && Math.hypot(goal.x - this.pendingGoal.x, (goal.y - this.pendingGoal.y) * 2, goal.z - this.pendingGoal.z) < (opts.same ?? 0.4)) return this.status;
     if (this.goal && this.status !== 'idle') {
       const d = Math.hypot(goal.x - this.goal.x, (goal.y - this.goal.y) * 2, goal.z - this.goal.z);
@@ -62,7 +87,7 @@ export class Mover {
       }
     }
     // (los drones no rompen barricadas: si no hay camino, van lo más cerca posible)
-    const o = { avoid: opts.avoid || null, noBreak: !!opts.noBreak || this.drone, noLadder: this.drone, breakCost: opts.breakCost || 0, partial: !!opts.partial || this.drone };
+    const o = { avoid: opts.avoid || null, noBreak: !!opts.noBreak || this.drone, noLadder: this.drone, breakCost: opts.breakCost || 0, partial: !!opts.partial || this.drone, rappel: !!opts.rappel && !this.drone, ropeBan: this.ropeBan.size ? this.ropeBan : null };
     if (opts.keepPath && this.status === 'moving' && this.path) {
       if (this.pending) this.nav.cancel(this.pending);
       const p = this.op.body.pos;
@@ -83,6 +108,29 @@ export class Mover {
     if (this.job) this.nav.cancel(this.job);
     if (this.pending) this.nav.cancel(this.pending);
     this.job = null; this.pending = null; this.goal = null; this.path = null; this.status = 'idle';
+  }
+
+  /**
+   * Seguir un paso de cuerda concreto (el ataque que entra por una ventana del sitio): del punto
+   * de enganche a donde lleva. Devuelve false si el paso ya no existe en la rejilla.
+   */
+  ropeTo(rp) {
+    const E = (this.nav.ropeEdges || []).find((q) => q.rp === rp);
+    if (!E || this.ropeBan.has(rp.key)) return false;
+    if (this.job) this.nav.cancel(this.job);
+    if (this.pending) this.nav.cancel(this.pending);
+    this.job = null; this.pending = null;
+    const a = E.from, b = E.to;
+    this.path = [
+      { x: a.px, y: a.y, z: a.pz, kind: 'walk', crouch: false, tight: true, id: a.id },
+      { x: b.px, y: b.y, z: b.pz, kind: 'rappel', rp, crouch: b.crouch, tight: !!b.tight, id: b.id },
+    ];
+    this.goal = { x: b.px, y: b.y, z: b.pz };
+    this.arriveR = 0.5;
+    this.opts = { ...this.opts, rappel: true };
+    this.i = 0; this.status = 'moving'; this.navVersion = this.nav.version;
+    this.stuckT = 0; this.best = Infinity; this.repaths = 0;
+    return true;
   }
   // Pasa la ruta pendiente (keepPath) a ser la búsqueda en curso.
   _adoptPending() {
@@ -136,15 +184,19 @@ export class Mover {
 
   /**
    * Escribe la intención de movimiento para avanzar. Opciones: `sprint` (permitir correr),
-   * `crouch`, `lookYaw` (hacia dónde mira el bot; null = hacia donde anda), `speed` (0..1).
+   * `crouch`, `lookYaw` (hacia dónde mira el bot; null = hacia donde anda), `speed` (0..1) y,
+   * colgado de la cuerda, `rope` ({wait: esperar junto a la ventana, hold: quieto combatiendo}).
    */
-  update(dt, { sprint = false, crouch = false, lookYaw = null, speed = 1 } = {}) {
+  update(dt, { sprint = false, crouch = false, lookYaw = null, speed = 1, rope = null } = {}) {
     const op = this.op, I = op.intent, p = op.body.pos;
     this.clock += dt;
     I.moveX = 0; I.moveZ = 0;
     if (!this.drone) I.sprint = false;
     this.wantYaw = null;
     this.mustFace = false;
+    // la cuerda: colgado, manda el paso de cuerda; al acabar, seguir (o, si ha fallado, otra ruta)
+    if (this.rope && !op.rappel) this._ropeEnd();
+    if (op.rappel) return this._ropeTick(dt, rope || {});
     // ruta nueva lista (keepPath): cambiar a ella sin pararse
     if (this.pending && this.status === 'moving' && this.pending.status !== 'queued' && this.pending.status !== 'running') {
       const j = this.pending;
@@ -187,6 +239,9 @@ export class Mover {
     }
     if (advanced) this._lookahead();
     const q = pts[this.i];
+    // paso de cuerda: engancharse al pie de la fachada (o en el pretil)
+    if (q.kind === 'rappel' && !this.drone) return this._ropeHook(dt, q, lookYaw, speed);
+    this.hookFor = null;
     const dx = q.x - p.x, dz = q.z - p.z;
     const dh = Math.hypot(dx, dz);
     let dirX = dx / (dh || 1), dirZ = dz / (dh || 1);
@@ -244,12 +299,122 @@ export class Mover {
     if (prog < this.best - 0.05) { this.best = prog; this.stuckT = Math.max(0, this.stuckT - dt * 2); }
     else if (!waiting) this.stuckT += dt;
     const climbing = op.body.onLadder;
-    if (!climbing && this.stuckT > 0.7 && this.stuckT - dt <= 0.7) { if (this.drone) I.jump = true; else I.vault = true; }
+    if (!climbing && this.stuckT > 0.7 && this.stuckT - dt <= 0.7) { if (this.drone) I.jump = true; else if (this._vaultOk()) I.vault = true; }
     if (!climbing && !this.drone && this.stuckT > 1.3 && this.stuckT - dt <= 1.3) { this.wiggle = (this.op.body.pos.x * 7 + this.op.body.pos.z * 13) % 2 > 1 ? 0.9 : -0.9; this.wiggleT = 0.45; if (this.drone) I.jump = true; }
     if (this.stuckT > 2.4) {
       if (this.repaths++ < 4) this._plan();
       else { this.status = 'failed'; this.failAt = this.clock; }
     }
+    return this.status;
+  }
+
+  // ------------------------------------------------------------------ cuerda (F10.2b)
+  // Normal de la fachada del paso: hacia fuera (y hacia dentro, cambiada de signo).
+  _ropeOut(rp) { return rp.axis === 'x' ? { x: 0, z: rp.out } : { x: rp.out, z: 0 }; }
+
+  // Antes del paso: al punto de enganche, encarar la fachada (desde el suelo) o hacia fuera (desde
+  // el tejado) y Espacio. Si en unos segundos no se engancha, ese paso no sirve: otra ruta.
+  _ropeHook(dt, q, lookYaw, speed) {
+    const op = this.op, I = op.intent, p = op.body.pos, rp = q.rp;
+    // (el paso ya terminó —dentro o arriba— sin marcar el punto: seguir)
+    if (Math.abs(p.y - q.y) < 0.6 && Math.hypot(q.x - p.x, q.z - p.z) < 1.8) { this.i++; this._lookahead(); return this.status; }
+    if (this.hookFor !== q) { this.hookFor = q; this.hookT = 0; }
+    this.hookT += dt;
+    if (this.hookT > ROPE_AI.hookMax || !rp.hook) return this._ropeFail(rp, false);
+    const h = rp.hook, dx = h.x - p.x, dz = h.z - p.z, dh = Math.hypot(dx, dz);
+    I.stance = 'stand';
+    if (dh > 0.18) {
+      // (despacio al final, sin pasarse del punto)
+      this._steer(dx / dh, dz / dh, lookYaw, false, Math.min(speed, 0.3 + dh));
+      return this.status;
+    }
+    const n = this._ropeOut(rp), f = rp.from === 'top' ? 1 : -1;
+    this.wantYaw = Math.atan2(-n.x * f, -n.z * f); this.mustFace = true; this.pitchWant = 0;
+    if (Math.abs(angleDiff(op.yaw, this.wantYaw)) < 0.25 && op.body.onGround) I.vault = true;
+    return this.status;
+  }
+
+  // Colgado: subir o bajar y de lado hasta donde toca, y Espacio (entrar o subir al tejado).
+  _ropeTick(dt, o) {
+    const op = this.op, I = op.intent, R = op.rappel, RP = this.game && this.game.rappel;
+    I.sprint = false; I.stance = 'stand';
+    let S = this.rope;
+    if (!S) {
+      const q = this.path && this.path[this.i];
+      S = this.rope = { rp: q && q.kind === 'rappel' ? q.rp : null, t: 0, waitT: 0, arrived: false, waiting: false, go: false, down: false, shot: false, best: Infinity, bestT: 0, key: '', stuck: 0, presses: 0, noWin: 0 };
+    }
+    S.t += dt;
+    if (R.phase !== 'hang' || !RP) return this.status;          // enganchándose, entrando o subiendo
+    const g = R.seg, rp = S.rp;
+    if (o.down) S.down = true;
+    // tope: nunca más de 25 s colgado
+    if (S.t > ROPE_AI.maxHang) { I.stance = 'crouch'; return this.status; }     // (suelta la cuerda)
+    let ts = R.s, ty = R.y, act = null, waiting = false;
+    const win = RP.windowAt(op);
+    if (!S.down && S.t > ROPE_AI.bailAt) { if (win && rp && rp.act === 'enter') act = 'enter'; else S.down = true; }
+    if (!S.down && !act) {
+      if (!rp) { if (win) act = 'enter'; else S.down = true; }
+      else if (rp.act === 'enter') {
+        waiting = !!o.wait && !S.go && !!rp.wait && S.waitT < ROPE_AI.waitMax && S.t < ROPE_AI.forceAt;
+        if (waiting) { ts = rp.wait.s; ty = rp.wait.y; }
+        else {
+          // (a entrar: solo hasta donde ya se puede, del lado por el que llega)
+          const half = rp.win ? rp.win.width / 2 - 0.25 : 0;
+          ts = rp.s1 + Math.max(-half, Math.min(half, R.s - rp.s1)); ty = rp.y1; act = 'enter';
+        }
+      } else { ts = rp.s1; ty = ropeTopY(g); act = 'top'; }
+    }
+    if (S.down) { ts = R.s; ty = -99; act = null; waiting = false; }
+    // quieto (combatiendo) salvo que tenga que bajar o se acabe el tiempo
+    const hold = !!o.hold && !S.down && S.t < ROPE_AI.forceAt;
+    S.waiting = waiting;
+    const dy = ty - R.y, ds = ts - R.s, tol = ROPE_AI.tol;
+    const there = Math.abs(dy) <= tol && Math.abs(ds) <= tol;
+    if (!hold) {
+      I.moveZ = dy > tol ? 1 : dy < -tol ? -1 : 0;
+      I.moveX = Math.abs(ds) > tol ? Math.sign(ds) * g.sSign : 0;
+    } else { I.moveX = 0; I.moveZ = 0; }
+    // mirar: hacia la ventana (o la pared) desde donde cuelga
+    const e = op.eyePos(), n = this._ropeOut(rp || { axis: g.axis, out: g.out });
+    const tx = (g.axis === 'x' ? (rp ? rp.s1 : R.s) : g.line) - n.x * 0.5, tz = (g.axis === 'x' ? g.line : (rp ? rp.s1 : R.s)) - n.z * 0.5;
+    this.wantYaw = Math.atan2(-(tx - e.x), -(tz - e.z)); this.pitchWant = 0;
+    // al llegar: Espacio para entrar por la ventana o subir al tejado (o esperar)
+    if (there && !S.down) {
+      S.arrived = true;
+      if (waiting) S.waitT += dt;
+      else if (act === 'enter' ? win : act === 'top') { I.vault = true; if (++S.presses > 30) S.down = true; }   // (bloqueada: abajo)
+      else if ((S.noWin += dt) > 1) S.down = true;      // (sin ventana delante: abajo)
+    }
+    if (act === 'enter' && win && !hold && S.t > ROPE_AI.bailAt && !S.down) I.vault = true;
+    // sin avanzar hacia donde va (algo lo impide): abajo; bajando y sin avanzar: se suelta
+    const key = `${ts.toFixed(2)}|${ty.toFixed(2)}`;
+    if (key !== S.key) { S.key = key; S.best = Infinity; S.bestT = S.t; }
+    const d = Math.abs(dy) + Math.abs(ds);
+    if (there || hold) { S.best = d; S.bestT = S.t; }
+    else if (d < S.best - 0.02) { S.best = d; S.bestT = S.t; }
+    const still = S.t - S.bestT;
+    if (!hold) { S.stuck = Math.max(S.stuck, still); this.ropeStuck = Math.max(this.ropeStuck, still); }
+    if (still > ROPE_AI.stuck && !hold) { if (S.down) I.stance = 'crouch'; else S.down = true; }
+    return this.status;
+  }
+
+  // Se acabó la cuerda: dentro o arriba, seguir la ruta; si no (bajó o se soltó), ese paso no y otra ruta.
+  _ropeEnd() {
+    const S = this.rope, p = this.op.body.pos, rp = S.rp;
+    this.rope = null;
+    const ok = !!(rp && Math.abs(p.y - rp.toY) < 0.8);
+    this.ropeLast = { rp, ok, t: S.t, stuck: S.stuck, shot: S.shot };
+    if (!ok) { this._ropeFail(rp, S.shot); return; }
+    const q = this.path && this.path[this.i];
+    if (q && q.kind === 'rappel' && q.rp === rp) { this.i++; this.stuckT = 0; this.best = Infinity; if (this.i < this.path.length) this._lookahead(); }
+  }
+  // ¿Espacio saltaría (y no engancharía una cuerda sin querer)? Para los saltos de desatasco.
+  _vaultOk() { const RP = this.game && this.game.rappel; return !(RP && RP.hookSpot(this.op)); }
+  _ropeFail(rp, shot) {
+    if (rp) this.ropeBan.add(rp.key);
+    if (!this.ropeLast || this.ropeLast.rp !== rp) this.ropeLast = { rp, ok: false, t: 0, stuck: 0, shot };
+    this.hookFor = null;
+    if (this.goal) this._plan(); else this.stop();
     return this.status;
   }
 

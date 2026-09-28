@@ -104,8 +104,8 @@ export class Match extends Emitter {
     this.gadgets.recon = this.recon;
     this.gadgets.fort = this.fort;
     this.abilities = new Abilities(this.game, this.gadgets);
-    // rappel por las fachadas (F10.2a): el ataque, en la acción (de momento, solo las personas)
-    this.rappel = new Rappel(this.game, { canRappel: (op) => op.side === 'atk' && !op.isBot && (this.phase === 'action' || this.phase === 'planted') });
+    // rappel por las fachadas (F10.2a): el ataque, en la acción (personas y bots, F10.2b)
+    this.rappel = new Rappel(this.game, { canRappel: (op) => op.side === 'atk' && (this.phase === 'action' || this.phase === 'planted') });
     this._bindGame();
   }
   get objectiveFound() { return this.recon.objectiveFound; }

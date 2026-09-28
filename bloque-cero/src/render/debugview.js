@@ -1,8 +1,9 @@
 // Capa de depuración (tecla P). Solo lee la simulación, no la cambia:
 //  · rejilla de navegación a menos de 14 m de la cámara (verde: de pie, amarillo: solo
-//    agachado, magenta: barricada por romper, azul: pie de escalera de mano); se rehace
-//    cada 0,5 s o cuando la destrucción cambia la rejilla;
-//  · la ruta que sigue cada bot y su cono de visión de 100° (rojo si tiene a alguien a tiro);
+//    agachado, magenta: barricada por romper, azul: pie de escalera de mano, cian: donde se
+//    engancha una cuerda); se rehace cada 0,5 s o cuando la destrucción cambia la rejilla;
+//  · la ruta que sigue cada bot (en cian, los pasos de cuerda: por la fachada hasta la ventana
+//    o el tejado) y su cono de visión de 100° (rojo si tiene a alguien a tiro);
 //  · una etiqueta sobre cada bot con su tarea, etapa, estado del movimiento y objetivo.
 // Los FPS los muestra la línea de rendimiento, que se enciende con la capa.
 import * as THREE from 'three';
@@ -13,6 +14,9 @@ const MAX_PTS = 7000;
 const MAX_SEG = 5000;
 const CONE_LEN = 9;
 const TEAM_RGB = [[0.25, 0.62, 1.0], [1.0, 0.55, 0.15]];
+const ROPE_RGB = [0.2, 0.95, 0.95];
+// Un punto de la cuerda de un paso de rappel (en el plano donde cuelga el cuerpo).
+const ropeAt = (rp, s, y) => (rp.axis === 'x' ? { x: s, y, z: rp.line + rp.out * rp.plane } : { x: rp.line + rp.out * rp.plane, y, z: s });
 
 export class DebugView {
   constructor(ctx) {
@@ -89,8 +93,29 @@ export class DebugView {
         for (let k = B.mover.i; k < path.length; k++) {
           const q = path[k];
           const cur = { x: q.x, y: q.y + 0.1, z: q.z };
+          if (q.kind === 'rappel' && q.rp) {
+            // por la fachada: al pie (o al pretil), arriba o abajo, de lado hasta la ventana y dentro
+            const rp = q.rp, pts = [];
+            if (!op.rappel) { pts.push(ropeAt(rp, rp.s0, rp.y0 + 0.9)); pts.push(ropeAt(rp, rp.s0, rp.y1 + 0.9)); }
+            pts.push(ropeAt(rp, rp.s1, rp.y1 + 0.9));
+            for (const r of pts) { seg(prev, r, ROPE_RGB); prev = r; }
+            seg(prev, cur, ROPE_RGB);
+            prev = cur;
+            continue;
+          }
           seg(prev, cur, q.kind === 'break' ? [1, 0.2, 0.9] : q.kind === 'ladder' ? [0.3, 0.5, 1] : col);
           prev = cur;
+        }
+      }
+      // yendo a una ventana del sitio con cuerda: el tramo por la fachada que le espera
+      const P = B.ropePlan;
+      if (P && !P.done && !P.failed && !op.rappel && !(path && path.some((q) => q.kind === 'rappel'))) {
+        const rp = P.rp, h = rp.hook;
+        if (h) {
+          const nx = rp.axis === 'x' ? 0 : rp.out, nz = rp.axis === 'x' ? rp.out : 0, w = rp.win;
+          const pts = [{ x: h.x, y: h.y + 0.1, z: h.z }, ropeAt(rp, rp.s0, rp.y0 + 0.9), ropeAt(rp, rp.s0, rp.y1 + 0.9), ropeAt(rp, rp.s1, rp.y1 + 0.9)];
+          if (w) pts.push({ x: w.x - nx * 0.9, y: rp.toY + 0.1, z: w.z - nz * 0.9 });
+          for (let k = 1; k < pts.length; k++) seg(pts[k - 1], pts[k], ROPE_RGB);
         }
       }
       // cono de visión (bordes y arco)
@@ -122,6 +147,7 @@ export class DebugView {
     const cx0 = Math.max(0, Math.floor((cp.x - NAV_R - nav.x0) / cell)), cx1 = Math.min(nav.ncx - 1, Math.floor((cp.x + NAV_R - nav.x0) / cell));
     const cz0 = Math.max(0, Math.floor((cp.z - NAV_R - nav.z0) / cell)), cz1 = Math.min(nav.ncz - 1, Math.floor((cp.z + NAV_R - nav.z0) / cell));
     const ladders = new Set((nav.ladderNodes || []).map((n) => n.id));
+    const ropes = new Set((nav.rappelNodes || []).map((n) => n.id));
     let k = 0;
     for (let cz = cz0; cz <= cz1 && k < MAX_PTS; cz++) {
       for (let cx = cx0; cx <= cx1 && k < MAX_PTS; cx++) {
@@ -133,6 +159,7 @@ export class DebugView {
           this.ptPos[o] = n.px; this.ptPos[o + 1] = n.y + 0.06; this.ptPos[o + 2] = n.pz;
           let c = n.crouch ? [1, 0.85, 0.2] : [0.3, 1, 0.45];
           if (ladders.has(n.id)) c = [0.3, 0.55, 1];
+          else if (ropes.has(n.id)) c = ROPE_RGB;
           else if (n.edges.some((e) => e.kind === 'break')) c = [1, 0.25, 0.9];
           this.ptCol[o] = c[0]; this.ptCol[o + 1] = c[1]; this.ptCol[o + 2] = c[2];
           if (++k >= MAX_PTS) break;
@@ -191,8 +218,19 @@ const TASK = {
   post: 'puesto', fortify: 'fortificar', anchor: 'ancla', roam: 'merodear', hunt: 'cazar', disable: 'inutilizar',
   revive: 'reanimar', approach: 'acercarse', stack: 'agruparse', clear: 'despejar', siteHold: 'sostener', plant: 'plantar',
   guard: 'vigilar', pickup: 'recoger', follow: 'orden: seguir', holdHere: 'orden: mantener', gotoMark: 'orden: ir a la marca',
+  rope: 'rappel',
 };
-const STAGE = { approach: 'acercarse', stack: 'agruparse', clear: 'despejar', hold: 'sostener' };
+const STAGE = { approach: 'acercarse', stack: 'agruparse', clear: 'despejar', hold: 'sostener', rope: 'rappel' };
+// Colgado de la cuerda: qué hace.
+function ropeState(B) {
+  const R = B.op.rappel, S = B.mover && B.mover.rope;
+  if (R.phase === 'hookGround' || R.phase === 'hookTop') return 'enganchándose';
+  if (R.phase === 'enter' || R.phase === 'breach') return 'entrando por la ventana';
+  if (R.phase === 'climbTop') return 'subiendo al tejado';
+  if (S && S.down) return 'bajando de la cuerda';
+  if (S && S.waiting && S.arrived) return `esperando en la cuerda (${Math.ceil(S.waitT)} s)`;
+  return 'en la cuerda';
+}
 const ROLE = { anchor: 'ancla', roam: 'merodeador' };
 const MOVE = { idle: 'quieto', planning: 'calculando ruta', moving: 'andando', arrived: 'en su sitio', failed: 'sin ruta' };
 export function describe(B) {
@@ -206,7 +244,8 @@ export function describe(B) {
     if (B.stage && B.side === 'atk' && ['approach', 'stack', 'clear', 'siteHold'].includes(k)) t = STAGE[B.stage] || B.stage;
     if (B.role && B.side === 'def') t += ` (${ROLE[B.role] || B.role})`;
     parts.push(t);
-    if (B.mover) parts.push(MOVE[B.mover.status] || B.mover.status);
+    if (op.rappel) parts.push(ropeState(B));
+    else if (B.mover) parts.push(MOVE[B.mover.status] || B.mover.status);
   }
   let s = parts.join(' · ');
   if (B.target && B.target.state !== 'dead') s += ` → ${B.target.name}`;

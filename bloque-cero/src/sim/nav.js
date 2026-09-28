@@ -6,10 +6,14 @@
 //   break  · bloqueada solo por barricada de madera: hay que romperla a golpes
 //   ladder · subir por una escalera de mano (solo hacia arriba)
 //   drop   · dejarse caer desde un borde o por una trampilla abierta (solo hacia abajo)
+//   rappel · colgado de una cuerda (F10.2b): del pie de una fachada a una ventana de la planta
+//            alta o al tejado, y del tejado a una ventana. Solo si la búsqueda lo pide (`rappel`).
 // La destrucción cambia el mapa: world.onChange marca columnas sucias que se
 // recalculan poco a poco (update). Al reiniciar la ronda se restaura la copia
 // original.
 import { SOLID, MAT } from '../world/materials.js';
+import { buildSegments, ropeTopY, RAPPEL } from './rappel.js';
+import { boxFree } from './physics.js';
 
 export const CELL = 0.5;
 // Para andar, la madera de una barricada no es suelo ni pared: es un estorbo que se rompe.
@@ -20,6 +24,16 @@ const STAND_H = 1.75, CROUCH_H = 1.2;
 const STEP = 0.38;          // desnivel máximo entre muestras (la física sube 0,375 m)
 const BREAK_COST = 7;       // coste extra (m equivalentes) de romper una barricada
 const MAX_DROP = 4.1;
+// Pasos de cuerda (F10.2b). Cuestan lo que se tarda en hacerlos (engancharse, subir o bajar, de
+// lado, entrar o subir al tejado), pasado a metros a `speed`: lo que corre de media un bot.
+export const ROPE_NAV = {
+  speed: 4.0,          // m/s
+  lowWindow: 2.2,      // m sobre el pie del tramo: por debajo, la ventana se salta desde el suelo
+  minWidth: 1.0,       // m: ventanas más estrechas, no
+  clearLow: 0.3,       // m: el enganche no queda delante de una ventana de abajo (Espacio la saltaría)
+  hangBelow: 0.5,      // m: colgado para entrar, los pies a esto por debajo del alféizar
+  waitSide: 0.45,      // m: esperando, el cuerpo a esto del borde de la ventana (fuera de su vista)
+};
 
 export class NavGrid {
   constructor(world, map) {
@@ -57,6 +71,7 @@ export class NavGrid {
     for (const n of this.nodes) n.edges = [];
     for (const n of this.nodes) this._linkNode(n, true);
     this._addLadders();
+    this._addRappel();
     this.version++;
   }
 
@@ -260,6 +275,104 @@ export class NavGrid {
     }
   }
 
+  // ------------------------------------------------------------------ rappel (F10.2b)
+  // Pasos posibles: la geometría es fija; los nodos de cada extremo se buscan cada vez que la
+  // rejilla cambia allí (destrucción) o se restaura.
+  _ropeSpecs() {
+    if (this._rpSpecs) return this._rpSpecs;
+    const specs = (this._rpSpecs = []);
+    if (!this.map.rappel || !this.map.rappel.length) return specs;
+    const w = this.world, N = ROPE_NAV;
+    const vert = (y0, y1) => (y1 >= y0 ? (y1 - y0) / RAPPEL.up : (y0 - y1) / RAPPEL.down);
+    for (const g of buildSegments(w, this.map)) {
+      const topY = ropeTopY(g), lo = g.a + RAPPEL.edge + 0.05, hi = g.b - RAPPEL.edge - 0.05;
+      const pos = (s, y) => (g.axis === 'x' ? { x: s, y, z: g.line + g.out * g.plane } : { x: g.line + g.out * g.plane, y, z: s });
+      const free = (s, y) => { const p = pos(s, y); return boxFree(w, p.x, p.y, p.z, 0.28, 1.8); };
+      // la cuerda libre al subir o bajar de y0 a y1 en s0, y de lado hasta s1
+      const clear = (s0, y0, y1, s1) => {
+        for (let k = 0, n = Math.ceil(Math.abs(y1 - y0) / 0.4); k <= n; k++) if (!free(s0, y0 + (y1 - y0) * k / Math.max(1, n))) return false;
+        for (let k = 0, n = Math.ceil(Math.abs(s1 - s0) / 0.25); k <= n; k++) if (!free(s0 + (s1 - s0) * k / Math.max(1, n), y1)) return false;
+        return true;
+      };
+      const low = g.windows.filter((q) => q.y0 < g.bottom + N.lowWindow);
+      const high = g.windows.filter((q) => q.y0 >= g.bottom + N.lowWindow && q.width >= N.minWidth);
+      const okS = (s) => s >= lo && s <= hi && !low.some((q) => Math.abs(s - q.center) < q.width / 2 + N.clearLow);
+      const add = (sp) => {
+        const T = (sp.from === 'ground' ? RAPPEL.hookGround : RAPPEL.hookTop) + Math.max(vert(sp.y0, sp.y1), Math.abs(sp.s1 - sp.s0) / RAPPEL.side) + (sp.act === 'enter' ? RAPPEL.breach : RAPPEL.climbTop);
+        sp.T = T;
+        sp.rp = { key: `${g.id}:${sp.from}:${sp.act}:${sp.s1.toFixed(2)}`, seg: g.id, axis: g.axis, line: g.line, out: g.out, plane: g.plane, from: sp.from, act: sp.act, s0: sp.s0, s1: sp.s1, y0: sp.y0, y1: sp.y1, toY: sp.act === 'enter' ? sp.floorY : g.roof, win: sp.win || null, wait: sp.wait || null, T, hook: null };
+        specs.push({ ...sp, seg: g });
+      };
+      for (const q of high) {
+        const hang = Math.max(g.bottom + 0.3, Math.min(topY, q.y0 - N.hangBelow)), floorY = q.y0 - q.sill, c = q.center;
+        // esperando: a un lado de la ventana (o, si no cabe, con la cabeza bajo el alféizar)
+        let wait = null;
+        for (const s of [c - q.width / 2 - N.waitSide, c + q.width / 2 + N.waitSide]) {
+          if (s < lo || s > hi || high.some((o) => o !== q && Math.abs(s - o.center) < o.width / 2 + 0.35) || !clear(c, hang, hang, s)) continue;
+          wait = { s, y: hang }; break;
+        }
+        if (!wait && q.y0 - 1.95 >= g.bottom + 0.3) wait = { s: c, y: q.y0 - 1.95 };
+        // desde el suelo, al lado (o debajo) de la ventana
+        for (const k of [0, -1.2, 1.2, -0.8, 0.8, -1.6, 1.6, -2.0, 2.0, -2.5, 2.5, -3.0, 3.0]) {
+          const s0 = c + k;
+          if (!okS(s0) || !clear(s0, g.bottom + 0.3, hang, Math.max(lo, Math.min(hi, c)))) continue;
+          add({ kind: 'win', from: 'ground', act: 'enter', s0, s1: Math.max(lo, Math.min(hi, c)), y0: g.bottom + 0.3, y1: hang, win: q, floorY, wait });
+          break;
+        }
+        // desde el tejado
+        const s0 = Math.max(lo, Math.min(hi, c));
+        if (clear(s0, topY, hang, s0)) add({ kind: 'win', from: 'top', act: 'enter', s0, s1: s0, y0: topY, y1: hang, win: q, floorY, wait });
+      }
+      // al tejado: cada 3 m del tramo
+      for (let s0 = g.a + 1.9; s0 <= g.b - 0.6; s0 += 3) {
+        if (okS(s0) && clear(s0, g.bottom + 0.3, topY, s0)) add({ kind: 'roof', from: 'ground', act: 'top', s0, s1: s0, y0: g.bottom + 0.3, y1: topY });
+      }
+    }
+    return specs;
+  }
+  // Nodo de un extremo del paso: el de salida (al pie de la fachada o en el tejado junto al pretil)
+  // o el de llegada (dentro, tras la ventana, o en el tejado).
+  _ropeNode(sp, end) {
+    const g = sp.seg;
+    const sOf = (n) => (g.axis === 'x' ? n.px : n.pz), dOf = (n) => (g.axis === 'x' ? n.pz - g.line : n.px - g.line) * g.out;
+    const at = (s, d) => (g.axis === 'x' ? { x: s, z: g.line + g.out * d } : { x: g.line + g.out * d, z: s });
+    if (end === 'from' && sp.from === 'ground') {
+      const p = at(sp.s0, 1.0);
+      return this.nearest(p.x, g.bottom, p.z, 0.9, 0.4, (n) => !n.crouch && dOf(n) >= 0.55 && dOf(n) <= 1.45 && Math.abs(sOf(n) - sp.s0) <= 0.25 && Math.abs(n.y - g.bottom) < 0.4);
+    }
+    if (end === 'from') {
+      const p = at(sp.s0, -0.8);
+      return this.nearest(p.x, g.roof, p.z, 0.9, 0.4, (n) => !n.crouch && dOf(n) <= -0.45 && dOf(n) >= -1.4 && Math.abs(sOf(n) - sp.s0) <= 0.25 && Math.abs(n.y - g.roof) < 0.3);
+    }
+    const y = sp.kind === 'win' ? sp.floorY : g.roof, p = at(sp.s1, -0.9);
+    return this.nearest(p.x, y, p.z, 1.0, 0.4, (n) => dOf(n) <= -0.4 && dOf(n) >= -1.6 && Math.abs(sOf(n) - sp.s1) <= 0.6 && Math.abs(n.y - y) < 0.3);
+  }
+  _addRappel() {
+    this.rappelNodes = [];
+    this.ropeEdges = [];
+    const specs = this._ropeSpecs();
+    if (!this._rappelCols) {
+      // columnas cuyo cambio obliga a recalcular los pasos de cuerda
+      this._rappelCols = new Set();
+      for (const sp of specs) {
+        const g = sp.seg;
+        for (const [s, d] of [[sp.s0, sp.from === 'ground' ? 1.0 : -0.8], [sp.s1, -0.9]]) {
+          const x = g.axis === 'x' ? s : g.line + g.out * d, z = g.axis === 'x' ? g.line + g.out * d : s;
+          for (let dz = -1.5; dz <= 1.5; dz += CELL) for (let dx = -1.5; dx <= 1.5; dx += CELL) { const ci = this.colOf(x + dx, z + dz); if (ci >= 0) this._rappelCols.add(ci); }
+        }
+      }
+    }
+    for (const sp of specs) {
+      const a = this._ropeNode(sp, 'from'), b = this._ropeNode(sp, 'to');
+      if (!a || !b) continue;
+      sp.rp.hook = { x: a.px, y: a.y, z: a.pz };
+      const e = { to: b.id, cost: sp.T * ROPE_NAV.speed + 1, kind: 'rappel', rp: sp.rp };
+      a.edges.push(e);
+      if (!this.rappelNodes.includes(a)) this.rappelNodes.push(a);
+      this.ropeEdges.push({ from: a, to: b, rp: sp.rp });
+    }
+  }
+
   // ------------------------------------------------------------------ actualización
   _onChange(x0, y0, z0, x1, y1, z1) {
     const w = this.world;
@@ -308,10 +421,14 @@ export class NavGrid {
         if (!list.some((m) => n.edges.some((e) => e.to === m.id))) this._tryDrop(n, list, dx, dz);
       }
     }
-    // las escaleras de mano cercanas pueden haber cambiado de nodo
+    // las escaleras de mano y los pasos de cuerda cercanos pueden haber cambiado de nodo
     if (cols.some((ci) => this._ladderCols.has(ci))) {
       for (const n of this.ladderNodes) n.edges = n.edges.filter((e) => e.kind !== 'ladder');
       this._addLadders();
+    }
+    if (cols.some((ci) => this._rappelCols.has(ci))) {
+      for (const n of this.rappelNodes) n.edges = n.edges.filter((e) => e.kind !== 'rappel');
+      this._addRappel();
     }
     this.version++;
     return this.dirty.size;
@@ -321,6 +438,7 @@ export class NavGrid {
       nodes: this.nodes.map((n) => ({ ...n, edges: n.edges.map((e) => ({ ...e })) })),
       cols: this.cols.map((l) => (l ? l.map((n) => n.id) : null)),
       ladders: this.ladderNodes.map((n) => n.id),
+      rappel: this.rappelNodes.map((n) => n.id),
     };
   }
   _restore(s) {
@@ -329,13 +447,23 @@ export class NavGrid {
       this.nodes = s.nodes.map((n) => ({ ...n, edges: n.edges.map((e) => ({ ...e })) }));
       this.cols = s.cols.map((l) => (l ? l.map((id) => this.nodes[id]) : null));
     } else {
-      // solo las columnas tocadas (y las de las escaleras de mano); los nodos nuevos se descartan
+      // solo las columnas tocadas (y las de las escaleras de mano y la cuerda); los nodos nuevos se descartan
       this.nodes.length = s.nodes.length;
       const cols = new Set(this._touched);
       for (const id of s.ladders) cols.add(s.nodes[id].col);
+      for (const id of s.rappel) cols.add(s.nodes[id].col);
       for (const ci of cols) this.cols[ci] = s.cols[ci] ? s.cols[ci].map(copy) : null;
     }
     this.ladderNodes = s.ladders.map((id) => this.nodes[id]);
+    this.rappelNodes = s.rappel.map((id) => this.nodes[id]);
+    this.ropeEdges = [];
+    for (const a of this.rappelNodes) {
+      for (const e of a.edges) {
+        if (e.kind !== 'rappel') continue;
+        e.rp.hook = { x: a.px, y: a.y, z: a.pz };      // (el de la copia original, por si la ronda lo movió)
+        this.ropeEdges.push({ from: a, to: this.nodes[e.to], rp: e.rp });
+      }
+    }
     this._touched.clear();
   }
 
@@ -383,7 +511,8 @@ export class NavGrid {
   /**
    * A* entre dos puntos (síncrono). Devuelve {points:[{x,y,z,kind,crouch,tight,id}], cost}
    * o null. `avoid(n)`: coste extra por nodo (zonas peligrosas). `noLadder`: sin escaleras
-   * de mano (drones). `noBreak`: sin romper barricadas.
+   * de mano (drones). `noBreak`: sin romper barricadas. `rappel`: con los pasos de cuerda (el
+   * ataque), salvo los de `ropeBan` (claves de paso que ya han fallado).
    */
   path(from, to, opts = {}) {
     const job = this._newJob(from, to, opts);
@@ -422,7 +551,7 @@ export class NavGrid {
     if (!s || !t) { job.status = 'failed'; return; }
     const N = this.nodes.length;
     if (!this._g || this._g.length < N) {
-      this._g = new Float64Array(N * 2); this._from = new Int32Array(N * 2); this._seen = new Uint32Array(N * 2); this._closed = new Uint32Array(N * 2); this._kind = new Array(N * 2); this._gen = 0;
+      this._g = new Float64Array(N * 2); this._from = new Int32Array(N * 2); this._seen = new Uint32Array(N * 2); this._closed = new Uint32Array(N * 2); this._kind = new Array(N * 2); this._rp = new Array(N * 2); this._gen = 0;
     }
     job.gen = ++this._gen;
     job.s = s; job.t = t; job.it = 0;
@@ -437,6 +566,7 @@ export class NavGrid {
   // Expande hasta `budget` nodos. Devuelve cuántos ha expandido.
   _expand(job, budget) {
     const o = job.opts, avoid = o.avoid || null, noLadder = !!o.noLadder, noBreak = !!o.noBreak, maxIter = o.maxIter || 40000;
+    const rappel = !!o.rappel, ban = o.ropeBan || null, rpOf = this._rp;
     const breakExtra = o.breakCost || 0;
     const g = this._g, from_ = this._from, seen = this._seen, closed = this._closed, kind = this._kind, nodes = this.nodes;
     const heap = job.heap, gen = job.gen, t = job.t;
@@ -460,11 +590,12 @@ export class NavGrid {
         const e = edges[k], to = e.to;
         if (closed[to] === gen) continue;
         if ((noLadder && e.kind === 'ladder') || (noBreak && e.kind === 'break')) continue;
+        if (e.kind === 'rappel' && (!rappel || (ban && ban.has(e.rp.key)))) continue;
         const m = nodes[to];
         if (!m.alive) continue;
         const ng = gid + e.cost + (e.kind === 'break' ? breakExtra : 0) + (avoid ? avoid(m) : 0);
         if (seen[to] !== gen || ng < g[to]) {
-          seen[to] = gen; g[to] = ng; from_[to] = id; kind[to] = e.kind;
+          seen[to] = gen; g[to] = ng; from_[to] = id; kind[to] = e.kind; rpOf[to] = e.rp || null;
           const dx = m.x - tx, dy = (m.y - ty) * 1.5, dz = m.z - tz;
           heap.push(to, ng + Math.sqrt(dx * dx + dy * dy + dz * dz) * 1.15);
         }
@@ -481,7 +612,9 @@ export class NavGrid {
     const pts = [];
     for (let id = endId; id !== -1; id = this._from[id]) {
       const n = this.nodes[id];
-      pts.push({ x: n.px, y: n.y, z: n.pz, kind: this._kind[id], crouch: n.crouch, tight: !!n.tight, id });
+      const pt = { x: n.px, y: n.y, z: n.pz, kind: this._kind[id], crouch: n.crouch, tight: !!n.tight, id };
+      if (pt.kind === 'rappel') pt.rp = this._rp[id];
+      pts.push(pt);
     }
     pts.reverse();
     this.lastIter = job.it;
@@ -511,13 +644,13 @@ export class NavGrid {
   }
 
   stats() {
-    let alive = 0, edges = 0, breaks = 0, drops = 0, ladders = 0;
+    let alive = 0, edges = 0, breaks = 0, drops = 0, ladders = 0, ropes = 0;
     for (const n of this.nodes) {
       if (!n.alive) continue;
       alive++;
-      for (const e of n.edges) { edges++; if (e.kind === 'break') breaks++; else if (e.kind === 'drop') drops++; else if (e.kind === 'ladder') ladders++; }
+      for (const e of n.edges) { edges++; if (e.kind === 'break') breaks++; else if (e.kind === 'drop') drops++; else if (e.kind === 'ladder') ladders++; else if (e.kind === 'rappel') ropes++; }
     }
-    return { nodes: alive, edges, breaks, drops, ladders };
+    return { nodes: alive, edges, breaks, drops, ladders, ropes };
   }
 }
 

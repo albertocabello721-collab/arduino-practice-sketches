@@ -32,8 +32,9 @@ const H = 0.125;
 const R_BODY = 0.3;
 const wrap = (a) => Math.atan2(Math.sin(a), Math.cos(a));
 
-// Los tramos del mapa, con lo que hace falta: normales, plano del cuerpo y ventanas.
-function buildSegments(world, map) {
+// Los tramos del mapa, con lo que hace falta: normales, plano del cuerpo y ventanas (también los usa
+// la navegación de los bots para sus pasos de cuerda).
+export function buildSegments(world, map) {
   const out = [];
   for (const d of map.rappel || []) {
     const nOut = d.axis === 'x' ? { x: 0, z: d.out } : { x: d.out, z: 0 };
@@ -60,6 +61,9 @@ function buildSegments(world, map) {
   return out;
 }
 
+/** Altura de los pies colgado arriba del todo (los ojos asoman sobre el pretil). */
+export function ropeTopY(g) { return g.top - STANCES.stand.eye + RAPPEL.headOver; }
+
 export class Rappel {
   /**
    * @param {Game} game
@@ -84,7 +88,7 @@ export class Rappel {
   _s(g, p) { return g.axis === 'x' ? p.x : p.z; }
   // distancia (con signo, + fuera) de un punto a la línea de la fachada
   _d(g, p) { return (g.axis === 'x' ? p.z - g.line : p.x - g.line) * g.out; }
-  _topY(g) { return g.top - STANCES.stand.eye + RAPPEL.headOver; }   // pies arriba del todo
+  _topY(g) { return ropeTopY(g); }   // pies arriba del todo
 
   /**
    * ¿Dónde se engancharía `op` si pulsa Espacio ahora? {seg, s, from: 'ground'|'top'} o null.
@@ -138,7 +142,7 @@ export class Rappel {
     op.rappel = null;
     op.body.vel.x = op.body.vel.y = op.body.vel.z = 0;
     op.body.onGround = false;
-    this.game.emit('rappelOff', op);
+    this.game.emit('rappelOff', op, 'drop');
   }
 
   // Ventana delante del que cuelga: con el cuerpo casi entero delante del hueco y el hueco entre las
@@ -180,7 +184,7 @@ export class Rappel {
       const p = this.posAt(g, R.s, floor);
       b.pos.x = p.x; b.pos.y = floor; b.pos.z = p.z; b.onGround = true;
       op.rappel = null;
-      this.game.emit('rappelOff', op);
+      this.game.emit('rappelOff', op, 'ground');
       return;
     }
     ny = Math.max(ny, floor + 0.02);
@@ -316,7 +320,7 @@ export class Rappel {
     b.pos.x = T.x; b.pos.y = T.y; b.pos.z = T.z;
     op.rappel = null;
     b.onGround = false;
-    this.game.emit('rappelOff', op);
+    this.game.emit('rappelOff', op, R.phase === 'climbTop' ? 'roof' : 'window');
   }
 
   /** Lo que se puede hacer ahora (para el aviso en pantalla), o ''. */

@@ -12,7 +12,8 @@
 //                salas vecinas y vuelven al sitio cuando aprieta; retoma al plantar.
 //      ataque  · preparación: drones hacia los puntos de plantado (marcan defensores y
 //                localizan el objetivo); acción: entradas repartidas, agruparse, despejar,
-//                plantar con escolta, defender el desactivador y recogerlo si cae.
+//                plantar con escolta, defender el desactivador y recogerlo si cae; con el
+//                sitio en la planta alta, alguno entra por una ventana con cuerda (ai/ropeai.js).
 //  · radio: los bots avisan a su equipo (contacto con el nombre de la sala, recargando,
 //    derribado, desactivador plantado, queda uno) con límites de frecuencia;
 //  · órdenes del jugador (rueda H): seguirle, mantener la posición, ir a su marca,
@@ -21,6 +22,7 @@
 //    la orden; si el jugador muere, vuelven por libre.
 import { NavGrid } from './nav.js';
 import { Mover } from './ai/mover.js';
+import { planRope, atkPushed, atkInside, ropeSite } from './ai/ropeai.js';
 import { Perception, TeamBoard } from './ai/perception.js';
 import { entrancesOf, holdPointFor, adjacentRooms, attackEntries } from './ai/tactics.js';
 import { Radio, callout } from './ai/radio.js';
@@ -84,6 +86,7 @@ export class BotSquad {
     this._outside = new WeakMap();   // por nodo (los ids se reutilizan al restaurar la rejilla)
     this.insideOnly = (n) => (this.isOutsideNode(n) ? 500 : 0);
     this.sightings = [new Map(), new Map()];   // enemigo → última vez que alguien del equipo lo vio
+    this.shotAt = new Map();                   // operador → cuándo disparó por última vez
     this._lastOne = [false, false];
     this._subs = [];
     this._bind();
@@ -101,7 +104,7 @@ export class BotSquad {
   _bind() {
     const g = this.game, m = this.match;
     const on = (em, ev, fn) => this._subs.push(em.on(ev, fn));
-    on(g, 'shot', (op, w, eye) => this._noise(op, eye, 'shot', w.def.suppressed ? 45 * KIT.suppressedHearing : 45));   // (con supresor, 15 m)
+    on(g, 'shot', (op, w, eye) => { this.shotAt.set(op, g.time); this._noise(op, eye, 'shot', w.def.suppressed ? 45 * KIT.suppressedHearing : 45); });   // (con supresor, 15 m)
     on(g, 'footstep', (op, mat, loud) => this._noise(op, op.body.pos, 'step', 3 + 20 * loud));
     on(g, 'melee', (op, info) => this._noise(op, (info && info.point) || op.body.pos, 'melee', 14));
     on(g, 'vault', (op) => this._noise(op, op.body.pos, 'vault', 9));
@@ -317,6 +320,7 @@ export class BotSquad {
     const p = ev.by.body.pos, err = ev.throughWall ? 1.2 : 0.3, rng = this.game.rng;
     B.per.memory.set(ev.by, { x: p.x + (rng.next() - 0.5) * err, y: p.y, z: p.z + (rng.next() - 0.5) * err, t: this.game.time, seen: false, precise: !ev.throughWall });
     B.underFire = this.game.time;
+    B.gasAt = ev.weapon && ev.weapon.name === 'Gas' ? this.game.time : B.gasAt;
   }
   // Balas que pasan cerca: se sabe de dónde vienen.
   _whiz(op, res) {
@@ -446,6 +450,8 @@ export class BotSquad {
     });
     // TERMO (y CHISPA con la PEM) abren un muro reforzado del sitio
     planBreach(this, atk);
+    // con el sitio en la planta alta, alguno entra por una ventana con cuerda (F10.2b)
+    planRope(this, atk, target);
   }
   // Sitio al que va el ataque ahora (el encontrado o el que toca revisar).
   atkTargetSite() {
@@ -544,7 +550,7 @@ class Brain {
     this.team = op.team;
     this.diff = sq.diff;
     this.rng = sq.game.rng;
-    this.mover = new Mover(op, sq.nav);
+    this.mover = new Mover(op, sq.nav, { game: sq.game });
     this.per = new Perception(op, sq.game, sq.diff);
     this.board = sq.boards[op.team];
     this.heardAt = new Map();
@@ -568,6 +574,8 @@ class Brain {
     this.crouchPref = op.side === 'def' ? this.rng.next() < 0.5 : this.rng.next() < 0.25;
     this.stage = null; this.entry = null; this.delay = 0; this.stackT = 0;
     this.droneGoal = null; this.dm = null;
+    this.ropePlan = null;         // entrar por una ventana del sitio con cuerda (ai/ropeai.js)
+    this.noRope = false;          // le dispararon subiendo: esta ronda, sin cuerda
     // diagnóstico (tests): tiempo sin moverse queriendo moverse
     this.stillT = 0; this.maxStillT = 0; this._lastPos = { x: op.body.pos.x, z: op.body.pos.z };
   }
@@ -610,6 +618,7 @@ class Brain {
 
   _trackStill(dt) {
     const p = this.op.body.pos;
+    if (this.op.rappel) { this.stillT = 0; return; }          // (en la cuerda vigila el seguidor)
     const moving = this.mover.status === 'moving' || this.mover.status === 'planning' || this.mover.status === 'failed';
     if (Math.hypot(p.x - this._lastPos.x, p.z - this._lastPos.z) > 0.5) { this._lastPos.x = p.x; this._lastPos.z = p.z; this.stillT = 0; }
     else if (moving && !this.target && !this.op.channel && !(this.pauseT > 0 && this.task && this.task.kind === 'clear')) {
@@ -630,6 +639,7 @@ class Brain {
     switch (T.kind) {
       case 'clear': this.siteRoomKey = this.siteRoomKey === 'B' ? 'A' : 'B'; break;
       case 'approach': this.stage = 'clear'; break;
+      case 'rope': if (this.ropePlan) this.ropePlan.failed = true; break;
       case 'breach': breachStuck(this); break;
       case 'fortify': this.fort.shift(); break;
       case 'anchor': case 'roam': case 'siteHold': case 'guard': this.hold = null; break;
@@ -834,6 +844,7 @@ class Brain {
       return;
     }
     if (late && this.stage !== 'hold') this.stage = 'clear';
+    if (this.stage === 'rope') return this._setTask({ kind: 'rope', key: 'rope' });
     const key = `${this.stage}:${site.id}`;
     if (this.stage === 'breach') return this._setTask({ kind: 'breach', key: 'breach' });
     if (this.stage === 'approach') return this._setTask({ kind: 'approach', key, site });
@@ -859,6 +870,8 @@ class Brain {
     const op = this.op, I = op.intent;
     // combate: prioridad absoluta (salvo terminar un refuerzo que ya se está poniendo)
     const channel = op.channel && (op.channel.kind === 'reinforce' || op.channel.kind === 'barricade');
+    // colgado de la cuerda: dispara a lo que ve y, si no, sigue con la cuerda (F10.2b)
+    if (op.rappel) { this._ropeAct(dt); return; }
     // (un gadget para el combate —la granada de impacto tras el plantado— va antes que disparar)
     if (this.kit && this.kit.act && this.kit.act.combat && runAct(this, dt)) return;
     if (this.target && !channel) {
@@ -899,6 +912,7 @@ class Brain {
       case 'siteHold': this._tSiteHold(dt, T); break;
       case 'plant': this._tPlant(dt); break;
       case 'guard': this._tGuard(dt); break;
+      case 'rope': this._tRope(dt); break;
       case 'pickup': this._tPickup(dt); break;
       case 'follow': this._tFollow(dt); break;
       case 'holdHere': this._tHoldHere(dt); break;
@@ -918,8 +932,9 @@ class Brain {
   // Ir a `pos` por la rejilla; al final, los últimos centímetros en línea recta.
   _goto(pos, dt, { r = 0.45, sprint = false, speed = 1, look = 'path', crouch = false, exact = false, keep = false } = {}) {
     const op = this.op, I = op.intent, p = op.body.pos;
-    // la defensa solo rompe sus propias barricadas si no hay otro camino
-    const st = this.mover.go(pos, { r: Math.max(r, 0.3), breakCost: this.side === 'def' ? 25 : 0, keepPath: keep, avoid: this.side === 'def' && this.match.phase === 'prep' ? this.sq.insideOnly : null });
+    // la defensa solo rompe sus propias barricadas si no hay otro camino; el ataque, en la acción,
+    // puede ir con cuerda si le acorta el camino
+    const st = this.mover.go(pos, { r: Math.max(r, 0.3), breakCost: this.side === 'def' ? 25 : 0, keepPath: keep, avoid: this.side === 'def' && this.match.phase === 'prep' ? this.sq.insideOnly : null, rappel: this._ropeOk() });
     const lookYaw = this._lookFor(dt, look);
     let status = this.mover.update(dt, { sprint, crouch, lookYaw, speed });
     if (this.mover.mustFace && this.mover.wantYaw !== null) this._turn(this.mover.wantYaw, this.mover.pitchWant || 0, 9, dt);
@@ -941,7 +956,7 @@ class Brain {
           const yaw = op.yaw, fx = -Math.sin(yaw), fz = -Math.cos(yaw), rx = Math.cos(yaw), rz = -Math.sin(yaw);
           I.moveZ = clamp((dx * fx + dz * fz) / d, -1, 1);
           I.moveX = clamp((dx * rx + dz * rz) / d, -1, 1);
-          if (this.failT > 1.2) { this.failT = 0; I.vault = true; }
+          if (this.failT > 1.2) { this.failT = 0; if (this.mover._vaultOk()) I.vault = true; }
           if (look === 'path') this._turn(Math.atan2(-dx, -dz), 0, 5, dt);
         }
         return 'failed';
@@ -1030,7 +1045,7 @@ class Brain {
   _fight(dt) {
     const op = this.op, D = this.diff, I = op.intent, rng = this.rng;
     const t = this.target;
-    if (this.mover.busy) this.mover.stop();
+    if (this.mover.busy && !op.rappel) this.mover.stop();
     this.seeT += dt;
     this.react += dt;
     const e = op.eyePos();
@@ -1086,6 +1101,8 @@ class Brain {
       else I.reload = true;
     } else if (op.weaponIndex === 1 && op.weapons[0].ammo > 0 && dist > 12 && w.cls !== 'shotgun') I.switchTo = 0;
     // postura y movimiento: agacharse para cambiar la altura de la cabeza, esquivar de lado
+    // (colgado de la cuerda, ni lo uno ni lo otro: lo lleva la cuerda)
+    if (op.rappel) return;
     const def = this.side === 'def';
     I.stance = (this.crouchPref && dist > 5) || (def && dist > 7 && this.hold && this.hold.crouch) ? 'crouch' : 'stand';
     I.sprint = false;
@@ -1453,6 +1470,72 @@ class Brain {
       if (h) return h;
     }
     return null;
+  }
+
+  // ---------------------------------------------------------------- cuerda (F10.2b)
+  // ¿Puede usar pasos de cuerda en sus rutas? El ataque en la acción, salvo en Novato; con el sitio
+  // en la planta alta, solo los que entran por su ventana (ropePlan), y no los demás.
+  _ropeOk() {
+    if (this.side !== 'atk' || this.noRope || this.sq.diffKey === 'novato') return false;
+    const ph = this.match.phase;
+    if (ph !== 'action' && ph !== 'planted') return false;
+    return !ropeSite(this.sq, this.sq.atkTargetSite());
+  }
+  // Entrar por una ventana del sitio: al pie de la fachada y el paso de cuerda (lo hace el seguidor).
+  _tRope(dt) {
+    const P = this.ropePlan, op = this.op;
+    if (!P) { this.stage = 'approach'; this.thinkT = 0; return; }
+    if (this.inside()) { P.done = true; this.siteRoomKey = P.room; this.stage = 'clear'; this.thinkT = 0; return; }
+    const last = this.mover.ropeLast;
+    if (last && last.rp === P.rp && !last.ok) P.failed = true;
+    if (P.failed) {
+      // sin cuerda: con su grupo, si aún no ha entrado; si no, a despejar
+      const e = this.entry, waiting = e && [...this.sq.brains.values()].some((B) => B.entry === e && B.op.state === 'alive' && (B.stage === 'approach' || B.stage === 'stack'));
+      this.stage = waiting ? 'approach' : 'clear'; this.thinkT = 0;
+      return;
+    }
+    if (this.delay > 0) { this.delay -= dt; this._stand(dt); this._idleLook(dt, null); return; }
+    const onRope = this.mover.path && this.mover.path.some((q) => q.kind === 'rappel' && q.rp === P.rp);
+    if (!onRope) {
+      const h = P.rp.hook, p = op.body.pos;
+      P.walkT += dt;
+      if (!h || P.walkT > 45) { P.failed = true; return; }        // (no llega al pie de la fachada)
+      if (Math.hypot(h.x - p.x, h.z - p.z) > 0.6 || Math.abs(h.y - p.y) > 0.5) {
+        this._goto(h, { r: 0.3, exact: true, sprint: this.mover.remaining > 6 && !this._threat() });
+        return;
+      }
+      // (Élite: al pie de la fachada, sin engancharse y vigilando hacia fuera, hasta que el equipo
+      // entre en la casa; como mucho 30 s)
+      if (P.wait && !atkInside(this.sq, this) && (P.baseT = (P.baseT || 0) + dt) < 30) {
+        this._stand(dt);
+        this._idleLook(dt, Math.atan2(-(P.rp.axis === 'x' ? 0 : P.rp.out), -(P.rp.axis === 'x' ? P.rp.out : 0)));
+        return;
+      }
+      if (!this.mover.ropeTo(P.rp)) { P.failed = true; return; }
+    }
+    this._goto(this.mover.goal, { r: 0.5 });
+  }
+  // Colgado: combate sin moverse (salvo que tenga que bajar o se acabe el tiempo) y la cuerda. Los que
+  // entran por su ventana esperan a que empuje el equipo. Si le disparan mientras sube, baja; si le
+  // descubren ya junto a la ventana, entra sin esperar (con gas, baja).
+  _ropeAct(dt) {
+    const op = this.op, S = this.mover.rope, R = op.rappel, now = this.game.time;
+    if (S && !S.down && R.phase === 'hang' && now - this.underFire < 0.3) {
+      if (!S.arrived || now - (this.gasAt ?? -9) < 0.3) { S.down = true; S.shot = true; this.noRope = true; }
+      else S.go = true;
+    }
+    const P = this.ropePlan;
+    // (el empuje, una vez empieza, no se deshace: sin ir y venir por la pared)
+    if (P && P.wait && !P.pushed && S && S.rp === P.rp && atkPushed(this.sq, this)) P.pushed = true;
+    const wait = !!(P && !P.done && P.wait && !P.pushed && S && S.rp === P.rp);
+    const fighting = !!(this.target && this.target.state !== 'dead');
+    if (fighting) this._fight(dt);
+    else {
+      const th = this._threat();
+      if (th) this._aimAt(th, dt, this.diff.turn * 0.8, th.precise && th.d < 18);
+    }
+    this.mover.update(dt, { lookYaw: op.yaw, rope: { wait, hold: fighting } });
+    if (!fighting && !this._threat() && this.mover.wantYaw !== null) this._turn(this.mover.wantYaw, this.mover.pitchWant || 0, 6, dt);
   }
 
   // Portador: ir al punto de plantado más cercano del sitio y mantener F.

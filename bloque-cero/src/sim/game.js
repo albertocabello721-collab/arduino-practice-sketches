@@ -20,6 +20,7 @@ export class Game extends Emitter {
     this.world = world;
     this.map = map;
     this.bounds = map.bounds;
+    this.seed = seed;
     this.rng = new RNG(seed);
     this.time = 0;
     this.tickCount = 0;

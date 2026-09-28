@@ -363,7 +363,7 @@ export function kitThink(B, dt) {
   const M = B.match, ph = M.phase;
   if (ph !== 'action' && ph !== 'planted') return;
   const op = B.op;
-  if (op.state !== 'alive' || op.frozen) return;
+  if (op.state !== 'alive' || op.frozen || op.rappel) return;      // (colgado de la cuerda, nada)
   const K = kitOf(B), now = B.game.time;
   muraFlash(B, K, now);
   if (B.diff.coord > 0) watchFlashes(B, K, now);
