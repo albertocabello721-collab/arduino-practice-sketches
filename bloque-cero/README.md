@@ -19,7 +19,7 @@ Es un único archivo HTML autónomo: no necesita servidor ni conexión.
 | F6 | Operadores 8 + 8 y contrajuego de gadgets | ✅ arsenal · plantilla de 16 · granadas y explosivos · gadgets defensivos · 16 habilidades · la defensa bot coloca gadgets y habilidades · el ataque bot los usa según la dificultad · contrajuego de la defensa bot y gadgets de acción |
 | F7 | Animaciones en primera y tercera persona, con la recarga por partes (antes F8) | ✅ recarga por partes en primera persona · resto de la primera persona · siluetas de los 16 · tercera persona por capas · muerte con física por partes · repetición de muerte |
 | F9 | Audio 3D con oclusión | ✅ paredes, suelos y rodeo por puertas y agujeros · ambiente · música en menús y últimos 30 s |
-| F10 | Miras y accesorios, rappel en Villa (tejado y fachada, también los bots), equilibrio de Élite, pulido y publicación | en curso: ✅ miras y accesorios · ✅ rappel del jugador · ✅ rappel de los bots |
+| F10 | Miras y accesorios, rappel en Villa (tejado y fachada, también los bots), equilibrio de Élite, pulido y publicación | en curso: ✅ miras y accesorios · ✅ rappel del jugador · ✅ rappel de los bots · ✅ equilibrio de Élite |
 | — | Mapa Residencia del Lago | pendiente |
 
 ## Arsenal (Fase 6)
@@ -467,7 +467,8 @@ Reglas de Siege, contra bots:
 - Balance (partidas solo de bots, 16 partidas por nivel): el ataque gana el 53,6 % de las
   rondas en Élite (45 de 84) y el 52,9 % en Normal (46 de 87). Con el ataque usando sus gadgets
   y la defensa aún sin contrajuego ganaba el 58 % en los dos; con el contrajuego y dos
-  merodeadores, el 58,9 % en Élite y el 55 % en Normal: por eso la defensa merodea con uno.
+  merodeadores, el 58,9 % en Élite y el 55 % en Normal: por eso la defensa merodeaba con uno
+  (en Élite, hasta la F10.1: ver *Equilibrio de Élite*).
 - Durante la preparación el ataque aún no está desplegado: no se le puede disparar.
 
 ## Rappel (Fase 10.2a)
@@ -548,6 +549,33 @@ pie de la fachada, W/S y A/D colgado y Espacio para entrar.
   fase de las ventanas con barricada, a ti y a los bots. Ahora las paredes no se atraviesan, la
   barricada rota se sigue saltando y Espacio al pie de la fachada norte engancha la cuerda.
 
+## Equilibrio de Élite (Fase 10.1)
+
+En Élite, cuántos defensores bot merodean y cuándo vuelven al sitio se eligió midiendo, con
+`tools/equilibrio.mjs`: 160 partidas solo de bots por variante, con las mismas semillas (101–260).
+
+| Variante | El ataque gana |
+| --- | --- |
+| 0 merodeadores | 51,5 % ± 1,7 |
+| 1 merodeador que vuelve al quedar 90 s o al oír una brecha del ataque en el sitio | 52,4 % ± 1,6 |
+| 2 merodeadores que no se alejan más de una sala del sitio (y vuelven al quedar 60 s o con atacantes en el sitio) | 53,0 % ± 1,7 |
+
+- Las tres quedan entre el 47 y el 53 %. Comparadas partida a partida, se diferencian en menos
+  de lo que da el azar (0,4 a 1,0 puntos, con ±2 de error), así que empatan. Como se acordó, en
+  un empate gana la de más merodeadores: **2, como en el documento y en Siege**. Antes merodeaba 1
+  y el ataque ganaba el 53,8 %.
+- En Novato, Normal y Veterano sigue 1 merodeador que vuelve a los 60 s: Normal da exactamente lo
+  mismo que antes (51,7 %), partida a partida.
+- **Con P**, la etiqueta de cada defensor dice su papel: «merodeador» mientras está fuera y
+  «ancla (volvió por el tiempo)», «por atacantes en el sitio» o «por una brecha» al volver.
+- La tabla de dificultad (`src/sim/bots.js`) guarda cuántos merodean (`roamers`), cuándo vuelven
+  (`roamBack`, segundos que quedan), si vuelven al oír una brecha (`roamBreach`) y si no se alejan
+  más de una sala (`roamNear`).
+- **Para repetir la medida**: `node tools/equilibrio.mjs elite 160 101 4` (dificultad, partidas,
+  primera semilla y procesos). Con `--merodeadores N`, `--vuelta S`, `--brecha` y `--cerca` se
+  prueban otras variantes sin tocar el código, y con `--semillas` sale el resultado de cada
+  partida. Con 4 procesos, 160 partidas tardan unos 20 minutos.
+
 ## Bots (Fase 5)
 
 - **Navegación**: rejilla 2,5D de celdas de 0,5 m con varias superficies por columna (sótano,
@@ -575,9 +603,10 @@ pie de la fachada, W/S y A/D colgado y Espacio para entrar.
   microajustes) y el retroceso también les afecta.
 - **Defensa**: en la preparación reparte los 10 refuerzos y las barricadas del sitio y dispara a
   los drones que ve; después, las anclas sostienen ángulos en diagonal sobre las puertas del
-  sitio (agachados si hace falta) y un merodeador (si hay al menos 3 bots) vigila salas vecinas,
-  cambia de sala y vuelve al sitio si el ataque llega o quedan 60 s. (El documento pide 3
-  anclas y 2 merodeadores; con 2, el ataque bot ganaba casi el 59 % de las rondas en Élite.)
+  sitio (agachados si hace falta) y los merodeadores (si hay al menos 3 bots) vigilan salas
+  vecinas, cambian de sala y vuelven al sitio si el ataque llega o quedan 60 s. En Élite son 2,
+  como pide el documento, y no se alejan más de una sala del sitio, ni para cazar; en Novato,
+  Normal y Veterano, 1. Ver *Equilibrio de Élite (Fase 10.1)*.
   Investigan ruidos cercanos, cambian de posición si un dron o una cámara los marca y, tras el
   plantado, van al desactivador: el más cercano lo inutiliza y el resto cubre.
 - **Ataque**: en la preparación cada dron va a un punto de plantado distinto, marca defensores,
@@ -713,6 +742,8 @@ node tools/smoke-accesorios.mjs <carpeta> [html]  # miras y accesorios: selecci�
 node tools/smoke-rappel.mjs <carpeta> [html]  # rappel: engancharse en la calle, subir, ventana con barricada, pretil, tejado y otro colgado en tercera persona
 node tools/smoke-rappel-bots.mjs <carpeta> [html]  # rappel de un aliado bot en Élite: con P, su ruta por la fachada en cian; sube y entra en el Estudio
 node tools/rappel-bots.mjs [rondas] [dificultad] [semilla]  # rondas solo de bots con el sitio arriba: cuántas con rappel, cuántas entran, tiempo colgados
+node tools/equilibrio.mjs [dificultad] [partidas] [semilla] [procesos] [--merodeadores N --vuelta S --brecha --cerca --semillas]  # % de rondas que gana el ataque, con las mismas semillas
+node tools/smoke-merodeadores.mjs <carpeta> [html]  # los merodeadores de Élite con P: fuera del sitio y cómo vuelven
 node tools/perf-partida.mjs [html...]  # llamadas de dibujo, triángulos y CPU con 10 operadores a la vista (con 5 cayendo y lo que cuesta grabar)
 node tools/mapslice.mjs <carpeta> # cortes cenitales del mapa por planta
 ```

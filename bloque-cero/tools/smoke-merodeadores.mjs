@@ -62,7 +62,11 @@ if (who.merodeadores) {
     const bc = window.__bc, m = bc.match;
     m.timer = bc.session.bots.diff.roamBack - 1;
     window.__run(4);
-    return window.__roam.map((B) => ({ papel: B.role, porque: B.roamBack || null, donde: bc.map.locationAt(B.op.body.pos.x, B.op.body.pos.y + 0.3, B.op.body.pos.z) }));
+    // (la cámara, otra vez detrás del primero, que ya va hacia el sitio)
+    const B = window.__roam[0], p = B.op.body.pos, yaw = B.op.yaw + Math.PI;
+    bc.place(p.x - Math.sin(yaw) * 4.5, p.y, p.z - Math.cos(yaw) * 4.5, yaw + Math.PI, -0.1);
+    window.__run(0.3);
+    return window.__roam.map((X) => ({ papel: X.role, porque: X.roamBack || null, donde: bc.map.locationAt(X.op.body.pos.x, X.op.body.pos.y + 0.3, X.op.body.pos.z) }));
   });
   await shot('m2_vuelve');
   const b = await labels();

@@ -57,7 +57,12 @@ export const DIFFICULTY = {
 // 2 anclas), cuándo vuelven al sitio (`roamBack`: segundos que quedan de ronda; también al saber
 // que hay atacantes en el sitio), si vuelven al oír una brecha del ataque en el sitio
 // (`roamBreach`) y si no se alejan más de una sala del sitio, ni para cazar (`roamNear`).
+// En Élite se eligió midiendo (tools/equilibrio.mjs, 160 partidas con las mismas semillas): con 0
+// merodeadores el ataque ganaba el 51,5 %, con 1 que vuelve a los 90 s o al oír una brecha el
+// 52,4 % y con 2 a una sala del sitio el 53,0 %; empatados (±2 puntos), se quedan los 2, como en el
+// documento.
 for (const d of Object.values(DIFFICULTY)) Object.assign(d, { roamers: 1, roamBack: 60, roamBreach: false, roamNear: false });
+Object.assign(DIFFICULTY.elite, { roamers: 2, roamNear: true });
 DIFFICULTY.recluta = DIFFICULTY.novato;   // nombre antiguo (ajustes guardados)
 export const DIFFICULTY_KEYS = ['novato', 'normal', 'veterano', 'elite'];
 

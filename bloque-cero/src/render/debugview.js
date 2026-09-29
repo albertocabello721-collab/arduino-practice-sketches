@@ -243,7 +243,11 @@ export function describe(B) {
     const k = B.task ? B.task.kind : null;
     let t = k ? TASK[k] || k : 'sin tarea';
     if (B.stage && B.side === 'atk' && ['approach', 'stack', 'clear', 'siteHold'].includes(k)) t = STAGE[B.stage] || B.stage;
-    if (B.role && B.side === 'def') t += ` (${ROLE[B.role] || B.role}${B.roamBack ? ', volvió por ' + (BACK[B.roamBack] || B.roamBack) : ''})`;
+    if (B.role && B.side === 'def') {
+      // el papel (si no es ya la tarea) y, si era merodeador, por qué volvió al sitio
+      const role = ROLE[B.role] || B.role, bits = [role !== t ? role : '', B.roamBack ? 'volvió por ' + (BACK[B.roamBack] || B.roamBack) : ''].filter(Boolean);
+      if (bits.length) t += ` (${bits.join(', ')})`;
+    }
     parts.push(t);
     if (op.rappel) parts.push(ropeState(B));
     else if (B.mover) parts.push(MOVE[B.mover.status] || B.mover.status);
