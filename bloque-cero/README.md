@@ -21,7 +21,38 @@ Es un único archivo HTML autónomo: no necesita servidor ni conexión.
 | F9 | Audio 3D con oclusión | ✅ paredes, suelos y rodeo por puertas y agujeros · ambiente · música en menús y últimos 30 s |
 | F10 | Miras y accesorios, rappel en Villa (tejado y fachada, también los bots), equilibrio de Élite, puntería humana de los bots, pulido y publicación | en curso: ✅ miras y accesorios · ✅ rappel del jugador · ✅ rappel de los bots · ✅ equilibrio de Élite · ✅ puntería humana de los bots |
 | — | Mapa Residencia del Lago | pendiente |
-| F12 | Sensación de juego: impactos, voces, música, inicio y fin de ronda, ambiente | en curso: ✅ impactos · ✅ voces |
+| F12 | Sensación de juego: impactos, voces, música, inicio y fin de ronda, ambiente | en curso: ✅ impactos · ✅ voces · ✅ música |
+
+## Música (Fase 12.3)
+
+Un tema propio de cuatro notas, **La–Do–Mi–Re**, que suena en todo. `src/client/soundtrack.js`
+decide qué toca en cada momento y `src/audio/music.js` lo toca, sintetizado, sin archivos.
+
+| Momento | Qué suena |
+|---|---|
+| Menú y selección de operador | el tema lento (una nota cada dos tiempos, a 84 pulsaciones) sobre un colchón grave |
+| Preparación | percusión suave a 90: tom grave en el 1 y el 3, maraca a contratiempo y el tema en el bajo, una nota por compás |
+| Acción | silencio. Al primer contacto de la ronda (el «¡Contacto!» de un aliado o el primer daño entre bandos), un golpe: impacto grave y el arranque del tema. Una vez por ronda |
+| Últimos 30 s | tensión: pulso en cada tiempo y el tema en arpegio, de 112 a 150 pulsaciones |
+| Desactivador plantado | cada pitido es un pulso con la nota siguiente del tema: va a su paso y acelera con él (de 1 s a 0,2 s) |
+| Fin de ronda | 3 s de victoria (el tema en mayor, subiendo, hasta La mayor) o de derrota (en menor, grave, hasta La menor) |
+| Fin de partida | lo mismo, más largo (4,5 s) |
+
+- **Volúmenes** (Opciones): el general y, aparte, **efectos** (disparos, pasos, avisos, ambiente),
+  **música** y **voz** (el locutor, tu operador, la radio de los aliados y los gemidos).
+- Medido sin partida (`tools/medir-musica.mjs`):
+  - la acción es silencio;
+  - el menú lleva colchón y la preparación no (78 dB menos), pero sí maraca (30 dB más);
+  - el pulso de la preparación cae cada 1,33 s;
+  - el de la tensión, cada 0,54 s con 30 s por delante y cada 0,40 s al final;
+  - con el desactivador, el pulso va cada 1 s o cada 0,3 s, lo que marque el pitido;
+  - la victoria dura 2,9 s y la derrota 3,1 s, en mayor y en menor;
+  - cada deslizador solo mueve lo suyo: a 0, lo suyo calla del todo y lo demás no cambia.
+- En el juego (`tools/smoke-musica.mjs`), una ronda de verdad pasa por:
+  - el menú y la percusión;
+  - el silencio, con un solo golpe al herir a dos enemigos;
+  - la tensión y 32 pulsos para 32 pitidos (de 0,99 s a 0,56 s);
+  - la victoria.
 
 ## Voces (Fase 12.2)
 
@@ -784,8 +815,8 @@ o no la fuente:
 - **Ambiente**: viento según el cielo que tienes encima (en la calle) y un zumbido eléctrico dentro
   de la casa; cambia al entrar y al salir.
 - **Música** sintetizada: suave en los menús y la selección, y tensa en los últimos 30 s de la
-  ronda (también en los últimos 30 s del desactivador plantado); el resto de la partida, nada. El
-  navegador no deja sonar nada hasta el primer clic.
+  ronda; el resto de la partida, nada. (La F12.3 la cambió: ver «Música».) El navegador no deja
+  sonar nada hasta el primer clic.
 - Es solo el oído: la simulación, cómo oyen los bots, las reglas y el equilibrio no cambian, y los
   sonidos son los mismos (solo cambia desde dónde y cómo de tapados llegan).
 
@@ -850,6 +881,8 @@ node tools/medir-impactos.mjs [motor]  # los sonidos de los impactos (sin gráfi
 node tools/smoke-impactos.mjs <carpeta> [html]  # impactos en el campo de pruebas: avisos, tirón y polvo, balazo desde la derecha, poca vida y bala cerca
 node tools/medir-voces.mjs [motor]  # los gemidos (sin gráficos): de qué lado suenan, cuánto duran, el tono de cada operador y tras una pared
 node tools/smoke-voces.mjs [html]  # una ronda con la voz del navegador sustituida: el locutor en cada momento, tu operador al recargar y los gemidos
+node tools/medir-musica.mjs  # la música (sin gráficos): cada fase distinta, el tema en todas, victoria y derrota de 3 s en mayor y menor, y los tres volúmenes independientes
+node tools/smoke-musica.mjs [html]  # una ronda: la música de cada fase, un golpe al primer contacto, un pulso por pitido, victoria o derrota y los deslizadores de volumen
 node tools/smoke-accesorios.mjs <carpeta> [html]  # miras y accesorios: selección, primera persona, zoom, supresor, láser, panel O y capturas
 node tools/smoke-rappel.mjs <carpeta> [html]  # rappel: engancharse en la calle, subir, ventana con barricada, pretil, tejado y otro colgado en tercera persona
 node tools/smoke-rappel-bots.mjs <carpeta> [html]  # rappel de un aliado bot en Élite: con P, su ruta por la fachada en cian; sube y entra en el Estudio

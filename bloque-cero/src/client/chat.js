@@ -70,7 +70,7 @@ export class AllyVoice {
       let h = 0;
       for (const c of String(key)) h = (h * 31 + c.charCodeAt(0)) >>> 0;
       u.pitch = 0.8 + (h % 5) * 0.1;          // cada aliado con su tono
-      u.volume = Math.max(0, Math.min(1, this.settings.volume ?? 1));
+      u.volume = Math.max(0, Math.min(1, (this.settings.volume ?? 1) * (this.settings.voiceVolume ?? 1)));   // general × voz (F12.3)
       const v = this._pickVoice(ss);
       if (v) u.voice = v;
       this.spoken++;

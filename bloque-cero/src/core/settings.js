@@ -8,6 +8,9 @@ export const DEFAULT_SETTINGS = {
   adsSensitivity: 0.8,
   fov: 72,              // vertical
   volume: 0.8,
+  sfxVolume: 1,         // efectos, música y voz, sobre el volumen general (F12.3)
+  musicVolume: 1,
+  voiceVolume: 1,
   leanToggle: true,     // Q/E alternan (como en Siege) o hay que mantener
   crouchToggle: true,
   invertY: false,

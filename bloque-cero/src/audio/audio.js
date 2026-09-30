@@ -2,7 +2,9 @@
 // (chasquido, cuerpo, golpe grave, mecánica, cola de reverberación), impactos,
 // roturas por material, pasos, recargas y casquillos. Sonido 3D con HRTF.
 // Fase 9: la oclusión viene de propagation.js (por dónde llega cada sonido), y hay ambiente
-// (viento fuera, zumbido eléctrico dentro) y música tensa en los menús y los últimos 30 s.
+// (viento fuera, zumbido eléctrico dentro). F12.3: la música (music.js) y tres volúmenes aparte,
+// además del general: efectos, música y voz (los gemidos; la voz del navegador lo aplica voice.js).
+import { Music } from './music.js';
 
 // La oclusión multiplicada (sirve el número o lo que devuelve la propagación, {x, y, z, occl})
 const scaleOccl = (o, k) => (o && typeof o === 'object' ? { x: o.x, y: o.y, z: o.z, occl: o.occl * k } : o * k);
@@ -13,6 +15,7 @@ export class AudioEngine {
   constructor() {
     this.ctx = null;
     this.volume = 0.8;
+    this.vol = { sfx: 1, music: 1, voice: 1 };   // efectos, música y voz (F12.3), sobre el general
     this.listener = { x: 0, y: 0, z: 0 };
     this.indoor = 0; // 0 exterior, 1 interior (para la reverberación)
   }
@@ -28,17 +31,30 @@ export class AudioEngine {
     const comp = ctx.createDynamicsCompressor();
     comp.threshold.value = -14; comp.knee.value = 12; comp.ratio.value = 4; comp.attack.value = 0.002; comp.release.value = 0.18;
     this.master.connect(comp).connect(ctx.destination);
-    // buses (los efectos pasan por un filtro que un golpe fuerte cierra un momento: F12.1)
-    this.sfx = ctx.createGain();
+    // buses (los efectos y las voces pasan por un filtro que un golpe fuerte cierra un momento: F12.1;
+    // derribado, se amortiguan). Cada uno con su volumen (F12.3):
+    //   sfx (efectos) y voice (gemidos) → duck (derribado) → muffle (golpe) → master
+    //   dry: efectos sin ese filtro (avisos, interfaz, latido, ambiente) → master
+    //   musicOut (la música) → master
+    const V = this.vol;
+    this.sfx = ctx.createGain(); this.sfx.gain.value = V.sfx;
+    this.voice = ctx.createGain(); this.voice.gain.value = V.voice;
+    this.duck = ctx.createGain();
     this.muffle = ctx.createBiquadFilter(); this.muffle.type = 'lowpass'; this.muffle.frequency.value = 20000; this.muffle.Q.value = 0.7;
-    this.sfx.connect(this.muffle).connect(this.master);
+    this.sfx.connect(this.duck); this.voice.connect(this.duck);
+    this.duck.connect(this.muffle).connect(this.master);
+    this.dry = ctx.createGain(); this.dry.gain.value = V.sfx; this.dry.connect(this.master);
+    this.musicOut = ctx.createGain(); this.musicOut.gain.value = V.music; this.musicOut.connect(this.master);
     this.reverbRoom = ctx.createConvolver(); this.reverbRoom.buffer = this._impulse(0.9, 3.2, 0.5);
     this.reverbOut = ctx.createConvolver(); this.reverbOut.buffer = this._impulse(2.2, 2.0, 0.25, true);
     this.revRoomGain = ctx.createGain(); this.revRoomGain.gain.value = 0.0;
     this.revOutGain = ctx.createGain(); this.revOutGain.gain.value = 0.35;
-    this.revSend = ctx.createGain(); this.revSend.gain.value = 1;
+    // envíos a la reverberación: el de los efectos y el de las voces, cada uno con su volumen
+    this.revSend = ctx.createGain(); this.revSend.gain.value = V.sfx;
+    this.revVoice = ctx.createGain(); this.revVoice.gain.value = V.voice;
     this.revSend.connect(this.reverbRoom).connect(this.revRoomGain).connect(this.master);
     this.revSend.connect(this.reverbOut).connect(this.revOutGain).connect(this.master);
+    this.revVoice.connect(this.reverbRoom); this.revVoice.connect(this.reverbOut);
     // distorsión suave para dar grano a los disparos
     this.shaper = ctx.createWaveShaper();
     const n = 1024, curve = new Float32Array(n);
@@ -51,6 +67,17 @@ export class AudioEngine {
   }
 
   setVolume(v) { this.volume = v; if (this.master) this.master.gain.value = v; }
+  /** Volúmenes de efectos, música y voz (0…1, sobre el general): {sfx, music, voice}, los que vengan. */
+  setVolumes(v) {
+    for (const k of ['sfx', 'music', 'voice']) if (v && typeof v[k] === 'number') this.vol[k] = Math.max(0, Math.min(1, v[k]));
+    if (!this.ctx) return;
+    const t = this.ctx.currentTime, V = this.vol;
+    for (const [node, x] of [[this.sfx, V.sfx], [this.dry, V.sfx], [this.revSend, V.sfx], [this.voice, V.voice], [this.revVoice, V.voice], [this.musicOut, V.music]]) {
+      node.gain.cancelScheduledValues(t);
+      node.gain.setValueAtTime(node.gain.value, t);
+      node.gain.setTargetAtTime(x, t, 0.02);
+    }
+  }
 
   _noiseBuffer(sec, pink) {
     const ctx = this.ctx, len = Math.floor(ctx.sampleRate * sec);
@@ -105,8 +132,10 @@ export class AudioEngine {
 
   // Nodo de salida: posicional (HRTF) o directo. opts.occl 0..1 atenúa y filtra; puede ser también
   // lo que devuelve la propagación ({x, y, z, occl}): entonces suena desde ese punto (una puerta).
-  _out(pos, { gain = 1, ref = 2, rolloff = 1.2, occl = 0, reverb = 0.3, direct = false } = {}) {
+  // opts.voice: por el bus de las voces (su volumen) en vez del de los efectos.
+  _out(pos, { gain = 1, ref = 2, rolloff = 1.2, occl = 0, reverb = 0.3, direct = false, voice = false } = {}) {
     const ctx = this.ctx;
+    const bus = voice ? this.voice : this.sfx, send = voice ? this.revVoice : this.revSend;
     if (occl && typeof occl === 'object') { if (pos) pos = occl; occl = occl.occl; }
     const g = ctx.createGain();
     g.gain.value = gain * (1 - occl * 0.55);
@@ -123,11 +152,11 @@ export class AudioEngine {
       const d = Math.hypot(pos.x - this.listener.x, pos.y - this.listener.y, pos.z - this.listener.z);
       const air = ctx.createBiquadFilter(); air.type = 'lowpass'; air.frequency.value = Math.max(1800, 18000 - d * 260);
       head.connect(air).connect(p);
-      p.connect(this.sfx);
-      if (reverb > 0) { const s = ctx.createGain(); s.gain.value = reverb; p.connect(s).connect(this.revSend); }
+      p.connect(bus);
+      if (reverb > 0) { const s = ctx.createGain(); s.gain.value = reverb; p.connect(s).connect(send); }
     } else {
-      head.connect(this.sfx);
-      if (reverb > 0) { const s = ctx.createGain(); s.gain.value = reverb; head.connect(s).connect(this.revSend); }
+      head.connect(bus);
+      if (reverb > 0) { const s = ctx.createGain(); s.gain.value = reverb; head.connect(s).connect(send); }
     }
     return g;
   }
@@ -351,7 +380,7 @@ export class AudioEngine {
   hurt(amount) {
     if (!this.ctx) return;
     const t = this.ctx.currentTime;
-    const g = this.ctx.createGain(); g.gain.value = 0.5; g.connect(this.master);
+    const g = this.ctx.createGain(); g.gain.value = 0.5; g.connect(this.dry);
     this._tone(g, t, { f0: 140, f1: 55, a: 0.002, peak: Math.min(1, 0.35 + amount / 50), d: 0.2 });
     this._burst(g, t, { type: 'lowpass', freq: 520, q: 0.8, a: 0.002, peak: 0.6, d: 0.12 });
     if (amount >= 40) {
@@ -373,7 +402,7 @@ export class AudioEngine {
       return;
     }
     if (!this._low) {
-      const g = ctx.createGain(); g.gain.value = 0; g.connect(this.master);
+      const g = ctx.createGain(); g.gain.value = 0; g.connect(this.dry);
       this._low = { g, k };
       const loop = () => {
         const L = this._low;
@@ -397,8 +426,8 @@ export class AudioEngine {
     const down = kind === 'down';
     const f0 = 105 + (seed % 7) * 14, len = down ? 0.7 : 0.17 + (seed % 3) * 0.02;
     let out;
-    if (local) { out = ctx.createGain(); out.gain.value = down ? 0.4 : 0.32; out.connect(this.sfx); }
-    else out = this._out(pos, { gain: down ? 0.95 : 0.8, ref: 2, rolloff: 1.3, occl, reverb: 0.2 });
+    if (local) { out = ctx.createGain(); out.gain.value = down ? 0.4 : 0.32; out.connect(this.voice); }
+    else out = this._out(pos, { gain: down ? 0.95 : 0.8, ref: 2, rolloff: 1.3, occl, reverb: 0.2, voice: true });
     const o = ctx.createOscillator(); o.type = 'sawtooth';
     o.frequency.setValueAtTime(f0 * (down ? 1.05 : 1.2), t);
     o.frequency.exponentialRampToValueAtTime(f0 * (down ? 0.7 : 0.88), t + len);
@@ -433,7 +462,7 @@ export class AudioEngine {
     if (!this.ctx || this._downed) return;
     const ctx = this.ctx;
     this.lowHealth(0);
-    const g = ctx.createGain(); g.gain.value = 0.0; g.connect(this.master);
+    const g = ctx.createGain(); g.gain.value = 0.0; g.connect(this.dry);
     g.gain.setTargetAtTime(0.55, ctx.currentTime, 0.3);
     this._downed = { g, beat: 0 };
     const loop = () => {
@@ -446,14 +475,14 @@ export class AudioEngine {
     };
     loop();
     // amortiguar el resto de la mezcla
-    this.sfx.gain.setTargetAtTime(0.45, ctx.currentTime, 0.2);
+    this.duck.gain.setTargetAtTime(0.45, ctx.currentTime, 0.2);
   }
   stopDowned() {
     if (!this._downed) return;
     clearTimeout(this._downed.timer);
     this._downed.g.gain.setTargetAtTime(0, this.ctx.currentTime, 0.2);
     this._downed = null;
-    this.sfx.gain.setTargetAtTime(1, this.ctx.currentTime, 0.3);
+    this.duck.gain.setTargetAtTime(1, this.ctx.currentTime, 0.3);
   }
   bodyFall(pos, occl = 0) {
     if (!this.ctx) return;
@@ -473,18 +502,20 @@ export class AudioEngine {
   ui(kind = 'click') {
     if (!this.ctx) return;
     const t = this.ctx.currentTime;
-    const g = this.ctx.createGain(); g.gain.value = 0.15; g.connect(this.master);
+    const g = this.ctx.createGain(); g.gain.value = 0.15; g.connect(this.dry);
     if (kind === 'click') this._tone(g, t, { f0: 1800, f1: 1400, a: 0.001, peak: 0.4, d: 0.04, type: 'triangle' });
     else if (kind === 'hover') this._tone(g, t, { f0: 2400, f1: 2300, a: 0.001, peak: 0.12, d: 0.025, type: 'sine' });
     else this._tone(g, t, { f0: 600, f1: 900, a: 0.01, peak: 0.3, d: 0.15, type: 'sine' });
   }
 
   // ------------------------------------------------------------ avisos de la partida
-  // Señales de ronda (no posicionales): preparación, acción, cuenta atrás, victoria…
+  // Señales de ronda (no posicionales): preparación, acción, cuenta atrás, plantado… La victoria y la
+  // derrota (de la ronda y de la partida) son música: el tema (F12.3).
   cue(kind) {
     if (!this.ctx) return;
+    if (kind === 'win' || kind === 'lose' || kind === 'matchWin' || kind === 'matchLose') { this.stinger(kind); return; }
     const ctx = this.ctx, t = ctx.currentTime;
-    const g = ctx.createGain(); g.gain.value = 0.32; g.connect(this.master);
+    const g = ctx.createGain(); g.gain.value = 0.32; g.connect(this.dry);
     const chord = (freqs, at, dur, peak = 0.3, type = 'sawtooth') => {
       const lp = ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 1400; lp.Q.value = 0.7; lp.connect(g);
       for (const f of freqs) {
@@ -515,23 +546,6 @@ export class AudioEngine {
         this._tone(g, t + 0.08, { f0: 1200, f1: 1600, a: 0.01, peak: 0.35, d: 0.3, type: 'triangle' });
         this._tone(g, t + 0.3, { f0: 70, f1: 40, a: 0.01, peak: 0.9, d: 0.8 });
         chord([98, 146.8, 185], 0.3, 1.4, 0.45);
-        break;
-      case 'win':
-        chord([220, 277.2, 329.6], 0, 0.9, 0.45);
-        chord([246.9, 311.1, 370], 0.45, 1.6, 0.5);
-        break;
-      case 'lose':
-        chord([196, 233.1, 293.7], 0, 0.9, 0.45);
-        chord([174.6, 207.7, 261.6], 0.45, 1.8, 0.5);
-        break;
-      case 'matchWin':
-        chord([220, 277.2, 329.6], 0, 0.6, 0.4);
-        chord([246.9, 311.1, 370], 0.35, 0.6, 0.4);
-        chord([293.7, 370, 440], 0.7, 2.4, 0.55);
-        break;
-      case 'matchLose':
-        chord([220, 261.6, 329.6], 0, 0.8, 0.4);
-        chord([174.6, 207.7, 261.6], 0.5, 2.6, 0.5);
         break;
       case 'plantStart':
         this._burst(g, t, { type: 'bandpass', freq: 900, q: 1.5, a: 0.01, peak: 0.4, d: 0.2 });
@@ -670,7 +684,7 @@ export class AudioEngine {
   ping(kind) {
     if (!this.ctx) return;
     const t = this.ctx.currentTime;
-    const g = this.ctx.createGain(); g.gain.value = 0.22; g.connect(this.master);
+    const g = this.ctx.createGain(); g.gain.value = 0.22; g.connect(this.dry);
     if (kind === 'mark') {
       this._tone(g, t, { f0: 1760, f1: 1750, a: 0.002, peak: 0.4, d: 0.06, type: 'square' });
       this._tone(g, t + 0.08, { f0: 2350, f1: 2340, a: 0.002, peak: 0.35, d: 0.09, type: 'square' });
@@ -718,7 +732,7 @@ export class AudioEngine {
   ringing(strength = 1) {
     if (!this.ctx) return;
     const t = this.ctx.currentTime;
-    const g = this.ctx.createGain(); g.gain.value = 0.12 * strength; g.connect(this.master);
+    const g = this.ctx.createGain(); g.gain.value = 0.12 * strength; g.connect(this.dry);
     this._tone(g, t, { f0: 3900, f1: 3850, a: 0.05, peak: 0.6, d: 2.8 * strength + 0.4, type: 'sine' });
   }
   // Roce metálico del alambre de púas.
@@ -806,14 +820,14 @@ export class AudioEngine {
   scanWarn(secs = 2) {
     if (!this.ctx) return;
     const t = this.ctx.currentTime;
-    const g = this.ctx.createGain(); g.gain.value = 0.22; g.connect(this.master);
+    const g = this.ctx.createGain(); g.gain.value = 0.22; g.connect(this.dry);
     for (let i = 0; i < 4; i++) this._tone(g, t + i * secs / 4, { f0: 520 + i * 90, f1: 1150 + i * 120, a: 0.02, peak: 0.45, d: secs / 4 - 0.06, type: 'triangle' });
   }
   // Barrido del pulso al activarse.
   scanSweep() {
     if (!this.ctx) return;
     const t = this.ctx.currentTime;
-    const g = this.ctx.createGain(); g.gain.value = 0.2; g.connect(this.master);
+    const g = this.ctx.createGain(); g.gain.value = 0.2; g.connect(this.dry);
     this._tone(g, t, { f0: 1800, f1: 300, a: 0.01, peak: 0.5, d: 0.7, type: 'sine' });
     this._burst(g, t, { type: 'bandpass', freq: 2400, q: 2, a: 0.01, peak: 0.3, d: 0.5 });
   }
@@ -864,7 +878,7 @@ export class AudioEngine {
     if (!this.ctx) return;
     const ctx = this.ctx, t = ctx.currentTime;
     if (!this._amb) {
-      const out = ctx.createGain(); out.gain.value = 1; out.connect(this.master);
+      const out = ctx.createGain(); out.gain.value = 1; out.connect(this.dry);
       // viento: ruido rosa por un paso banda que se mueve despacio, con rachas
       const wind = this._noiseSrc(true, 0.5); wind.loop = true;
       const bp = ctx.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = 380; bp.Q.value = 0.7;
@@ -894,48 +908,21 @@ export class AudioEngine {
   }
 
   /**
-   * Música tensa sintetizada, cada fotograma: 0 nada, 1 en los menús (lenta y suave), 2 en los
-   * últimos 30 s de la ronda (más rápida: pulso en cada tiempo, tictac y arpegio). Se programa un
-   * poco por delante con el reloj del audio.
+   * La música (F12.3, music.js), cada fotograma: el modo ('menu', 'prep', 'tension', 'planted'
+   * o '' para el silencio) y k (0…1: lo avanzados que van los últimos 30 s o el desactivador).
    */
-  music(level) {
+  music(mode, k = 0) {
     if (!this.ctx) return;
-    const ctx = this.ctx, t = ctx.currentTime;
-    if (!this._mus) {
-      const bus = ctx.createGain(); bus.gain.value = 0; bus.connect(this.master);
-      // colchón: La y Mi graves, desafinados, con el filtro abriéndose despacio
-      const lp = ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 380; lp.Q.value = 2;
-      const pad = ctx.createGain(); pad.gain.value = 0.05;
-      const oscs = [55, 55.4, 82.41, 110.2].map((f) => { const o = ctx.createOscillator(); o.type = 'sawtooth'; o.frequency.value = f; o.connect(lp); o.start(); return o; });
-      const lfo = ctx.createOscillator(); lfo.frequency.value = 0.05;
-      const la = ctx.createGain(); la.gain.value = 180; lfo.connect(la).connect(lp.frequency); lfo.start();
-      lp.connect(pad).connect(bus);
-      this._mus = { bus, pad, oscs: [...oscs, lfo], level: 0, next: 0, step: 0 };
-    }
-    const M = this._mus;
-    if (level !== M.level) {
-      M.bus.gain.setTargetAtTime(level ? (level === 2 ? 0.55 : 0.4) : 0, t, level ? 1.2 : 0.8);
-      if (level && !M.level) { M.next = t + 0.1; M.step = 0; }
-      M.level = level;
-    }
-    if (!level) return;
-    // notas hasta 0,25 s por delante: dieciseisavos a 84 (menús) o 112 pulsaciones (final de ronda)
-    const tense = level === 2, dt16 = 60 / (tense ? 112 : 84) / 4;
-    const arp = [220, 261.63, 329.63, 440, 329.63, 261.63, 196, 261.63];
-    while (M.next < t + 0.25) {
-      const k = M.step, at = M.next;
-      const beat = k % 4 === 0, bar = k % 16 === 0;
-      // pulso grave (como un latido): en cada tiempo en tensión; cada compás en los menús
-      if ((tense && beat) || (!tense && bar)) this._tone(M.bus, at, { f0: 72, f1: 42, a: 0.004, peak: tense ? 0.32 : 0.22, d: 0.28 });
-      if (tense && k % 4 === 2) this._burst(M.bus, at, { type: 'highpass', freq: 7000, q: 0.7, a: 0.001, peak: 0.05, d: 0.03 });
-      // arpegio: dieciseisavos en tensión; en los menús, una nota suave cada dos tiempos
-      if (tense || k % 8 === 0) {
-        const f = arp[(tense ? k : k / 8) % arp.length];
-        this._tone(M.bus, at, { f0: f, f1: f * 0.999, a: 0.006, peak: tense ? 0.05 : 0.07, d: tense ? 0.11 : 0.9, type: tense ? 'square' : 'triangle' });
-      }
-      M.step++;
-      M.next += dt16;
-    }
+    if (!this._music) this._music = new Music(this, this.musicOut);
+    this._music.update(mode || '', k);
+  }
+  /** Con el desactivador plantado: acaba de pitar y el siguiente pitido llega en `period` s. */
+  musicBeat(period) { if (this._music) this._music.beat(period); }
+  /** Remate musical: 'contact', 'win', 'lose', 'matchWin' o 'matchLose'. */
+  stinger(kind) {
+    if (!this.ctx) return;
+    if (!this._music) this._music = new Music(this, this.musicOut);
+    this._music.stinger(kind);
   }
 }
 

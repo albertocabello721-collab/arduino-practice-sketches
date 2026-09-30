@@ -17,6 +17,7 @@ import { MatchUI } from '../ui/matchui.js';
 import { BONE } from '../sim/skeleton.js';
 import { saveSettings } from '../core/settings.js';
 import { Announcer } from './announcer.js';
+import { musicFor, ContactWatch } from './soundtrack.js';
 
 const DEATH_CAM = 3.0;   // segundos mirando tu propio cuerpo antes de observar a un compañero (si no hay repetición)
 
@@ -33,6 +34,8 @@ export class MatchSession extends Session {
     this.chat = new TeamChat(ctx);
     // el locutor (F12.2): fases de la ronda, últimos 30 s, plantado, eres el último y el final
     this.announcer = new Announcer((text) => { if (ctx.voice) ctx.voice.announce(text); });
+    // la música (F12.3): el golpe del primer contacto de cada ronda
+    this.contact = new ContactWatch(() => ctx.audio.stinger('contact'));
     this.disposers.push(() => this.chat.dispose());
     this.disposers.push(() => { const el = document.getElementById('alert'); if (el) el.classList.add('hidden'); });
     this.wheel = new OrderWheel();
@@ -105,12 +108,8 @@ export class MatchSession extends Session {
     const p = this.player;
     return !!p && p.state === 'dead' && (this.replay.active || this.match.time < this.deathCamUntil);
   }
-  /** Música (F9): 1 eligiendo operador, 2 en los últimos 30 s de la ronda, 0 el resto. */
-  get musicLevel() {
-    const m = this.match;
-    if (m.phase === 'select') return 1;
-    return (m.phase === 'action' || m.phase === 'planted') && m.timeLeft <= 30 ? 2 : 0;
-  }
+  /** Música (F12.3): {mode, k} según la fase (soundtrack.js). */
+  get music() { return musicFor(this.match); }
   /** Arma en primera persona durante la repetición (la del que te mató), o null. */
   get replayView() { return this.replay.active ? this.replay.vmOp : null; }
   // Repetición de muerte: graba lo de este fotograma (ya pintado) y, si está en marcha, la pinta
@@ -175,6 +174,7 @@ export class MatchSession extends Session {
       this.ctx.resetView();
       audio.cue('prep');
       this.announcer.roundStart(m.round);
+      this.contact.reset();
       const side = this.mySide();
       this.ui.showPhase('Fase de preparación', side === 'def' ? `Defiendes ${m.site.name}` : 'Localiza el objetivo con tu dron', 3);
       this.ui.setPrepInfo(side === 'atk'
@@ -223,7 +223,12 @@ export class MatchSession extends Session {
       this.ui.showPhase('Objetivo localizado', m.site.name, 2.6);
     });
     // radio de los aliados: al chat de equipo (y en voz, si está activada)
-    onGame('radio', (op, text) => { if (op.team === this.myTeam) this.chat.push(op.name, text, { speak: true, voiceKey: op.name }); });
+    onGame('radio', (op, text, key) => {
+      if (op.team === this.myTeam) this.chat.push(op.name, text, { speak: true, voiceKey: op.name });
+      this.contact.radio(m, op, key, this.myTeam);
+    });
+    // el primer contacto de la ronda (F12.3): el «¡Contacto!» de un aliado o daño entre bandos
+    for (const t of ['damaged', 'downed', 'killed']) onGame(t, (target, ev) => this.contact.hurt(m, target, ev));
     // reglas de edificio: pared invisible en la preparación y defensores detectados fuera
     on('boundary', (op) => { if (op === this.player) { audio.ping('deny'); hud.toast('No puedes salir en la preparación', 1.4); } });
     on('runout', (op) => {
@@ -501,6 +506,7 @@ export class MatchSession extends Session {
         this.beepT = 1.0 - k * 0.8;
         const P = def.plantPos;
         audio.defuserBeep({ x: P.x, y: P.y + 0.2, z: P.z }, k, this.ctx.hear ? this.ctx.hear({ x: P.x, y: P.y + 0.2, z: P.z }) : 0);
+        audio.musicBeat(this.beepT);   // la música, al paso del pitido (F12.3)
       }
     }
     if (m.phase === 'action' && m.timeLeft <= 10) {

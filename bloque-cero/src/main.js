@@ -31,6 +31,7 @@ import { Speech } from './client/voice.js';
 
 const $ = (id) => document.getElementById(id);
 const nextFrame = () => new Promise((r) => requestAnimationFrame(() => r()));
+const MENU_MUSIC = { mode: 'menu', k: 0 }, NO_MUSIC = { mode: '', k: 0 };   // música fuera de la partida (F12.3)
 
 const state = {
   mode: 'loading',   // loading | menu | play
@@ -88,6 +89,7 @@ async function boot() {
   post.setQuality(settings.quality);
   const audio = new AudioEngine();
   audio.setVolume(settings.volume);
+  audio.setVolumes({ sfx: settings.sfxVolume, music: settings.musicVolume, voice: settings.voiceVolume });
   const input = new Input(canvas);
   const hud = new HUD();
   wr.renderShadowIfNeeded(true);
@@ -200,6 +202,11 @@ async function boot() {
   bindRange('set-adssens', 'out-adssens', 'adsSensitivity', (v) => v.toFixed(2));
   bindRange('set-fov', 'out-fov', 'fov', (v) => `${v}°`, () => { camera.fov = settings.fov; camera.updateProjectionMatrix(); });
   bindRange('set-vol', 'out-vol', 'volume', (v) => `${Math.round(v * 100)}`, () => audio.setVolume(settings.volume));
+  // efectos, música y voz, cada uno aparte (F12.3)
+  const volumes = () => audio.setVolumes({ sfx: settings.sfxVolume, music: settings.musicVolume, voice: settings.voiceVolume });
+  bindRange('set-vol-sfx', 'out-vol-sfx', 'sfxVolume', (v) => `${Math.round(v * 100)}`, volumes);
+  bindRange('set-vol-music', 'out-vol-music', 'musicVolume', (v) => `${Math.round(v * 100)}`, volumes);
+  bindRange('set-vol-voice', 'out-vol-voice', 'voiceVolume', (v) => `${Math.round(v * 100)}`, volumes);
   const bindCheck = (id, key, apply) => { const el = $(id); el.checked = settings[key]; el.addEventListener('change', () => { settings[key] = el.checked; apply && apply(); saveSettings(settings); }); };
   bindCheck('set-lean', 'leanToggle');
   bindCheck('set-crouch', 'crouchToggle');
@@ -365,9 +372,10 @@ async function boot() {
       fwdV.set(0, 0, -1).applyEuler(camera.rotation); upV.set(0, 1, 0).applyEuler(camera.rotation);
       audio.setListener(camera.position, fwdV, upV);
       audio.setIndoor(lightS.sky < 0.85 ? 1 : 0);
-      // ambiente (viento fuera, zumbido dentro) y música: en los menús y en los últimos 30 s
+      // ambiente (viento fuera, zumbido dentro) y música (F12.3): la del menú o la que pida la partida
       audio.ambience(lightS.sky, clamp((0.85 - lightS.sky) / 0.45, 0, 1));
-      audio.music(state.mode === 'menu' ? 1 : s && s.musicLevel ? s.musicLevel : 0);
+      const mus = state.mode === 'menu' ? MENU_MUSIC : s && s.music ? s.music : NO_MUSIC;
+      audio.music(mus.mode, mus.k);
     }
     wr.update(dt, camera.position, 6);
     wr.renderShadowIfNeeded();

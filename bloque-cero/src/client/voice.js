@@ -23,7 +23,7 @@ export class Speech {
       else if (ss.speaking || ss.pending) return false;
       const u = new window.SpeechSynthesisUtterance(text);
       u.lang = 'es-ES'; u.rate = rate; u.pitch = pitch;
-      u.volume = Math.max(0, Math.min(1, this.settings.volume ?? 1));
+      u.volume = Math.max(0, Math.min(1, (this.settings.volume ?? 1) * (this.settings.voiceVolume ?? 1)));   // general × voz (F12.3)
       const v = this._voice(ss);
       if (v) u.voice = v;
       ss.speak(u);

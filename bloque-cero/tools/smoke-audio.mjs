@@ -22,19 +22,19 @@ const check = (ok, what) => { if (!ok) errors.push(what); };
 // ---------------- menú: el primer clic arranca el audio y suena la música suave
 await page.mouse.click(5, 5);
 await frames(4); await wait(2500);
-const menu = await page.evaluate(() => { const a = window.__bc.audio; return { ctx: !!a.ctx && a.ctx.state, nivel: a._mus && a._mus.level, volumen: a._mus && +a._mus.bus.gain.value.toFixed(2), notas: a._mus && a._mus.step }; });
+const menu = await page.evaluate(() => { const a = window.__bc.audio; return { ctx: !!a.ctx && a.ctx.state, modo: a._music && a._music.mode, volumen: a._music && +a._music.layers.menu.gain.value.toFixed(2), notas: a._music && a._music.step }; });
 console.log('menú:', JSON.stringify(menu));
-check(menu.nivel === 1 && menu.volumen > 0.1 && menu.notas > 0, 'sin música en el menú');
+check(menu.modo === 'menu' && menu.volumen > 0.1 && menu.notas > 0, 'sin música en el menú');
 
 // ---------------- campo de pruebas: sin música; viento fuera, zumbido dentro
 await page.evaluate(() => { const bc = window.__bc; bc.settings.quality = 'media'; bc.post.setQuality('media'); bc.start(); });
 await page.waitForFunction(() => window.__bc.state.mode === 'play');
 await page.evaluate(() => { const s = window.__bc.session; window.__step = s.tick.bind(s); s.tick = () => {}; });
-const amb = async (x, y, z) => { await page.evaluate(([x, y, z]) => window.__bc.place(x, y, z, 0, 0), [x, y, z]); await frames(4); await wait(1500); return page.evaluate(() => { const a = window.__bc.audio; return { viento: +a.ambLevel.wind.toFixed(4), zumbido: +a.ambLevel.hum.toFixed(4), vientoAhora: +a._amb.wg.gain.value.toFixed(4), musica: a._mus.level }; }); };
+const amb = async (x, y, z) => { await page.evaluate(([x, y, z]) => window.__bc.place(x, y, z, 0, 0), [x, y, z]); await frames(4); await wait(1500); return page.evaluate(() => { const a = window.__bc.audio; return { viento: +a.ambLevel.wind.toFixed(4), zumbido: +a.ambLevel.hum.toFixed(4), vientoAhora: +a._amb.wg.gain.value.toFixed(4), musica: a._music.mode }; }); };
 const fuera = await amb(15.5, 0, -12), dentro = await amb(6, 0, 6);
 console.log('fuera:', JSON.stringify(fuera), '· dentro:', JSON.stringify(dentro));
 check(fuera.viento > fuera.zumbido && dentro.zumbido > dentro.viento, 'el ambiente no cambia al entrar');
-check(fuera.musica === 0, 'música en el campo de pruebas');
+check(fuera.musica === '', 'música en el campo de pruebas');
 
 // ---------------- por dónde llega un sonido a la cámara (y que los sonidos lo aceptan)
 const oye = await page.evaluate(() => {
@@ -65,12 +65,12 @@ await page.click('#sel-ready');
 await page.waitForFunction(() => window.__bc.match.phase === 'prep', null, { timeout: 120000 });
 await page.evaluate(() => { const bc = window.__bc, s = bc.session, m = bc.match; window.__step = s.tick.bind(s); s.tick = () => {}; for (let i = 0; i < 60 * 50 && m.phase !== 'action'; i++) window.__step(1 / 60); });
 await frames(4); await wait(2000);
-const accion = await page.evaluate(() => { const a = window.__bc.audio, m = window.__bc.match; return { fase: m.phase, queda: Math.round(m.timeLeft), nivel: a._mus.level, volumen: +a._mus.bus.gain.value.toFixed(2) }; });
+const accion = await page.evaluate(() => { const a = window.__bc.audio, m = window.__bc.match; return { fase: m.phase, queda: Math.round(m.timeLeft), modo: a._music.mode }; });
 await page.evaluate(() => { window.__bc.match.timer = 25; });
 await frames(4); await wait(2500);
-const final = await page.evaluate(() => { const a = window.__bc.audio, m = window.__bc.match; return { queda: Math.round(m.timeLeft), nivel: a._mus.level, volumen: +a._mus.bus.gain.value.toFixed(2), notas: a._mus.step }; });
+const final = await page.evaluate(() => { const a = window.__bc.audio, m = window.__bc.match; return { queda: Math.round(m.timeLeft), modo: a._music.mode, volumen: +a._music.layers.tension.gain.value.toFixed(2), notas: a._music.step }; });
 console.log('acción:', JSON.stringify(accion), '· últimos 30 s:', JSON.stringify(final));
-check(accion.nivel === 0 && final.nivel === 2 && final.volumen > 0.1, 'la música de los últimos 30 s no va');
+check(accion.modo === '' && final.modo === 'tension' && final.volumen > 0.1, 'la música de los últimos 30 s no va');
 // la partida con los bots unos segundos: sonidos por la propagación, sin errores y sin pasar del límite
 const lim = await page.evaluate(() => { const bc = window.__bc, H = bc.ctx.hearing; let most = 0; const orig = H.frame.bind(H); H.frame = () => { most = Math.max(most, H.used); orig(); }; bc.session.tick = window.__step; return new Promise((res) => setTimeout(() => res(most), 8000)); });
 console.log('rodeos por fotograma, como mucho:', lim);
