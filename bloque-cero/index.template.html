@@ -197,6 +197,40 @@
   #banner .sc { margin-top: 10px; font-family: var(--display); font-weight: 700; font-size: 30px; }
   #banner .sc .a { color: var(--blue); } #banner .sc .e { color: var(--orange); }
   @keyframes bannerIn { from { opacity: 0; transform: scaleY(.6); } to { opacity: 1; transform: none; } }
+  /* F12.4: el motivo más grande, su detalle y el mejor de la ronda */
+  #banner .s { font-size: 20px; font-weight: 700; }
+  #banner .d { margin-top: 4px; font-size: 14px; letter-spacing: .08em; color: #b8c2cc; min-height: 1em; }
+  #banner .mvp { display: inline-flex; align-items: center; gap: 10px; margin-top: 12px; padding: 6px 16px 6px 8px; background: rgba(255,255,255,.06); border: 1px solid rgba(255,255,255,.16); text-align: left; animation: bannerIn .35s ease-out .25s both; }
+  #banner .mvp img { width: 38px; height: 38px; }
+  #banner .mvp b { display: block; font-family: var(--display); font-size: 12px; letter-spacing: .2em; text-transform: uppercase; color: #ffd36a; }
+  #banner .mvp span { font-family: var(--display); font-size: 20px; font-weight: 700; letter-spacing: .06em; }
+  #banner .mvp.a span { color: var(--blue); } #banner .mvp.e span { color: var(--orange); }
+  #banner .mvp small { display: block; font-family: var(--ui); font-size: 12px; font-weight: 400; letter-spacing: .06em; color: #c9d1d9; }
+  #banner .mvp.hidden { display: none; }
+  /* F12.4: rótulo de inicio de ronda con los 10 retratos, cuenta atrás y «1 contra N» */
+  #intro { position: absolute; z-index: 3; left: 0; right: 0; top: 21%; text-align: center; pointer-events: none; text-shadow: 0 3px 16px rgba(0,0,0,.85); animation: introIn .4s ease-out; transition: opacity .45s; }
+  #intro.out { opacity: 0; }
+  #intro .ir { font-family: var(--display); font-weight: 800; font-size: clamp(44px, 8vw, 88px); line-height: .9; letter-spacing: .12em; text-transform: uppercase; }
+  #intro .is { margin-top: 6px; font-family: var(--display); font-weight: 700; font-size: clamp(20px, 3vw, 32px); letter-spacing: .32em; text-transform: uppercase; color: var(--blue); }
+  #intro .io { margin-top: 4px; font-size: 15px; letter-spacing: .14em; text-transform: uppercase; color: #d9dfe5; }
+  #intro .it { display: flex; justify-content: center; align-items: center; gap: 16px; margin-top: 18px; }
+  #intro .ia, #intro .ie { display: flex; gap: 8px; }
+  #intro .iv { font-family: var(--display); font-size: 16px; letter-spacing: .2em; text-transform: uppercase; color: #aab4be; }
+  #intro .ip { width: 70px; opacity: 0; animation: ipIn .45s cubic-bezier(.2,.8,.2,1) var(--d) forwards; }
+  #intro .ip img { display: block; width: 50px; height: 50px; margin: 0 auto; padding: 4px; background: rgba(8,10,13,.78); border: 2px solid var(--blue); }
+  #intro .ie .ip img { border-color: var(--orange); }
+  #intro .ip.me img { box-shadow: 0 0 0 2px #fff; }
+  #intro .ip b { display: block; margin-top: 4px; font-size: 10.5px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: #e6ebf0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  @keyframes ipIn { from { opacity: 0; transform: translateX(var(--from)); } to { opacity: 1; transform: none; } }
+  @keyframes introIn { from { opacity: 0; transform: translateY(-12px); } to { opacity: 1; transform: none; } }
+  #countdown { position: absolute; z-index: 3; left: 50%; top: 36%; transform: translate(-50%, -50%); font-family: var(--display); font-weight: 800; font-size: clamp(80px, 14vw, 150px); color: #fff; text-shadow: 0 4px 24px rgba(0,0,0,.8); pointer-events: none; opacity: 0; }
+  #countdown.pop { animation: countPop .95s ease-out forwards; }
+  @keyframes countPop { 0% { opacity: 0; transform: translate(-50%, -50%) scale(1.7); } 14% { opacity: 1; transform: translate(-50%, -50%) scale(1); } 70% { opacity: 1; } 100% { opacity: 0; transform: translate(-50%, -50%) scale(.92); } }
+  #clutch { position: absolute; z-index: 3; left: 50%; top: 64%; transform: translateX(-50%); text-align: center; pointer-events: none; white-space: nowrap; text-shadow: 0 2px 12px rgba(0,0,0,.9); animation: introIn .3s ease-out; }
+  #clutch .t { font-family: var(--display); font-weight: 800; font-size: clamp(30px, 4.6vw, 52px); letter-spacing: .12em; text-transform: uppercase; }
+  #clutch.mine .t { color: var(--orange); } #clutch.theirs .t { color: var(--blue); }
+  #clutch .s { font-size: 14px; letter-spacing: .16em; text-transform: uppercase; color: #e1e6eb; }
+  @media (max-width: 640px) { #intro .ip { width: 46px; } #intro .ip img { width: 36px; height: 36px; } #intro .it { gap: 8px; } #intro .ia, #intro .ie { gap: 4px; } }
   #alert { position: absolute; left: 50%; top: calc(clamp(10px, 2vh, 20px) + 84px); transform: translateX(-50%); padding: 5px 16px; background: rgba(150, 22, 18, .82); border-left: 3px solid #ff6a4a; font-family: var(--display); font-size: 16px; letter-spacing: .16em; text-transform: uppercase; color: #fff; text-shadow: 0 1px 2px #000; white-space: nowrap; }
   #alert.ally { background: rgba(26, 70, 140, .82); border-left-color: var(--blue); }
   #phasebar { position: absolute; z-index: 2; left: 50%; top: 20%; transform: translateX(-50%); text-align: center; text-shadow: 0 2px 10px rgba(0,0,0,.8); opacity: 0; transition: opacity .3s; white-space: nowrap; }
@@ -474,7 +508,10 @@
     <div class="flost hidden" id="fd-lost">Señal perdida</div>
   </div>
   <div id="spectate" class="hidden"></div>
-  <div id="banner" class="hidden"><div class="t" id="bn-t"></div><div class="s" id="bn-s"></div><div class="sc" id="bn-sc"></div></div>
+  <div id="banner" class="hidden"><div class="t" id="bn-t"></div><div class="s" id="bn-s"></div><div class="d" id="bn-d"></div><div class="mvp hidden" id="bn-mvp"></div><div class="sc" id="bn-sc"></div></div>
+  <div id="intro" class="hidden"><div class="ir" id="in-round"></div><div class="is" id="in-side"></div><div class="io" id="in-obj"></div><div class="it"><div class="ia" id="in-ally"></div><div class="iv">contra</div><div class="ie" id="in-enemy"></div></div></div>
+  <div id="countdown" class="hidden"></div>
+  <div id="clutch" class="hidden"><div class="t" id="cl-t"></div><div class="s" id="cl-s"></div></div>
   <div id="scoreboard" class="hidden"></div>
   <div id="where"><div class="lbl">Ubicación</div><div class="loc" id="hud-loc">—</div></div>
   <div id="hints" data-mode="range">

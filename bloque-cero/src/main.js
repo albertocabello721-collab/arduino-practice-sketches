@@ -300,13 +300,17 @@ async function boot() {
     const s = state.mode === 'play' ? session : null;
     const paused = !!s && s.wantsPointer && !input.locked && !lockFailed;
     ctx.paused = paused;
+    // cámara lenta de la última baja (F12.4): el tiempo de juego va más despacio unos instantes (la
+    // simulación da los mismos pasos, solo que más espaciados); la interfaz y el post-proceso, no
+    const ts = s && s.slowmo ? s.slowmo.step(paused ? 0 : dt) : 1, gdt = dt * ts;
+    ctx.timeScale = ts;
     hud.pause(paused);
     let mouse = { dx: 0, dy: 0 };
     if (s) {
       mouse = s.input(!paused);
       if (!paused) s.onKey();
       if (!paused) {
-        acc += dt;
+        acc += gdt;
         let n = 0;
         while (acc >= TICK && n < 6) {
           s.tick(TICK);
@@ -379,12 +383,12 @@ async function boot() {
     }
     wr.update(dt, camera.position, 6);
     wr.renderShadowIfNeeded();
-    effects.update(dt, camera.position);
+    effects.update(gdt, camera.position);
     // visor térmico de LUMEN (apuntando con la principal y quieto): enemigos calientes, humo transparente
     const thermal = !!v && thermalOn(v);
     chars.setHeat(thermal, v ? v.team : 0, THERMAL_SCOPE.range, camera.position);
     effects.setThermal(thermal);
-    chars.update(paused ? 0 : dt, v, camera.position);      // (en pausa, los que caen se quedan quietos)
+    chars.update(paused ? 0 : gdt, v, camera.position);      // (en pausa, los que caen se quedan quietos)
     // los láseres encendidos (en la repetición de muerte, ninguno: serían los de ahora)
     const LG = s && s.game;
     lasers.update(LG ? LG.operators : [], world, LG ? LG.time : 0, v, camera, !!(s && s.replay && s.replay.active));
@@ -405,11 +409,11 @@ async function boot() {
     post.grade.uniforms.uSmoke.value = G && !thermal ? G.smokeAt(camera.position) : 0;
     post.grade.uniforms.uGas.value = G && G.gasAt && !thermal ? G.gasAt(camera.position) : 0;
     post.grade.uniforms.uBlind.value = v && v.blindT > 0 ? Math.min(1, v.blindT / 1.2) : 0;
-    if (s) s.frame(dt, acc / TICK);
+    if (s) s.frame(gdt, acc / TICK);
     // (en la repetición de muerte, el arma del que te mató)
     const rv = !v && s && s.replayView ? s.replayView : null;
-    if (v) vm.update(dt, v, lightS, v === s.player ? mouse.dx || 0 : 0, v === s.player ? mouse.dy || 0 : 0);
-    else if (rv) vm.update(paused ? 0 : dt, rv, lightS, 0, 0);
+    if (v) vm.update(gdt, v, lightS, v === s.player ? mouse.dx || 0 : 0, v === s.player ? mouse.dy || 0 : 0);
+    else if (rv) vm.update(paused ? 0 : gdt, rv, lightS, 0, 0);
     vm.setShown((!!v && v.state !== 'dead') || !!rv);
     post.render(dt);
     // HUD del operador visto

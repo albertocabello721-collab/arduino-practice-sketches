@@ -21,7 +21,41 @@ Es un único archivo HTML autónomo: no necesita servidor ni conexión.
 | F9 | Audio 3D con oclusión | ✅ paredes, suelos y rodeo por puertas y agujeros · ambiente · música en menús y últimos 30 s |
 | F10 | Miras y accesorios, rappel en Villa (tejado y fachada, también los bots), equilibrio de Élite, puntería humana de los bots, pulido y publicación | en curso: ✅ miras y accesorios · ✅ rappel del jugador · ✅ rappel de los bots · ✅ equilibrio de Élite · ✅ puntería humana de los bots |
 | — | Mapa Residencia del Lago | pendiente |
-| F12 | Sensación de juego: impactos, voces, música, inicio y fin de ronda, ambiente | en curso: ✅ impactos · ✅ voces · ✅ música |
+| F12 | Sensación de juego: impactos, voces, música, inicio y fin de ronda, ambiente | en curso: ✅ impactos · ✅ voces · ✅ música · ✅ inicio y fin de ronda |
+
+## Inicio y fin de ronda (Fase 12.4)
+
+`src/client/roundflow.js` decide los textos y los tiempos; `src/ui/matchui.js` los pinta.
+
+- **Rótulo de inicio** (al empezar la preparación, 3,6 s):
+  - «Ronda 3», tu bando («Atacas» o «Defiendes») y el objetivo;
+  - al defender, la planta y sus dos salas («Planta alta: Dormitorio principal / Estudio»);
+  - al atacar, solo la planta, como en la barra de arriba: las salas se buscan con el dron, eso no
+    cambia;
+  - debajo, los 10 retratos con su operador entran por los lados; el tuyo va marcado.
+- **Cuenta atrás**: 3, 2, 1 en grande en los últimos 3 s de la preparación, cada uno con una nota
+  del tema (La, Do, Mi); luego, «¡Acción!» como siempre.
+- **La última baja, a cámara lenta**: si la ronda acaba por eliminación, el juego va al 30 % durante
+  0,6 s y vuelve en 0,2 s, y el mundo suena apagado ese rato. Es solo cómo se ve: la simulación da
+  los mismos pasos, más espaciados, y la ronda ya está decidida.
+- **Cartel de fin de ronda** (con cámara lenta, sale justo después):
+  - ganada o perdida y el motivo, más grande («Defensores eliminados»);
+  - su detalle: «Última baja: Tú a SILENCIO, a la cabeza», «Lo inutilizó NUBE», «Se acabó el tiempo
+    sin plantar»…;
+  - el **mejor de la ronda**: el que más puntos sumó en ella («Tú (MURALLA) · 5 bajas»);
+  - el marcador.
+- **«1 contra N»**: cuando tu equipo se queda con uno en pie («1 contra 3 · Eres el último», o
+  «NUBE es el último») o el rival con uno («3 contra 1 · Queda uno»). Cambia al caer alguien.
+- En una partida de bots (`test/ronda.test.mjs`), en cada ronda:
+  - el rótulo dice lo que toca a cada bando;
+  - la cuenta atrás es 3, 2, 1;
+  - el mejor es el que más sumó;
+  - la última baja es del que perdió;
+  - los «1 contra N» llevan los números de verdad.
+- En el juego (`tools/smoke-ronda.mjs`), una ronda enseña:
+  - el rótulo con los 10 retratos y 3, 2, 1 con sus notas;
+  - «1 contra 5» al quedarte solo y «1 contra 1» después;
+  - la última baja al 30 % y el cartel con el motivo, la última baja y el mejor.
 
 ## Música (Fase 12.3)
 
@@ -883,6 +917,7 @@ node tools/medir-voces.mjs [motor]  # los gemidos (sin gráficos): de qué lado 
 node tools/smoke-voces.mjs [html]  # una ronda con la voz del navegador sustituida: el locutor en cada momento, tu operador al recargar y los gemidos
 node tools/medir-musica.mjs  # la música (sin gráficos): cada fase distinta, el tema en todas, victoria y derrota de 3 s en mayor y menor, y los tres volúmenes independientes
 node tools/smoke-musica.mjs [html]  # una ronda: la música de cada fase, un golpe al primer contacto, un pulso por pitido, victoria o derrota y los deslizadores de volumen
+node tools/smoke-ronda.mjs [carpeta] [html]  # una ronda: el rótulo con los 10 retratos, la cuenta atrás, «1 contra N», la cámara lenta de la última baja y el cartel con el motivo y el mejor
 node tools/smoke-accesorios.mjs <carpeta> [html]  # miras y accesorios: selección, primera persona, zoom, supresor, láser, panel O y capturas
 node tools/smoke-rappel.mjs <carpeta> [html]  # rappel: engancharse en la calle, subir, ventana con barricada, pretil, tejado y otro colgado en tercera persona
 node tools/smoke-rappel-bots.mjs <carpeta> [html]  # rappel de un aliado bot en Élite: con P, su ruta por la fachada en cian; sube y entra en el Estudio

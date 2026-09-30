@@ -18,6 +18,7 @@ import { BONE } from '../sim/skeleton.js';
 import { saveSettings } from '../core/settings.js';
 import { Announcer } from './announcer.js';
 import { musicFor, ContactWatch } from './soundtrack.js';
+import { introFor, countdownAt, SlowMo, SLOWMO, statsSnapshot, roundMvp, clutchFor, endDetail } from './roundflow.js';
 
 const DEATH_CAM = 3.0;   // segundos mirando tu propio cuerpo antes de observar a un compañero (si no hay repetición)
 
@@ -36,6 +37,13 @@ export class MatchSession extends Session {
     this.announcer = new Announcer((text) => { if (ctx.voice) ctx.voice.announce(text); });
     // la música (F12.3): el golpe del primer contacto de cada ronda
     this.contact = new ContactWatch(() => ctx.audio.stinger('contact'));
+    // inicio y fin de ronda (F12.4): cámara lenta de la última baja, lo de cada ronda para el mejor,
+    // cómo acabó (última baja, quién destruyó o inutilizó el desactivador), cuenta atrás y «1 contra N»
+    this.slowmo = new SlowMo();
+    this.roundStats = null;
+    this.endInfo = {};
+    this.countShown = 0;
+    this.clutchKey = '';
     this.disposers.push(() => this.chat.dispose());
     this.disposers.push(() => { const el = document.getElementById('alert'); if (el) el.classList.add('hidden'); });
     this.wheel = new OrderWheel();
@@ -155,6 +163,8 @@ export class MatchSession extends Session {
       this.wheel.close();
       hud.setDeath(false); hud.setDowned(false); hud.setRevive(null, 0);
       this.ui.hideBanner();
+      this.ui.hideRoundFx();
+      this.slowmo.stop();
       this.ui.setPrepInfo(null);
       this.deadAt = -1; this.deathCamUntil = -1; this.spectating = null;
       this.replay.reset();
@@ -176,7 +186,12 @@ export class MatchSession extends Session {
       this.announcer.roundStart(m.round);
       this.contact.reset();
       const side = this.mySide();
-      this.ui.showPhase('Fase de preparación', side === 'def' ? `Defiendes ${m.site.name}` : 'Localiza el objetivo con tu dron', 3);
+      // el rótulo de la ronda con los 10 retratos (F12.4)
+      this.ui.showIntro(introFor(m, this.myTeam), m);
+      this.roundStats = statsSnapshot(m);
+      this.endInfo = {};
+      this.countShown = 0;
+      this.clutchKey = '';
       this.ui.setPrepInfo(side === 'atk'
         ? '<b>Preparación</b> · Pilota tu dron: <kbd>WASD</kbd> mover, <kbd>Espacio</kbd> saltar, <kbd>Clic</kbd> o <kbd>T</kbd> marcar enemigos. Busca el objetivo: los drones caben por huecos bajos. Llevas el desactivador.'
         : `<b>Preparación</b> · Defendéis <b>${m.site.name}</b>. Mira una pared blanda y mantén <kbd>F</kbd> para reforzarla (2 refuerzos) o un hueco para poner una barricada. <kbd>5</kbd> cámaras · dispara a los drones.`);
@@ -197,12 +212,16 @@ export class MatchSession extends Session {
     });
     on('disableStart', (op) => { if (op === this.player) audio.cue('plantStart'); });
     on('defuserDropped', () => { if (this.mySide() === 'atk') this.ui.showPhase('Desactivador en el suelo', 'Pulsa F junto a él para recogerlo', 2.2); });
-    on('defuserDestroyed', (by) => { this.ui.showPhase('Desactivador destruido', by ? `Por ${by.name}` : '', 2.2); });
+    on('defuserDestroyed', (by) => { this.endInfo.destroyedBy = by; this.ui.showPhase('Desactivador destruido', by ? `Por ${by.name}` : '', 2.2); });
+    on('disabled', (who) => { this.endInfo.disabledBy = who; });
     on('defuserPicked', (op) => { if (op === this.player) this.ui.showPhase('Tienes el desactivador', 'Plántalo en A o B', 2); });
     on('roundEnd', (res) => {
       this.feed.exit();
       this.ui.clearPhase();
-      this.ui.showBanner(res, m);
+      // la última baja, a cámara lenta (solo se ve); el cartel, justo después, con el motivo y el mejor
+      const elim = res.code === 'defendersDown' || res.code === 'attackersDown';
+      if (elim) { this.slowmo.start(); audio.slowMotion(SLOWMO.secs); }
+      this.ui.showBanner(res, m, { detail: endDetail(res, this.endInfo), mvp: roundMvp(m, this.roundStats), delay: elim ? 0.35 : 0 });
       audio.cue(res.winner === 0 ? 'win' : 'lose');
       this.announcer.roundEnd(res.winner === 0);
       audio.stopDowned();
@@ -229,6 +248,8 @@ export class MatchSession extends Session {
     });
     // el primer contacto de la ronda (F12.3): el «¡Contacto!» de un aliado o daño entre bandos
     for (const t of ['damaged', 'downed', 'killed']) onGame(t, (target, ev) => this.contact.hurt(m, target, ev));
+    // la última baja entre bandos (para el cartel de fin de ronda)
+    onGame('killed', (target, ev) => { if (ev && ev.by && ev.by.team !== target.team) this.endInfo.lastKill = { by: ev.by, target, headshot: !!ev.headshot }; });
     // reglas de edificio: pared invisible en la preparación y defensores detectados fuera
     on('boundary', (op) => { if (op === this.player) { audio.ping('deny'); hud.toast('No puedes salir en la preparación', 1.4); } });
     on('runout', (op) => {
@@ -433,6 +454,11 @@ export class MatchSession extends Session {
     if (!m.running) { this.ui.updateMarkers([]); this.ui.showScoreboard(m, false); this.feed.frame(dt); return; }
     this._feedRules();
     this.ui.updateTop(m, dt);
+    // cuenta atrás de la preparación y «1 contra N» (F12.4)
+    const cd = countdownAt(m);
+    if (cd !== this.countShown) { this.countShown = cd; if (cd) { this.ui.showCount(cd); audio.countdown(cd); } }
+    const cl = clutchFor(m, this.player, this.myTeam), ck = cl ? cl.key : '';
+    if (ck !== this.clutchKey) { this.clutchKey = ck; if (cl) this.ui.showClutch(cl); }
     hud.hints(!this.feed.active && (m.phase === 'prep' || (m.phase === 'action' && m.round === 1 && m.timeLeft > m.rules.actionTime - 12)));
     this.ui.showScoreboard(m, input.isDown('scoreboard'));
     const view = this.viewOp;

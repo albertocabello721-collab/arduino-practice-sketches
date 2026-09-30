@@ -4,6 +4,7 @@
 import { OP_BY_ID, opsForSide, GADGETS, ARMOR_SPEED } from '../sim/operators.js';
 import { WEAPONS, SIGHTS, BARRELS, GRIPS, KIT_RULES, normalizeKit, kitDef } from '../sim/weapons.js';
 import { emblemURL } from './emblems.js';
+import { INTRO_SECS, CLUTCH_SECS, mvpLine } from '../client/roundflow.js';
 
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
@@ -39,10 +40,13 @@ export class MatchUI {
     this.ptEls = [[], []];
     this.markerEls = [];
     this.phaseT = 0;
+    this.introT = 0; this.countT = 0; this.clutchT = 0; this.bannerT = -1; this.pendingBanner = null;   // F12.4
     this.el = {
       ally: $('mt-ally'), enemy: $('mt-enemy'), sa: $('mt-sa'), se: $('mt-se'), clock: $('mt-clock'), phase: $('mt-phase'), time: $('mt-time'), sub: $('mt-sub'),
       markers: $('markers'), pb: $('phasebar'), pbT: $('pb-t'), pbS: $('pb-s'), prep: $('prepinfo'), carry: $('carry'), spec: $('spectate'),
-      banner: $('banner'), bnT: $('bn-t'), bnS: $('bn-s'), bnSc: $('bn-sc'), board: $('scoreboard'),
+      banner: $('banner'), bnT: $('bn-t'), bnS: $('bn-s'), bnD: $('bn-d'), bnMvp: $('bn-mvp'), bnSc: $('bn-sc'), board: $('scoreboard'),
+      intro: $('intro'), inRound: $('in-round'), inSide: $('in-side'), inObj: $('in-obj'), inAlly: $('in-ally'), inEnemy: $('in-enemy'),
+      count: $('countdown'), clutch: $('clutch'), clT: $('cl-t'), clS: $('cl-s'),
       select: $('select'), selRound: $('sel-round'), selSide: $('sel-side'), selScore: $('sel-score'), selTimer: $('sel-timer'), selHint: $('sel-hint'),
       selGrid: $('sel-grid'), selDetail: $('sel-detail'), selChoiceH: $('sel-choice-h'), selChoice: $('sel-choice'), selTeam: $('sel-team'), selReady: $('sel-ready'),
       end: $('matchend'), endRes: $('me-res'), endScore: $('me-score'), endMvp: $('me-mvp'), endTable: $('me-table'), endAgain: $('me-again'), endMenu: $('me-menu'),
@@ -76,7 +80,7 @@ export class MatchUI {
   dispose() {
     this.el.select.removeEventListener('click', this._onSelectClick);
     window.removeEventListener('keydown', this._onKey);
-    this.hideSelect(); this.hideBanner(); this.hideMatchEnd();
+    this.hideSelect(); this.hideBanner(); this.hideMatchEnd(); this.hideRoundFx();
     this.el.board.classList.add('hidden');
     this.el.markers.innerHTML = '';
     this.markerEls = [];
@@ -143,6 +147,51 @@ export class MatchUI {
   clearPhase() { this.phaseT = 0; this.el.pb.style.opacity = 0; }
   tick(dt) {
     if (this.phaseT > 0) { this.phaseT -= dt; if (this.phaseT <= 0) this.el.pb.style.opacity = 0; }
+    // F12.4: el rótulo de inicio, la cuenta atrás, el «1 contra N» y el fin de ronda con retraso
+    if (this.introT > 0) { this.introT -= dt; if (this.introT <= 0) this.el.intro.classList.add('hidden'); else if (this.introT < 0.5) this.el.intro.classList.add('out'); }
+    if (this.countT > 0) { this.countT -= dt; if (this.countT <= 0) this.el.count.classList.add('hidden'); }
+    if (this.clutchT > 0) { this.clutchT -= dt; if (this.clutchT <= 0) this.el.clutch.classList.add('hidden'); }
+    if (this.bannerT >= 0) { this.bannerT -= dt; if (this.bannerT < 0 && this.pendingBanner) { const [r, m, x] = this.pendingBanner; this.pendingBanner = null; this._banner(r, m, x); } }
+  }
+  // ------------------------------------------------------------------ inicio y fin de ronda (F12.4)
+  /** Rótulo de inicio: «Ronda 3», «Atacas», el objetivo y los 10 retratos entrando por los lados. */
+  showIntro(info, match) {
+    const E = this.el, my = this.s.myTeam;
+    E.inRound.textContent = info.round;
+    E.inSide.textContent = info.side;
+    E.inObj.textContent = info.objective;
+    const pics = (team, host, from) => {
+      host.innerHTML = match.slotsOf(team).map((sl, i) => {
+        const def = sl.opId ? OP_BY_ID[sl.opId] : null;
+        const img = sl.opId ? `<img alt="" src="${emblemURL(sl.opId, '#ffffff', 64)}">` : '<img alt="">';
+        return `<div class="ip${sl.human ? ' me' : ''}" style="--d:${120 + i * 70}ms;--from:${from}px">${img}<b>${esc(def ? def.name : '')}</b></div>`;
+      }).join('');
+    };
+    pics(my, E.inAlly, -70);
+    pics(1 - my, E.inEnemy, 70);
+    E.intro.className = '';
+    void E.intro.offsetWidth;   // (vuelve a arrancar las animaciones)
+    this.introT = INTRO_SECS;
+  }
+  /** Cuenta atrás de la preparación: 3, 2, 1 (cada uno con su golpe de entrada). */
+  showCount(n) {
+    const el = this.el.count;
+    el.textContent = String(n);
+    el.className = '';
+    void el.offsetWidth;
+    el.className = 'pop';
+    this.countT = 0.95;
+  }
+  /** «1 contra 3» (el tuyo está solo) o «3 contra 1» (queda uno de ellos). */
+  showClutch(c) {
+    this.el.clT.textContent = c.text;
+    this.el.clS.textContent = c.sub;
+    this.el.clutch.className = c.mine ? 'mine' : 'theirs';
+    this.clutchT = CLUTCH_SECS;
+  }
+  hideRoundFx() {
+    this.introT = this.countT = this.clutchT = 0; this.bannerT = -1; this.pendingBanner = null;
+    this.el.intro.className = 'hidden'; this.el.count.className = 'hidden'; this.el.clutch.className = 'hidden';
   }
   setPrepInfo(html) {
     this.el.prep.classList.toggle('hidden', !html);
@@ -154,15 +203,34 @@ export class MatchUI {
     if (text) this._set('spec', this.el.spec, text, true);
   }
 
-  showBanner(res, match) {
+  /**
+   * Fin de ronda: ganada o perdida, el motivo (y su detalle: la última baja…), el mejor de la ronda y
+   * el marcador. `extra` = {detail, mvp, delay}: con `delay` (s de juego) sale después (tras la cámara
+   * lenta de la última baja).
+   */
+  showBanner(res, match, extra = {}) {
+    this.clutchT = 0; this.el.clutch.className = 'hidden';
+    if (extra.delay > 0) { this.pendingBanner = [res, match, extra]; this.bannerT = extra.delay; return; }
+    this._banner(res, match, extra);
+  }
+  _banner(res, match, extra = {}) {
     const my = this.s.myTeam;
     const win = res.winner === my;
     this.el.banner.className = win ? 'win' : 'lose';
     this.el.bnT.textContent = win ? 'Ronda ganada' : 'Ronda perdida';
     this.el.bnS.textContent = res.reason;
+    this.el.bnD.textContent = extra.detail || '';
+    const m = extra.mvp;
+    this.el.bnMvp.classList.toggle('hidden', !m);
+    if (m) {
+      const img = m.opId ? `<img alt="" src="${emblemURL(m.opId, '#ffffff', 64)}">` : '';
+      const who = m.name === 'Tú' ? `Tú${m.op ? ` (${esc(m.op)})` : ''}` : esc(m.name);
+      this.el.bnMvp.className = `mvp ${m.team === my ? 'a' : 'e'}`;
+      this.el.bnMvp.innerHTML = `${img}<span><b>Mejor de la ronda</b> ${who}<small>${esc(mvpLine(m))}</small></span>`;
+    }
     this.el.bnSc.innerHTML = `<span class="a">${match.teams[my].score}</span> — <span class="e">${match.teams[1 - my].score}</span>`;
   }
-  hideBanner() { this.el.banner.className = 'hidden'; }
+  hideBanner() { this.el.banner.className = 'hidden'; this.bannerT = -1; this.pendingBanner = null; }
 
   // ------------------------------------------------------------------ marcadores
   updateMarkers(list) {

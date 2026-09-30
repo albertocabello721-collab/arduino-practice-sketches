@@ -555,6 +555,29 @@ export class AudioEngine {
         this._tone(g, t, { f0: 1000, f1: 1000, a: 0.005, peak: 0.2, d: 0.1 });
     }
   }
+  // Cuenta atrás de la preparación (F12.4): 3, 2 y 1 con las tres primeras notas del tema (La, Do, Mi).
+  countdown(n) {
+    if (!this.ctx) return;
+    const t = this.ctx.currentTime;
+    const f = n === 3 ? 440 : n === 2 ? 523.25 : 659.26;
+    const g = this.ctx.createGain(); g.gain.value = 0.26; g.connect(this.dry);
+    this._tone(g, t, { f0: f, f1: f, a: 0.004, peak: 0.5, d: 0.28, type: 'triangle' });
+    this._tone(g, t, { f0: f * 2, f1: f * 2, a: 0.002, peak: 0.12, d: 0.12, type: 'sine' });
+    this._burst(g, t, { type: 'bandpass', freq: 3000, q: 2, a: 0.001, peak: 0.25, d: 0.02 });
+  }
+  // Cámara lenta de la última baja (F12.4): todo lo del mundo suena apagado `secs` s y vuelve, con un
+  // golpe grave y lento debajo. (La música no pasa por ese filtro.)
+  slowMotion(secs = 0.6) {
+    if (!this.ctx) return;
+    const t = this.ctx.currentTime, f = this.muffle.frequency;
+    f.cancelScheduledValues(t);
+    f.setValueAtTime(Math.max(200, f.value), t);
+    f.exponentialRampToValueAtTime(900, t + 0.06);
+    f.setValueAtTime(900, t + secs);
+    f.exponentialRampToValueAtTime(20000, t + secs + 0.3);
+    const g = this.ctx.createGain(); g.gain.value = 0.45; g.connect(this.dry);
+    this._tone(g, t, { f0: 62, f1: 30, a: 0.01, peak: 0.8, d: 0.9 });
+  }
   // ------------------------------------------------------------ fortificación
   // Metal resonante: parciales inarmónicos con caída exponencial (placa de acero).
   _metalRing(dest, t, base, dur, peak) {
