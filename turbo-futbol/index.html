@@ -66,7 +66,7 @@
     box-shadow: inset 0 -6px 10px rgba(0,0,0,0.25); transition: transform 0.12s ease, border-color 0.12s ease; }
   .muestra:hover, .muestra:focus-visible { transform: scale(1.1); border-color: #fff; outline: none; }
   .muestra.activo { border-color: var(--acento); box-shadow: 0 0 0 3px rgba(255,210,74,0.35), inset 0 -6px 10px rgba(0,0,0,0.25); }
-  #lab-saltos { position: absolute; left: 18px; top: 50%; transform: translateY(-50%); width: 270px; padding: 12px 14px 10px;
+  #lab-saltos { position: absolute; left: 18px; top: 50%; transform: translateY(-50%); width: 300px; padding: 12px 14px 10px;
     background: var(--panel); border: 1px solid var(--borde); border-radius: 12px; font-variant-numeric: tabular-nums; }
   #lab-saltos .lab-tit { font-weight: 900; font-style: italic; letter-spacing: 1px; text-transform: uppercase; font-size: 13px; color: var(--acento); margin-bottom: 8px; }
   #lab-saltos dl { display: grid; grid-template-columns: auto 1fr; gap: 5px 12px; margin: 0; font-size: 13px; }
@@ -1350,6 +1350,15 @@ class Controls {
 const _hit = { t: 0, x: 0, y: 0, z: 0, nx: 0, ny: 0, nz: 1 };
 const _ca = new V3(), _cb = new V3(), _cc = new V3(), _cd = new V3(), _ce = new V3(), _cf = new V3();
 const _acc = new V3(), _ang = new V3(), _cn = new V3(), _ia = new V3(), _ib = new V3();
+const _fax = new V3(), _fw = new V3();
+
+/**
+ * Ayuda de volteo: opción del jugador, apagada por defecto y solo para su auto. NO es parte de RocketSim.
+ * Tras un dodge, el giro alrededor del eje del flip no se frena hasta completar la vuelta (360°) o tocar la cancha;
+ * al llegar a la vuelta se frena con desaceleración constante `brake` (rad/s²) para quedar plano justo en 360°.
+ * `brake` es un valor propio (no está en RocketSim): desde 5.5 rad/s la frenada dura ~0.18 s y empieza ~29° antes.
+ */
+const FLIP_ASSIST = { brake: 30 };
 
 /** Muestras sobre la superficie de la caja (en múltiplos de los semiejes). */
 const HITBOX_SAMPLES = (() => {
@@ -1386,6 +1395,7 @@ class Car {
     }));
     this.events = [];
     this.steerVis = 0;
+    this.flipAssist = false;         // ayuda de volteo: solo la enciende el juego en el auto del jugador (ver FLIP_ASSIST)
     this.resetState();
   }
   resetState() {
@@ -1397,6 +1407,9 @@ class Car {
     this.jumpHeld = false; this.isJumping = false; this.jumpTime = 0;
     this.hasJumped = false; this.hasDoubleJumped = false; this.hasFlipped = false;
     this.isFlipping = false; this.flipTime = 0; this.flipRelX = 0; this.flipRelY = 0;
+    // giro del flip: eje (componentes adelante/izquierda en el marco del auto) y ángulo girado desde el dodge (rad).
+    // Solo se miden (Laboratorio de saltos) y los usa la ayuda de volteo; no cambian la física.
+    this.flipAxX = 0; this.flipAxY = 0; this.flipSpin = 0; this.flipAssistOn = false;
     this.airTime = 0; this.airTimeSinceJump = 0;
     this.isAutoFlipping = false; this.autoFlipTimer = 0; this.autoFlipTorqueScale = 0;
     this.supersonic = false; this.supersonicTime = 0;
@@ -1634,6 +1647,8 @@ class Car {
     // auto-roll, vehículo (2ª parte: suspensión y fricción) y turbo; luego gravedad, fuerzas e integración
     this.vehicleFirst(dt);
     const nc = this.numContacts;
+    // la ayuda de volteo termina al tocar la cancha (ruedas o caja en el tick anterior)
+    if (this.flipAssistOn && (nc > 0 || this.worldContact)) this.flipAssistOn = false;
     const onGround = nc >= 3;
     this.onGround = onGround;
     const N = this.groundNormal;
@@ -1673,8 +1688,11 @@ class Car {
     // ---------------- Integración (paso de Bullet) ----------------
     this.vel.addScaled(_acc, dt);
     this.angVel.addScaled(_ang, dt);
+    if (this.flipAssistOn) this.flipAssistBrake(dt);
     this.vel.clampLength(C.maxSpeed);
     this.angVel.clampLength(C.maxAngSpeed);
+    // ángulo girado alrededor del eje del flip en este tick (solo medición)
+    if (this.hasFlipped) this.flipSpin += this.angVel.dot(this.flipAxis(_fax)) * dt;
     this.pos.addScaled(this.vel, dt);
     this.rot.rotate(this.angVel, dt);
 
@@ -1770,6 +1788,7 @@ class Car {
         if (relY !== 0 && ctl.pitch !== 0 && Math.sign(relY) === Math.sign(ctl.pitch)) {
           pitchScale = 1 - Math.min(Math.abs(ctl.pitch), 1);
           doAirControl = true;
+          this.flipAssistOn = false;   // con flip cancel la ayuda de volteo se retira: todo sigue como RocketSim
         }
         relY *= pitchScale;
         // torque relativo (x: eje adelante, y: eje "derecha" de RocketSim) como aceleración angular
@@ -1790,14 +1809,40 @@ class Car {
         tp = pitch * pitchTorqueScale * A.torque[0]; ty = yaw * A.torque[1]; tr = roll * A.torque[2];
       }
       // ejes: pitch = −right (−l), yaw = up (u), roll = −forward (−f)
-      const w = this.angVel;
+      let w = this.angVel, ax = null;
+      if (this.flipAssistOn) {
+        // ayuda de volteo: el freno se calcula sin el giro alrededor del eje del flip (el resto se frena igual)
+        ax = this.flipAxis(_fax);
+        w = _fw.copy(w).addScaled(ax, -w.dot(ax));
+      }
       const dp = -w.dot(b.l) * A.damping[0] * (1 - Math.abs(pitch * pitchTorqueScale));
       const dy = w.dot(b.u) * A.damping[1] * (1 - Math.abs(yaw));
       const dr = -w.dot(b.f) * A.damping[2];
       const S = A.torqueScale;
       _ang.addScaled(b.l, -(tp - dp) * S).addScaled(b.u, (ty - dy) * S).addScaled(b.f, -(tr - dr) * S);
+      // ...y sin ninguna componente del freno a lo largo de ese eje (en flips diagonales el freno no es isótropo)
+      if (ax) _ang.addScaled(ax, -(dp * this.flipAxY + dr * this.flipAxX) * S);
     }
     if (ctl.throttle !== 0) _acc.addScaled(b.f, ctl.throttle * CONFIG.car.airThrottleAccel);
+  }
+
+  /** Eje del giro del flip en el mundo (unitario; cero si el dodge no tuvo dirección). */
+  flipAxis(out) {
+    const f = this.rot.f, l = this.rot.l, x = this.flipAxX, y = this.flipAxY;
+    return out.set(f.x * x + l.x * y, f.y * x + l.y * y, f.z * x + l.z * y);
+  }
+
+  /**
+   * Ayuda de volteo, parte final (ver FLIP_ASSIST): limita la velocidad de giro sobre el eje del flip para que el
+   * ángulo llegue a 360° con desaceleración constante y sin pasarse; al completar la vuelta el giro sobre ese eje
+   * queda en cero y la ayuda termina. Se llama después de sumar las aceleraciones del tick y antes de integrar.
+   */
+  flipAssistBrake(dt) {
+    const a = this.flipAxis(_fax), wa = this.angVel.dot(a);
+    const rem = TAU - this.flipSpin;
+    const vmax = rem > 1e-6 ? Math.min(Math.sqrt(2 * FLIP_ASSIST.brake * rem), rem / dt) : 0;
+    if (wa > vmax) this.angVel.addScaled(a, vmax - wa);
+    if (rem <= 1e-6) this.flipAssistOn = false;
   }
 
   /** Doble salto o dodge (RocketSim: Car::_UpdateDoubleJumpOrFlip). */
@@ -1822,6 +1867,12 @@ class Car {
           if (Math.abs(dy) < 0.1 && Math.abs(dx) < 0.1) { dx = 0; dy = 0; }
           else { const m = Math.hypot(dx, dy); dx /= m; dy /= m; }
           this.flipRelX = -dy; this.flipRelY = dx;
+          // eje del giro del flip = dirección del torque del dodge en el marco del auto (medición y ayuda de volteo)
+          const tq = Math.hypot(this.flipRelX * D.torqueX, this.flipRelY * D.torqueY);
+          this.flipAxX = tq > 0 ? this.flipRelX * D.torqueX / tq : 0;
+          this.flipAxY = tq > 0 ? this.flipRelY * D.torqueY / tq : 0;
+          this.flipSpin = 0;
+          this.flipAssistOn = this.flipAssist && tq > 0;
           if (Math.abs(dx) < 0.1) dx = 0;
           if (Math.abs(dy) < 0.1) dy = 0;
           if (dx !== 0 || dy !== 0) {
@@ -3548,6 +3599,7 @@ const Settings = {
       quality: { preset: 'auto', bloom: true },
       playerName: 'Tú',
       jumpLab: false,
+      flipAssist: false,           // ayuda de volteo (solo el auto del jugador); apagada = física de RocketSim
       garage: defaultLook(),
     };
   },
@@ -3565,6 +3617,7 @@ const Settings = {
     const d = this.defaults();
     if (!saved || typeof saved !== 'object') return d;
     for (const k of ['deadzone', 'playerName', 'jumpLab', 'practiceUnlimited', 'lastMode', 'lastDifficulty']) if (saved[k] !== undefined) d[k] = saved[k];
+    if (typeof saved.flipAssist === 'boolean') d.flipAssist = saved.flipAssist;
     for (const k of ['camera', 'audio', 'quality']) if (saved[k]) Object.assign(d[k], saved[k]);
     if (saved.garage) d.garage = sanitizeLook(saved.garage);
     if (saved.bindings) for (const a of Object.keys(d.bindings)) if (Array.isArray(saved.bindings[a])) d.bindings[a] = saved.bindings[a].slice(0, 2);
@@ -5132,6 +5185,157 @@ Tests.add('Nueva 12. Pelota y auto cruzan la línea sin trabarse (junto a los po
   notes.push(wallN + ' autos por la pared lateral pasan la transición o bajan al piso');
   return { pass: fails.length === 0, detail: notes.join('; ') + (fails.length ? '. FALLAN: ' + fails.slice(0, 6).join('; ') : '') };
 });
+Tests.add('Nueva 13. Llantas: en reposo y con la caída máxima, la parte de arriba de cada llanta queda dentro de su arco y ninguna sobresale más de 2 uu del costado (las tres carrocerías)', async () => {
+  if (!THREE) THREE = await import('three');
+  if (!mergeGeometries) mergeGeometries = (await import('three/addons/utils/BufferGeometryUtils.js')).mergeGeometries;
+  const rows = [], fails = [];
+  const rc = new THREE.Raycaster(), up = new THREE.Vector3(0, 1, 0), o = new THREE.Vector3(), v = new THREE.Vector3();
+  let worstGap = 0, worstOut = -Infinity, minClear = Infinity;
+  for (let bi = 0; bi < CAR_BODIES.length; bi++) {
+    const body = CAR_BODIES[bi], model = buildCarModel(0, { body: bi, primary: 0, secondary: 0, boost: 0 });
+    const meshes = model.group.children.filter((c) => c.isMesh && (c.userData.part === 'paint' || c.userData.part === 'dark'));
+    const dark = meshes.find((c) => c.userData.part === 'dark');
+    for (const [pose, dz] of [['reposo', 0], ['caída máx', CAR_VIS.droopMax], ['subida máx', -CAR_VIS.riseMax]]) {
+      for (let i = 0; i < 4; i++) {
+        const q = model.layout[i], w = CONFIG.car.wheels[i], vw = model.wheels[i];
+        toThree(q.x, q.y, w.z - (q.sus + dz), vw.pivot.position);          // misma fórmula que CarView
+        vw.pivot.rotation.set(0, 0, 0); vw.spinner.rotation.set(0, 0, 0);
+        model.group.updateMatrixWorld(true);
+        // vértices de la llanta en coordenadas locales de física
+        const pos = vw.spinner.geometry.getAttribute('position');
+        let zTop = -Infinity, yMin = Infinity, yMax = -Infinity;
+        for (let k = 0; k < pos.count; k++) {
+          v.fromBufferAttribute(pos, k).applyMatrix4(vw.spinner.matrixWorld);
+          const px = v.x * 100, py = -v.z * 100, pz = v.y * 100;
+          if (Math.abs(px - q.x) < 3) zTop = Math.max(zTop, pz);
+          yMin = Math.min(yMin, py); yMax = Math.max(yMax, py);
+        }
+        // "dentro de su arco": desde la parte de arriba de la llanta (a lo ancho de la banda), hacia arriba, lo primero
+        // que se toca es el forro oscuro de la salpicadera, mirando hacia la llanta y cerca
+        const side = Math.sign(q.y);
+        for (let t = -0.8; t <= 0.8001; t += 0.4) {
+          const py = q.y + side * t * (q.hw - 2);
+          toThree(q.x, py, zTop - 0.05, o);
+          rc.set(o, up); rc.far = 0.3;
+          const hit = rc.intersectObjects(meshes, false)[0];
+          const gap = hit ? hit.distance * 100 : Infinity;
+          const ok = hit && hit.object === dark && hit.face.normal.clone().transformDirection(hit.object.matrixWorld).y < 0 && gap <= 8;
+          worstGap = Math.max(worstGap, gap); if (dz < 0) minClear = Math.min(minClear, gap);
+          if (!ok) fails.push(body.name + ' rueda ' + i + ' (' + pose + '): arriba de la llanta ' + (hit ? (hit.object === dark ? 'forro a ' : 'pintura a ') + gap.toFixed(1) + ' uu' : 'nada encima'));
+        }
+        const out = Math.max(Math.abs(yMin), Math.abs(yMax)) - bodySideAt(body.lower, q.x);
+        worstOut = Math.max(worstOut, out);
+        if (out > 2) fails.push(body.name + ' rueda ' + i + ' (' + pose + '): sobresale ' + out.toFixed(2) + ' uu del costado');
+      }
+    }
+    rows.push(body.name + ': llantas a ' + model.layout.map((q) => Math.abs(q.y).toFixed(1)).filter((y, k) => k % 2 === 0).join('/') +
+      ' del centro, cara exterior al ras del costado (' + model.layout.filter((q, k) => k % 2 === 0).map((q) => (q.yOut - bodySideAt(body.lower, q.x)).toFixed(1)).join('/') + ' uu)');
+  }
+  const pass = fails.length === 0;
+  return { pass, detail: rows.join('; ') + '. Caída visual máx ' + CAR_VIS.droopMax + ' uu (antes 7 + ~14 de la suspensión física en el aire). Entre la llanta y el forro de su salpicadera: máx ' +
+    worstGap.toFixed(1) + ' uu (con la caída máxima), mín ' + minClear.toFixed(1) + ' uu (con la subida máxima); la llanta que más sale del costado: ' + worstOut.toFixed(2) + ' uu' +
+    (fails.length ? '. FALLAN: ' + fails.slice(0, 6).join('; ') : '') };
+});
+Tests.add('Nueva 14. Ayuda de volteo: encendida, un flip adelante desde un salto completo soltando adelante a los 0.5 s llega al piso con menos de 20° de inclinación; apagada, todo idéntico a antes', () => {
+  // salto completo (0.2 s), dodge en el tick d con el stick ya inclinado, stick sostenido `hold` ticks desde el dodge (60 = 0.5 s);
+  // "cancelado": a los 0.1 s del dodge se tira el stick al lado contrario (flip cancel)
+  const SC = [
+    { n: 'adelante', d: 30, hold: 60, p: -1, y: 0 },
+    { n: 'atrás', d: 30, hold: 60, p: 1, y: 0 },
+    { n: 'lado', d: 30, hold: 60, p: 0, y: 1 },
+    { n: 'diagonal', d: 30, hold: 60, p: -1, y: -1 },
+    { n: 'adelante tarde', d: 90, hold: 60, p: -1, y: 0 },
+    { n: 'adelante sostenido', d: 30, hold: 400, p: -1, y: 0 },
+    { n: 'cancelado', d: 30, hold: 12, p: -1, y: 0, cancel: 12 },
+  ];
+  // Referencia medida con la física de antes de agregar la ayuda (commit 6ea7bef), al primer toque con la cancha:
+  // tick; posición, velocidad, velocidad angular, eje adelante y eje arriba del auto
+  const REF = [
+    [174, 2.494662059694274e-14, 607.4816898535639, 44.03131895562395, -38.49524301372549, 453.43615650884243, -176.38577823290206, -3.163484912928364, -3.1964982242386046, -3.166190504078059, -6.627866185921076e-18, 0.28675772835577024, 0.958003134247607, -6.601882196093805e-17, -0.958003134247607, 0.28675772835577024],   // adelante
+    [164, -4.861231023771322e-14, -597.0724967893455, 72.81932256366079, -42.919135678452214, -497.27274383763114, -147.3233859294306, 4.147317509938166, -2.4064663061472675, 2.694193272417223, 3.5372975836145206e-17, 0.16989661337506584, -0.9854618920910556, 5.642222669954249e-17, 0.9854618920910556, 0.16989661337506584],   // atrás
+    [172, 596.190692918333, 2.1449100738214657, 51.1710698834939, 477.58844551157847, -12.85461194442897, -283.63470855576554, 2.7044442229057886, 4.661694780572087, 1.0975350645781068, 0.013108988818229828, 0.999855850162719, -0.010790426662086476, -0.9805558695946635, 0.010741304003395685, -0.19594593895194704],   // lado
+    [167, -407.7676949839124, 408.9926048936304, 64.12351798167926, -356.4078619873395, 343.1059220220486, -189.5106417664785, -3.037164609585988, -4.383815181673633, -1.344542891545736, 0.3641327878416858, 0.6260792752386544, 0.6895158112293605, 0.8730810414743767, -0.48721711007715324, -0.01868107775490415],   // diagonal
+    [253, 2.4279057517216556e-14, 688.1804100070351, 41.642821312919914, -54.68091838173825, 456.7849409363114, -249.51794980510599, -3.007753692221209, -3.3280191960161782, -3.18240568719287, 3.335952180197171e-20, 0.4137193002062994, 0.9104044928694114, -6.771904327364217e-17, -0.9104044928694114, 0.4137193002062994],   // adelante tarde
+    [175, 2.5136581903296206e-14, 611.6495204356754, 39.0534470222894, 2.279535676241559e-14, 500.1396698533739, -359.2773039944576, -5.5, 1.5338349685175902e-16, -1.8746871837437215e-16, 3.203819509877327e-17, 0.7871871573713258, 0.6167141795594224, -5.91746467558407e-17, -0.6167141795594224, 0.7871871573713258],   // adelante sostenido
+    [160, 2.2361153129103625e-14, 548.8768533706702, 84.08662093337698, -35.81080238503291, 467.8454680129101, -142.26555481764825, -1.6758379278593547, -3.815226351050613, -3.3659500105625604, -1.1191065838259883e-17, -0.5345344073482018, -0.8451467135124568, 6.520424525988672e-17, 0.8451467135124568, -0.5345344073482018],   // cancelado
+  ];
+  const run = (sc, assist, trace) => {
+    const w = new World({ ball: false }), car = w.addCar(new Car(0, 0, 'x'));
+    if (assist !== undefined) car.flipAssist = assist;
+    car.placeAt(0, 0, Math.PI / 2);
+    for (let i = 0; i < 60; i++) w.step();
+    let dodge = -1, touch = -1;
+    for (let i = 0; i < 4 * TICK_RATE; i++) {
+      const c = car.controls; c.reset();
+      c.jump = i < 24 || (i >= sc.d && i < sc.d + 3);
+      if (i >= sc.d - 2 && (dodge < 0 || i < dodge + sc.hold)) { c.pitch = sc.p; c.yaw = sc.y; }
+      if (sc.cancel !== undefined && dodge >= 0 && i >= dodge + sc.cancel) c.pitch = -sc.p;
+      w.step();
+      if (trace) trace.push(car.pos.x, car.pos.y, car.pos.z, car.vel.x, car.vel.y, car.vel.z);
+      if (car.hasFlipped && dodge < 0) dodge = i;
+      if (dodge >= 0 && (car.numContacts > 0 || car.worldContact)) { touch = i; break; }
+    }
+    const r = (v) => [v.x, v.y, v.z];
+    return { dodge, touch, tilt: Math.acos(clamp(car.rot.u.z, -1, 1)) * 180 / Math.PI, spin: car.flipSpin * 180 / Math.PI,
+      s: [].concat(r(car.pos), r(car.vel), r(car.angVel), r(car.rot.f), r(car.rot.u)) };
+  };
+  const fails = [];
+  const diff = (a, b) => (a.touch !== b.touch ? Infinity : Math.max(...a.s.map((v, k) => Math.abs(v - b.s[k]))));
+  // 1) apagada (bandera en false y auto nuevo sin tocar la bandera): idéntico a la referencia
+  let maxOff = 0;
+  const off = SC.map((sc, k) => {
+    const ref = { touch: REF[k][0], s: REF[k].slice(1) };
+    const a = run(sc, false), b = run(sc);
+    const d = Math.max(diff(a, ref), diff(b, ref));
+    maxOff = Math.max(maxOff, d);
+    if (!(d <= 1e-6)) fails.push('apagada, ' + sc.n + ': distinta de la referencia (toque ' + a.touch + ' vs ' + ref.touch + ', dif. ' + d + ')');
+    return a;
+  });
+  if (new Car(0, 0, 'x').flipAssist !== false) fails.push('un auto nuevo trae la ayuda encendida');
+  // 2) encendida: adelante (dodge temprano y tarde), atrás, de lado y diagonal llegan planos; el flip cancel no cambia
+  const on = SC.map((sc) => run(sc, true));
+  const tilts = [];
+  for (let k = 0; k < SC.length; k++) {
+    const sc = SC[k], a = on[k];
+    if (sc.cancel !== undefined) {
+      const d = diff(a, off[k]);
+      if (!(d <= 1e-6)) fails.push('flip cancel con la ayuda: cambió (dif. ' + d + ')');
+      continue;
+    }
+    tilts.push(sc.n + ' ' + a.tilt.toFixed(1) + '° (antes ' + off[k].tilt.toFixed(0) + '°)');
+    if (!(a.tilt < 20)) fails.push('encendida, ' + sc.n + ': toca el piso inclinado ' + a.tilt.toFixed(1) + '°');
+    if (!(Math.abs(a.spin - 360) < 1.5)) fails.push('encendida, ' + sc.n + ': giro del flip ' + a.spin.toFixed(1) + '°');
+  }
+  // 3) la ayuda no cambia la altura ni el impulso: posición y velocidad iguales tick a tick hasta el primer toque
+  let same = 0;
+  for (const k of [0, 1, 2, 3]) {
+    const tOff = [], tOn = [];
+    run(SC[k], false, tOff); run(SC[k], true, tOn);
+    const n = Math.min(tOff.length, tOn.length) - 6;        // sin el tick del toque (ahí choca uno y el otro no)
+    let d = 0;
+    for (let i = 0; i < n; i++) d = Math.max(d, Math.abs(tOff[i] - tOn[i]));
+    if (d !== 0) fails.push(SC[k].n + ': la ayuda cambió la trayectoria del centro de masa (dif. ' + d.toExponential(2) + ')');
+    same += n / 6;
+  }
+  // 4) solo el auto del jugador; los bots y el partido de fondo nunca; el ajuste viene apagado y se guarda
+  const saved = Settings.data;
+  try {
+    Settings.data = Settings.defaults();
+    if (Settings.data.flipAssist !== false) fails.push('el ajuste no viene apagado por defecto');
+    if (Settings.merge(JSON.parse(JSON.stringify(Object.assign(Settings.defaults(), { flipAssist: true })))).flipAssist !== true) fails.push('el ajuste no se guarda');
+    Settings.data.flipAssist = true;
+    const m = new Match({ mode: '2v2', difficulty: 'normal', seed: 3, headless: true, botFactory: makeBot });
+    Game.applyFlipAssist(m, false);
+    if (!m.human || !m.human.flipAssist || m.cars.some((c) => c !== m.human && c.flipAssist)) fails.push('en un partido la ayuda no quedó solo en el auto del jugador');
+    Game.applyFlipAssist(m, true);
+    if (m.cars.some((c) => c.flipAssist)) fails.push('el partido de fondo del menú quedó con ayuda');
+  } finally { Settings.data = saved; }
+  return { pass: fails.length === 0, detail: 'Encendida, inclinación al tocar el piso: ' + tilts.join(', ') + '; el giro del flip llega a 360°. ' +
+    'Apagada: ' + SC.length + ' escenarios (incluidos flip sostenido y flip cancel) iguales a la referencia de antes, diferencia máx. ' + maxOff +
+    (maxOff === 0 ? ' (bit a bit)' : '') + '. Flip cancel con la ayuda: igual que sin ella. Altura e impulso: posición y velocidad idénticas tick a tick hasta el toque en 4 flips (' + same +
+    ' ticks). Solo el auto del jugador; bots, partido de fondo y pruebas sin ayuda; el ajuste viene apagado.' +
+    (fails.length ? ' FALLAN: ' + fails.join('; ') : '') };
+});
 Tests.add('Extra L. Los bots rotan: dos compañeros no van a la misma pelota', () => {
   const m = new Match({ mode: '3v3', difficulty: 'normal', seed: 77, headless: true, humanPlayer: false, botFactory: makeBot });
   let ticks = 0, overlap = 0, playing = 0, backTicks = 0;
@@ -5916,7 +6120,6 @@ function carMaterials(team, look) {
     glass: new THREE.MeshStandardMaterial({ color: 0x0b1726, metalness: 0.9, roughness: 0.08, envMapIntensity: 1.7, flatShading: true }),
     light: new THREE.MeshBasicMaterial({ vertexColors: true, toneMapped: false }),
     wheel: new THREE.MeshStandardMaterial({ vertexColors: true, metalness: 0.5, roughness: 0.5 }),
-    strut: new THREE.MeshStandardMaterial({ vertexColors: true, metalness: 0.7, roughness: 0.35 }),
     nozzle: new THREE.MeshBasicMaterial({ color: 0x331500, toneMapped: false }),
   };
   _carMatCache.set(key, m);
@@ -5957,29 +6160,114 @@ function polyGeo(tris, center) {
   g.computeVertexNormals();
   return g;
 }
-/** Carrocería baja: anillos por estación (lado derecho de abajo hacia arriba, espejado) unidos entre sí, con tapas. */
-function lowerBodyGeo(st) {
-  const ring = (s) => {
-    const [x, zb, zm, zt, wb, wm, wt] = s;
-    const half = [[0, zb], [wb, zb], [wm, zm], [wt, zt], [0, zt]];
-    const R = half.map(([y, z]) => [x, -y, z]), L = half.slice(1, -1).reverse().map(([y, z]) => [x, y, z]);
-    return R.concat(L);
-  };
-  const tris = [];
+/** Interpola una estación de la carrocería baja en x (todos los campos, linealmente). */
+function stationAt(st, x) {
+  if (x <= st[0][0]) return st[0].slice();
   for (let i = 0; i < st.length - 1; i++) {
-    const A = ring(st[i]), B = ring(st[i + 1]), n = A.length;
-    for (let k = 0; k < n; k++) {
-      const k2 = (k + 1) % n;
-      tris.push([A[k], A[k2], B[k2]], [A[k], B[k2], B[k]]);
+    const a = st[i], b = st[i + 1];
+    if (x <= b[0]) { const t = (x - a[0]) / (b[0] - a[0]); return a.map((v, k) => (k === 0 ? x : lerp(v, b[k], t))); }
+  }
+  return st[st.length - 1].slice();
+}
+/** Costado de la carrocería en x: el mayor medio ancho de la estación (abajo, cintura o arriba). */
+function bodySideAt(st, x) { const s = stationAt(st, x); return Math.max(s[4], s[5], s[6]); }
+/**
+ * Carrocería baja: anillos por estación (medio lado de abajo hacia arriba, espejado) unidos entre sí, con tapas.
+ * Sobre cada rueda la esquina inferior del costado se recorta con un arco (pasarrueda): pared interior en y = yA
+ * y techo a la altura del círculo de radio rIn + 0.6 alrededor del centro de la rueda en reposo. El fondo no baja de
+ * la caja de colisión. La parte alta (de la cintura para arriba) usa solo las estaciones originales, con las mismas
+ * facetas de siempre; la parte baja usa estaciones densas alrededor de cada arco y una normal por cuadrilátero (sin
+ * dientes de sierra en las caras torcidas).
+ */
+function lowerBodyGeo(st, lay) {
+  const zMin = CONFIG.car.hitboxOffset[2] - CONFIG.car.hitboxHalf[2] + 0.4;
+  const axles = lay.filter((q) => q.y > 0);                      // una rueda por eje (la otra es el espejo)
+  // estaciones base: sin los bultos viejos sobre los ejes y con el fondo 1 uu más abajo (sin salir de la caja)
+  const base = st.map((q) => q.slice());
+  for (let i = 1; i < base.length - 1; i++) if (axles.some((q) => Math.abs(base[i][0] - q.x) < 0.5)) base[i][1] = (base[i - 1][1] + base[i + 1][1]) / 2;
+  for (const q of base) q[1] = Math.max(zMin, q[1] - 1);
+  const xa = base[0][0], xb = base[base.length - 1][0];
+  const xBase = base.map((q) => q[0]);
+  // estaciones densas: las originales siempre, más puntos del arco que no queden pegados a otra estación
+  const xs = xBase.slice();
+  for (const q of axles) {
+    const Rn = q.rIn + 0.6;
+    for (let k = 0; k <= 24; k++) {
+      const x = q.x + Rn * Math.cos(Math.PI * k / 24);
+      if (x > xa + 0.3 && x < xb - 0.3 && xs.every((o) => Math.abs(o - x) > 0.35)) xs.push(x);
     }
   }
-  for (const s of [st[0], st[st.length - 1]]) {
-    const R = ring(s), c = [s[0], 0, (s[1] + s[3]) / 2];
-    for (let k = 0; k < R.length; k++) tris.push([c, R[k], R[(k + 1) % R.length]]);
+  xs.sort((a, b) => a - b);
+  const ring = (x) => {
+    const [, zb, zm, zt, wb, wm, wt] = stationAt(base, x);
+    let zn = zb, yi = wb;
+    for (const q of axles) {
+      const dx = x - q.x, Rn = q.rIn + 0.6;
+      if (Math.abs(dx) >= Rn) continue;
+      const z = Math.min(q.zc + Math.sqrt(Rn * Rn - dx * dx), zm - 0.5);
+      if (z > zn + 1e-3) { zn = z; yi = q.yA; }
+    }
+    const wn = zn > zb ? wb + (wm - wb) * (zn - zb) / (zm - zb) : wb;
+    // de −y a +y por abajo y de vuelta por arriba; bordes 0-3 y 8-11: parte baja; 4-7: parte alta
+    return [[x, 0, zb], [x, -yi, zb], [x, -yi, zn], [x, -wn, zn], [x, -wm, zm], [x, -wt, zt], [x, 0, zt],
+      [x, wt, zt], [x, wm, zm], [x, wn, zn], [x, yi, zn], [x, yi, zb]];
+  };
+  const n = 12;
+  // orientación del anillo en el plano (y, z) (la misma para todos): la normal de cada borde apunta hacia afuera
+  let area = 0;
+  const R0 = ring((xa + xb) / 2);
+  for (let k = 0; k < n; k++) { const a = R0[k], b = R0[(k + 1) % n]; area += a[1] * b[2] - b[1] * a[2]; }
+  const sgn = area > 0 ? 1 : -1;
+  const edgeN = (R, k) => { const a = R[k], b = R[(k + 1) % n], dy = b[1] - a[1], dz = b[2] - a[2]; return [0, sgn * dz, -sgn * dy]; };
+  const tris = [], dirs = [], norms = [];
+  const sub = (a, b) => [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
+  const cross = (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
+  const strip = (xlist, edges, quadNormal) => {
+    const rings = xlist.map(ring);
+    for (let i = 0; i < rings.length - 1; i++) {
+      const A = rings[i], B = rings[i + 1];
+      for (const k of edges) {
+        const k2 = (k + 1) % n, na = edgeN(A, k), nb = edgeN(B, k), d = [0, na[1] + nb[1], na[2] + nb[2]];
+        tris.push([A[k], A[k2], B[k2]], [A[k], B[k2], B[k]]); dirs.push(d, d);
+        const qn = quadNormal ? cross(sub(B[k2], A[k]), sub(B[k], A[k2])) : null;   // normal del cuadrilátero (diagonales)
+        norms.push(qn, qn);
+      }
+    }
+  };
+  strip(xBase, [4, 5, 6, 7], false);
+  strip(xs, [0, 1, 2, 3, 8, 9, 10, 11], true);
+  // tapas (triangulación de polígono no convexo)
+  for (const [R, dx] of [[ring(xa), -1], [ring(xb), 1]]) {
+    const idx = THREE.ShapeUtils.triangulateShape(R.map((p) => new THREE.Vector2(p[1], p[2])), []);
+    for (const [a, b, c] of idx) { tris.push([R[a], R[b], R[c]]); dirs.push([dx, 0, 0]); norms.push(null); }
   }
-  // hacia afuera: desde el eje longitudinal a la altura media de la estación más cercana
-  const xa = st[0][0] + 15, xb = st[st.length - 1][0] - 15;
-  return polyGeo(tris, (a) => [clamp(a[0], xa, xb), 0, 16]);
+  return dirGeo(tris, dirs, norms);
+}
+/**
+ * Triángulos (física) con una dirección "hacia afuera" por triángulo → geometría con normales planas; descarta los
+ * degenerados. `norms` (opcional) da la normal de cada triángulo (p. ej. la de su cuadrilátero); si no, la del triángulo.
+ */
+function dirGeo(tris, dirs, norms) {
+  const pos = [], nrm = [], v = new THREE.Vector3();
+  for (let i = 0; i < tris.length; i++) {
+    const [a, b, c] = tris[i], d = dirs[i];
+    const e1 = [b[0] - a[0], b[1] - a[1], b[2] - a[2]], e2 = [c[0] - a[0], c[1] - a[1], c[2] - a[2]];
+    const nx = e1[1] * e2[2] - e1[2] * e2[1], ny = e1[2] * e2[0] - e1[0] * e2[2], nz = e1[0] * e2[1] - e1[1] * e2[0];
+    if (nx * nx + ny * ny + nz * nz < 1e-10) continue;
+    const flip = nx * d[0] + ny * d[1] + nz * d[2] < 0;
+    let m = norms && norms[i];
+    if (m) { if (m[0] * d[0] + m[1] * d[1] + m[2] * d[2] < 0) m = [-m[0], -m[1], -m[2]]; }
+    else m = flip ? [-nx, -ny, -nz] : [nx, ny, nz];
+    const ml = Math.hypot(m[0], m[1], m[2]) || 1;
+    for (const p of flip ? [a, c, b] : [a, b, c]) {
+      toThree(p[0], p[1], p[2], v); pos.push(v.x, v.y, v.z);
+      nrm.push(m[0] / ml, m[2] / ml, -m[1] / ml);                  // misma rotación que toThree
+    }
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  g.setAttribute('normal', new THREE.Float32BufferAttribute(nrm, 3));
+  return g;
 }
 function lowerTopAt(st, x) {
   for (let i = 0; i < st.length - 1; i++) {
@@ -6008,22 +6296,56 @@ function cabinTris(body) {
   }
   return { glass, roof, S };
 }
-/** Cuarto de anillo (arco de guardabarros) alrededor de una rueda, extruido a lo ancho. */
-function archGeo(wx, wz, r0, r1, y0, y1) {
-  const tris = [], n = 10;
-  for (const sy of [1, -1]) {
-    for (let k = 0; k < n; k++) {
-      const a0 = Math.PI * k / n, a1 = Math.PI * (k + 1) / n;
-      const p = (a, r, y) => [wx + Math.cos(a) * r, sy * y, wz + Math.sin(a) * r];
-      // cara interna (bajo el guardabarros) y borde exterior
-      tris.push([p(a0, r0, y0), p(a1, r0, y0), p(a1, r0, y1)], [p(a0, r0, y0), p(a1, r0, y1), p(a0, r0, y1)]);
-      tris.push([p(a0, r0, y1), p(a1, r0, y1), p(a1, r1, y1)], [p(a0, r0, y1), p(a1, r1, y1), p(a0, r1, y1)]);
-    }
+/**
+ * Salpicadera de una rueda (q = carWheelLayout): casco de medio cilindro alrededor del centro de la rueda en reposo, de
+ * radio rIn a rOut, a lo ancho de yA a yB (cubre toda la llanta y queda al ras del costado). No sale de la caja de
+ * colisión: se corta en el fondo de la caja y en los extremos de la carrocería. Pintura por fuera, oscura por dentro.
+ */
+function fenderGeo(q, st) {
+  const zMin = CONFIG.car.hitboxOffset[2] - CONFIG.car.hitboxHalf[2] + 0.05;
+  const xa = st[0][0] + 0.1, xb = st[st.length - 1][0] - 0.1, side = Math.sign(q.y);
+  const sa = clamp((zMin - q.zc) / q.rOut, -1, 1), t0 = Math.asin(sa), t1 = Math.PI - t0, N = 20;
+  const P = (t, R, y) => [clamp(q.x + R * Math.cos(t), xa, xb), side * y, Math.max(zMin, q.zc + R * Math.sin(t))];
+  const paint = { t: [], d: [] }, dark = { t: [], d: [] };
+  const quad = (o, a, b, c, d, dir) => { o.t.push([a, b, c], [a, c, d]); o.d.push(dir, dir); };
+  for (let k = 0; k < N; k++) {
+    const ta = t0 + (t1 - t0) * k / N, tb = t0 + (t1 - t0) * (k + 1) / N, tm = (ta + tb) / 2;
+    const rad = [Math.cos(tm), 0, Math.sin(tm)], inw = [-rad[0], 0, -rad[2]];
+    quad(paint, P(ta, q.rOut, q.yA), P(tb, q.rOut, q.yA), P(tb, q.rOut, q.yB), P(ta, q.rOut, q.yB), rad);                // por fuera
+    quad(paint, P(ta, q.rIn, q.yB), P(tb, q.rIn, q.yB), P(tb, q.rOut, q.yB), P(ta, q.rOut, q.yB), [0, side, 0]);         // borde exterior
+    quad(dark, P(ta, q.rIn, q.yA), P(tb, q.rIn, q.yA), P(tb, q.rIn, q.yB), P(ta, q.rIn, q.yB), inw);                    // por dentro
+    quad(dark, P(ta, q.rIn, q.yA), P(tb, q.rIn, q.yA), P(tb, q.rOut, q.yA), P(ta, q.rOut, q.yA), [0, -side, 0]);        // borde interior
   }
-  return polyGeo(tris, (a) => [wx, 0, wz]);
+  for (const [t, dir] of [[t0, [Math.sin(t0), 0, -Math.cos(t0)]], [t1, [-Math.sin(t1), 0, Math.cos(t1)]]]) {
+    quad(paint, P(t, q.rIn, q.yA), P(t, q.rOut, q.yA), P(t, q.rOut, q.yB), P(t, q.rIn, q.yB), dir);                    // extremos
+  }
+  return { paint: dirGeo(paint.t, paint.d), dark: dirGeo(dark.t, dark.d) };
 }
-const CAR_VIS_WHEEL_Y = [37, -37, 39, -39];
-const CAR_VIS_DROOP = 7;     // uu extra que bajan las ruedas en el aire (solo visual)
+/** Caída y subida visuales máximas de cada rueda respecto de su reposo (uu), holgura y grosor de la salpicadera. */
+const CAR_VIS = { droopMax: 3, riseMax: 3, clear: 3, thick: 2.5, lip: 0.3, restSus: null };
+/** Largo de suspensión de cada rueda con el auto quieto en el piso (física de RocketSim; se mide una vez). */
+function carRestSus() {
+  if (!CAR_VIS.restSus) {
+    const w = new World({ ball: false }), car = w.addCar(new Car(0, 0, 'reposo'));
+    car.placeAt(0, 0, 0);
+    for (let i = 0; i < 2 * TICK_RATE; i++) w.step();
+    CAR_VIS.restSus = car.wheels.map((q) => q.susLen);
+  }
+  return CAR_VIS.restSus;
+}
+/**
+ * Ruedas dibujadas de una carrocería: cara exterior de la llanta al ras del costado (sin salir de la caja de colisión),
+ * centro en reposo según la suspensión física, y la salpicadera que la cubre.
+ */
+function carWheelLayout(body) {
+  const S = carRestSus(), yMax = CONFIG.car.hitboxHalf[1];
+  return CONFIG.car.wheels.map((w, i) => {
+    const hw = w.front ? 9 : 10, side = Math.sign(w.y), yOut = Math.min(bodySideAt(body.lower, w.x), yMax - 0.05);
+    const rIn = w.r + CAR_VIS.clear;
+    return { i, x: w.x, y: side * (yOut - hw), zc: w.z - S[i], sus: S[i], r: w.r, hw, rIn, rOut: rIn + CAR_VIS.thick,
+      yA: yOut - 2 * hw - 1.5, yB: Math.min(yOut + CAR_VIS.lip, yMax), yOut };
+  });
+}
 /** Neumático ancho de hombros redondeados (torno alrededor del eje) + rin de 5 rayos. */
 function wheelParts(w, rimColor) {
   const wp = [];
@@ -6032,11 +6354,15 @@ function wheelParts(w, rimColor) {
   const tire = new THREE.LatheGeometry(prof.map(([rr, y]) => new THREE.Vector2(rr * INV_UU, y * INV_UU)), 20);
   tire.rotateX(Math.PI / 2);
   wp.push(prepGeo(tire, 0x17181b));
-  const rim = new THREE.CylinderGeometry(r * 0.63 * INV_UU, r * 0.63 * INV_UU, (hw * 2 - 1.5) * INV_UU, 16, 1, true);
+  // tubo del aro, visto desde adentro: entre el borde de la llanta y la tapa no queda ninguna rendija por donde se vea el fondo
+  const rim = new THREE.CylinderGeometry(r * 0.63 * INV_UU, r * 0.63 * INV_UU, (hw * 2 - 0.4) * INV_UU, 16, 1, true);
   rim.rotateX(Math.PI / 2);
+  const ix = rim.index.array, rn = rim.getAttribute('normal').array;
+  for (let i = 0; i < ix.length; i += 3) { const t = ix[i + 1]; ix[i + 1] = ix[i + 2]; ix[i + 2] = t; }
+  for (let i = 0; i < rn.length; i++) rn[i] = -rn[i];
   wp.push(prepGeo(rim, 0x2a2d33));
   for (const s of [1, -1]) {
-    const disc = new THREE.CircleGeometry(r * 0.6 * INV_UU, 16);
+    const disc = new THREE.CircleGeometry(r * 0.63 * INV_UU, 16);
     if (s < 0) disc.rotateY(Math.PI);
     disc.translate(0, 0, s * (hw - 1.4) * INV_UU);
     wp.push(prepGeo(disc, 0x2a2d33));
@@ -6063,9 +6389,9 @@ function buildCarModel(team, lookIn) {
   const acc = SECONDARY_COLORS[look.secondary].hex;
   const group = new THREE.Group();
   const parts = { paint: [], accent: [], dark: [], glass: [], light: [] };
-  const st = body.lower;
-  // --- carrocería baja (con salpicaderas: el ancho crece sobre cada rueda) ---
-  parts.paint.push(prepGeo(lowerBodyGeo(st)));
+  const st = body.lower, lay = carWheelLayout(body);
+  // --- carrocería baja (con pasarruedas recortados sobre cada rueda) ---
+  parts.paint.push(prepGeo(lowerBodyGeo(st, lay)));
   // --- cabina ---
   const cab = cabinTris(body);
   parts.glass.push(prepGeo(polyGeo(cab.glass, (a) => [a[0], 0, 22])));
@@ -6081,15 +6407,15 @@ function buildCarModel(team, lookIn) {
   const S = cab.S;
   stripe.push([[S[1].x, 4, S[1].z + 0.3], [S[2].x, 4, S[2].z + 0.3], [S[2].x, -4, S[2].z + 0.3]], [[S[1].x, 4, S[1].z + 0.3], [S[2].x, -4, S[2].z + 0.3], [S[1].x, -4, S[1].z + 0.3]]);
   parts.accent.push(prepGeo(polyGeo(stripe, (a) => [a[0], 0, 0])));
-  // --- arcos de rueda oscuros ---
-  for (let i = 0; i < 4; i += 2) {
-    const w = CONFIG.car.wheels[i], wzr = w.front ? -4.5 : -2;
-    parts.dark.push(prepGeo(archGeo(w.x, wzr, w.r + 2.5, w.r + 6.5, 27, 43.6)));
-  }
-  // --- piso, faldones, parachoques ---
-  parts.dark.push(prepGeo(boxLocal(12, 0, 2.2, 114, 64, 1.4)));
-  parts.accent.push(prepGeo(boxLocal(8.5, 42.2, 5.5, 44, 1.6, 2.2)));
-  parts.accent.push(prepGeo(boxLocal(8.5, -42.2, 5.5, 44, 1.6, 2.2)));
+  // --- salpicaderas: cubren la parte de arriba de cada llanta ---
+  for (const q of lay) { const f = fenderGeo(q, st); parts.paint.push(prepGeo(f.paint)); parts.dark.push(prepGeo(f.dark)); }
+  // --- piso (entre las llantas), faldones, parachoques ---
+  const zBox = CONFIG.car.hitboxOffset[2] - CONFIG.car.hitboxHalf[2], yFloor = Math.min(...lay.map((q) => q.yA)) - 1;
+  parts.dark.push(prepGeo(boxLocal(12, 0, zBox + 0.2, 110, yFloor * 2, 0.25)));               // bajo el fondo de la carrocería
+  // faldón entre las salpicaderas, apoyado en el costado inferior
+  const skirtX0 = lay[2].x + lay[2].rOut + 1, skirtX1 = lay[0].x - lay[0].rOut - 1, sm = stationAt(st, (skirtX0 + skirtX1) / 2), zs = zBox + 2.6;
+  const skirtY = sm[4] + (sm[5] - sm[4]) * clamp((zs - sm[1] + 1) / (sm[2] - sm[1] + 1), 0, 1) + 0.5;
+  for (const s of [1, -1]) parts.accent.push(prepGeo(boxLocal((skirtX0 + skirtX1) / 2, s * skirtY, zs, skirtX1 - skirtX0, 1.6, 2.2)));
   const nose = st[st.length - 1], tail = st[0];
   parts.dark.push(prepGeo(boxLocal(nose[0] - 1.5, 0, nose[1] - 1, 4, nose[4] * 2 + 6, 2)));           // labio delantero
   parts.dark.push(prepGeo(boxLocal(tail[0] + 1.6, 0, tail[1] + 1, 3.4, tail[4] * 2 - 4, 4)));          // difusor
@@ -6143,24 +6469,15 @@ function buildCarModel(team, lookIn) {
   glowGeo.translate(gc.x, gc.y, gc.z);
   const nozzleGlow = new THREE.Mesh(glowGeo, M.nozzle.clone());
   group.add(nozzleGlow);
-  // --- ruedas: pivote (dirección + suspensión) con rueda que gira y amortiguador ---
+  // --- ruedas: pivote (dirección + suspensión) con la rueda que gira; sin ejes ni amortiguadores a la vista ---
   const wheels = [];
   for (let i = 0; i < 4; i++) {
     const w = CONFIG.car.wheels[i];
     const pivot = new THREE.Group();
     const spinner = new THREE.Mesh(mergeParts(wheelParts(w, acc)), M.wheel);
+    spinner.userData.part = 'rueda';
     pivot.add(spinner);
-    const side = Math.sign(CAR_VIS_WHEEL_Y[i]);
-    const sp = [];
-    const strut = new THREE.CylinderGeometry(1.8 * INV_UU, 1.8 * INV_UU, 26 * INV_UU, 8);
-    const sc = toThree(0, -side * 7, 13, new THREE.Vector3());
-    strut.translate(sc.x, sc.y, sc.z);
-    sp.push(prepGeo(strut, 0xb8c2cf));
-    const coil = new THREE.CylinderGeometry(3.4 * INV_UU, 3.4 * INV_UU, 11 * INV_UU, 10);
-    coil.translate(sc.x, sc.y + 4 * INV_UU, sc.z);
-    sp.push(prepGeo(coil, acc));
-    sp.push(prepGeo(boxLocal(0, -side * 10, 2, 5, 16, 2.5), 0x30343c));
-    pivot.add(new THREE.Mesh(mergeParts(sp), M.strut));
+    toThree(lay[i].x, lay[i].y, lay[i].zc, pivot.position);          // en reposo
     group.add(pivot);
     wheels.push({ pivot, spinner });
   }
@@ -6172,7 +6489,7 @@ function buildCarModel(team, lookIn) {
   hb.renderOrder = 20;
   hb.visible = false;
   group.add(hb);
-  return { group, wheels, hitbox: hb, nozzleGlow, bodyBox: carBodyBox(body) };
+  return { group, wheels, hitbox: hb, nozzleGlow, bodyBox: carBodyBox(body), layout: lay };
 }
 /** Caja (física local) que ocupan carrocería y cabina (sin ruedas, alerón ni espejos). */
 function carBodyBox(body) {
@@ -6211,7 +6528,7 @@ class CarView {
     this.renderPos = new V3();
     this.renderRot = new Basis();
     this.srcCar = car;
-    this.droop = [0, 0, 0, 0];
+    this.sus = this.model.layout.map((q) => q.sus);           // largo de suspensión dibujado
   }
   update(alpha, dt = 1 / 60) {
     const car = this.car;
@@ -6228,13 +6545,13 @@ class CarView {
     this.renderRot.u.lerpVectors(car.prevRot.u, car.rot.u, alpha);
     this.renderRot.orthonormalize();
     for (let i = 0; i < 4; i++) {
-      const w = car.wheels[i], vw = this.model.wheels[i];
-      // En el aire la suspensión física queda en su largo de reposo; en pantalla la rueda baja un poco más
-      // (solo visual) para que se note el despegue. Al tocar vuelve de inmediato.
-      const free = w.susLen >= w.rest - 0.05;
-      const target = free ? CAR_VIS_DROOP : 0;
-      this.droop[i] += (target - this.droop[i]) * (target > this.droop[i] ? 1 - Math.exp(-9 * dt) : 1);
-      toThree(w.x, CAR_VIS_WHEEL_Y[i], w.z - w.susLen - this.droop[i], vw.pivot.position);
+      const w = car.wheels[i], vw = this.model.wheels[i], q = this.model.layout[i];
+      // La rueda dibujada sigue a la suspensión física pero no se aleja más de droopMax hacia abajo ni riseMax hacia
+      // arriba de su reposo: en el aire la física la deja colgando al largo máximo (~14 uu), en pantalla queda dentro
+      // de la salpicadera. Al bajar se suaviza; al apoyarse vuelve de inmediato.
+      const target = clamp(w.susLen, q.sus - CAR_VIS.riseMax, q.sus + CAR_VIS.droopMax);
+      this.sus[i] += (target - this.sus[i]) * (target > this.sus[i] ? 1 - Math.exp(-14 * dt) : 1);
+      toThree(q.x, q.y, w.z - this.sus[i], vw.pivot.position);
       vw.pivot.rotation.y = w.front ? car.steerVis : 0;
       vw.spinner.rotation.z = -w.spin;
     }
@@ -6706,11 +7023,7 @@ const Garage = {
     const look = this.look();
     this.model = buildCarModel(this.team, look);
     const grp = this.model.group;
-    // ruedas apoyadas: largo de suspensión en reposo
-    for (let i = 0; i < 4; i++) {
-      const w = CONFIG.car.wheels[i];
-      toThree(w.x, CAR_VIS_WHEEL_Y[i], w.front ? -4.5 : -2, this.model.wheels[i].pivot.position);
-    }
+    // ruedas apoyadas: el modelo ya las deja en su largo de suspensión en reposo
     // llama del turbo con el color elegido
     const bc = boostColorsFor(look, this.team);
     const fl = new THREE.Group();
@@ -6855,7 +7168,8 @@ const JumpLab = {
       L1.line.geometry.attributes.position.needsUpdate = true; L1.line.geometry.attributes.color.needsUpdate = true;
       L0.n = 0;
       this.cur = { t0: tick, n0: car.groundNormal.clone(), p0: car.pos.clone(), held: 0, releasedAt: -1, takeoff: -1, land: -1,
-        maxH: 0, h: 0, apex: car.pos.clone(), maxSpin: 0, second: '', vz0: 0, done: false };
+        maxH: 0, h: 0, apex: car.pos.clone(), maxSpin: 0, second: '', vz0: 0, done: false,
+        flipped: false, assist: false, flipDeg: 0, touch: -1, touchTilt: 0 };
     }
     const c = this.cur;
     if (c && !c.done) {
@@ -6869,6 +7183,14 @@ const JumpLab = {
       c.maxSpin = Math.max(c.maxSpin, car.angVel.length());
       if (!c.second && car.hasFlipped) c.second = 'dodge a ' + (t * DT).toFixed(2) + ' s';
       else if (!c.second && car.hasDoubleJumped) c.second = 'doble salto a ' + (t * DT).toFixed(2) + ' s';
+      // giro del flip (grados alrededor de su eje desde el dodge) hasta el primer toque con la cancha
+      if (car.hasFlipped && c.touch < 0) { c.flipped = true; c.flipDeg = car.flipSpin * 180 / Math.PI; }
+      if (car.flipAssistOn) c.assist = true;
+      // primer toque después de despegar (ruedas o caja): inclinación respecto de la superficie de despegue
+      if (c.takeoff >= 0 && c.touch < 0 && t > c.takeoff && (car.numContacts > 0 || car.worldContact)) {
+        c.touch = t;
+        c.touchTilt = Math.acos(clamp(car.rot.u.dot(c.n0), -1, 1)) * 180 / Math.PI;
+      }
       const L0 = this.lines[0];
       if (L0.n < this.MAXP && t % 2 === 0) {
         const pa = L0.line.geometry.attributes.position.array, ca = L0.line.geometry.attributes.color.array, i = L0.n * 3;
@@ -6905,6 +7227,8 @@ const JumpLab = {
       ['Giro ahora', car ? car.angVel.length().toFixed(2) + ' rad/s' : '—'],
       ['Giro máx.', c ? f(c.maxSpin) + ' rad/s' : '—'],
       ['Segundo salto', c && c.second ? c.second : '—'],
+      ['Giro del flip', c && c.flipped ? c.flipDeg.toFixed(0) + '°' + (c.assist ? ' (con ayuda)' : '') : '—'],
+      ['Ángulo al tocar el piso', c && c.touch >= 0 ? c.touchTilt.toFixed(0) + '°' : '—'],
     ];
     this.dl.innerHTML = rows.map((r) => '<dt>' + r[0] + '</dt><dd>' + r[1] + '</dd>').join('');
   },
@@ -7987,12 +8311,20 @@ const Menu = {
     }
     tc.appendChild(list);
     tc.appendChild(this.slider('Zona muerta del stick', 0.02, 0.4, 0.01, d.deadzone, (v) => (d.deadzone = v), (v) => v.toFixed(2)));
+    tc.appendChild(this.check('Ayuda de volteo', d.flipAssist, (v) => { d.flipAssist = v; Game.applyFlipAssist(); }));
+    const faInfo = document.createElement('p'); faInfo.className = 'nota';
+    faInfo.textContent = 'Solo para tu auto: después de un dodge el giro del flip no se frena hasta completar la vuelta o tocar la cancha, ' +
+      'y termina plano. No cambia la altura, el impulso ni el flip cancel. Apagada, la física es la de RocketSim; los bots nunca la usan.';
+    tc.appendChild(faInfo);
     const padInfo = document.createElement('p'); padInfo.className = 'nota';
     padInfo.innerHTML = 'Mando (Xbox / PlayStation): <b>RT</b> acelerar, <b>LT</b> reversa, stick izquierdo dirección/pitch/yaw, <b>A/✕</b> saltar, <b>B/○</b> turbo, ' +
       '<b>X/□</b> derrape y air roll, <b>Y/△</b> cámara de pelota, <b>LB/RB</b> air roll direccional, stick derecho girar la cámara, <b>Start</b> pausa, <b>Select</b> marcador.';
     tc.appendChild(padInfo);
     const rb = document.createElement('button'); rb.className = 'boton'; rb.textContent = 'Restablecer controles';
-    rb.addEventListener('click', () => { d.bindings = JSON.parse(JSON.stringify(DEFAULT_BINDINGS)); d.deadzone = CONFIG.input.deadzone; Settings.save(); this.buildSettings(); });
+    rb.addEventListener('click', () => {
+      d.bindings = JSON.parse(JSON.stringify(DEFAULT_BINDINGS)); d.deadzone = CONFIG.input.deadzone; d.flipAssist = false;
+      Settings.save(); Game.applyFlipAssist(); this.buildSettings();
+    });
     tc.appendChild(rb);
     // --- Cámara ---
     const cam = d.camera, tcam = document.getElementById('tab-camara');
@@ -8230,6 +8562,15 @@ const Game = {
   get world() { return this.match ? this.match.world : null; },
   get player() { return this.match ? this.match.human : null; },
   toMenu() { Menu.show(); },
+  /** Ayuda de volteo (ajuste): solo para el auto del jugador; los bots y el partido de fondo siempre van sin ella. */
+  applyFlipAssist(m = this.match, attract = this.attract) {
+    if (!m) return;
+    const on = !attract && !!(Settings.data && Settings.data.flipAssist);
+    for (const c of m.cars) {
+      c.flipAssist = on && c === m.human;
+      if (!c.flipAssist) c.flipAssistOn = false;
+    }
+  },
   /** Partido de bots de fondo en el menú principal. */
   startAttract() {
     this.startMatch({ mode: '2v2', difficulty: 'dificil', humanPlayer: false, seed: ((Math.random() * 1e9) | 0) + 1 }, true);
@@ -8245,6 +8586,7 @@ const Game = {
     this.match = new Match(Object.assign({ seed, playerName: Settings.data.playerName, botFactory: this.botFactory }, opts));
     const m = this.match;
     for (const c of m.cars) c.look = c === m.human ? sanitizeLook(Settings.data.garage) : botLook(c);
+    this.applyFlipAssist();
     this.views = m.cars.map((c) => new CarView(c));
     this.humanIndex = m.human ? m.cars.indexOf(m.human) : -1;
     if (!this.ballView) this.ballView = new BallView(m.world.ball); else this.ballView.ball = m.world.ball;
