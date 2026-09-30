@@ -744,6 +744,7 @@ node tools/smoke-rappel-bots.mjs <carpeta> [html]  # rappel de un aliado bot en 
 node tools/rappel-bots.mjs [rondas] [dificultad] [semilla]  # rondas solo de bots con el sitio arriba: cuántas con rappel, cuántas entran, tiempo colgados
 node tools/equilibrio.mjs [dificultad] [partidas] [semilla] [procesos] [--merodeadores N --vuelta S --brecha --cerca --semillas]  # % de rondas que gana el ataque, con las mismas semillas
 node tools/smoke-merodeadores.mjs <carpeta> [html]  # los merodeadores de Élite con P: fuera del sitio y cómo vuelven
+node tools/reaccion-bots.mjs [dificultades] [partidas] [semilla] [procesos]  # partidas solo de bots: desde que un bot ve a un enemigo, cuánto tarda en disparar y en acertar, cuánto gira y su % de acierto
 node tools/perf-partida.mjs [html...]  # llamadas de dibujo, triángulos y CPU con 10 operadores a la vista (con 5 cayendo y lo que cuesta grabar)
 node tools/mapslice.mjs <carpeta> # cortes cenitales del mapa por planta
 ```
