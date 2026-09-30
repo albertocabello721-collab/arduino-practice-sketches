@@ -94,7 +94,8 @@ const GradeShader = {
       if (uDmgDir.z > 0.0) {
         vec2 qa = vec2(q.x * uRes.x / uRes.y, q.y);
         float side = max(0.0, dot(qa / max(length(qa), 1e-4), uDmgDir.xy));
-        c = mix(c, c * vec3(1.75, 0.28, 0.22), uDmgDir.z * side * side * smoothstep(0.12, 0.62, length(qa)));
+        // (y algo de rojo sumado: sobre una pared oscura, multiplicar no se ve)
+        c = mix(c, c * vec3(1.75, 0.28, 0.22) + vec3(0.22, 0.015, 0.01), uDmgDir.z * side * side * smoothstep(0.12, 0.62, length(qa)));
       }
       c += uFlash;
       // humo alrededor de la cámara: velo gris que casi no deja ver

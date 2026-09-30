@@ -34,13 +34,16 @@ await page.evaluate(() => {
   window.__take = () => { const c = window.__calls; window.__calls = []; return c; };
 });
 // delante del maniquí 1 (quieto), a 5 m
-const aimAt = (bone) => page.evaluate((bone) => {
+const aimAt = (bone, fire = false) => page.evaluate(([bone, fire]) => {
   const bc = window.__bc, g = bc.game, d = g.operators.find((o) => o.id === 'm1'), p = bc.player;
   const B = { chest: 2, head: 4 }[bone];
   const q = d.rig[B].p, e = p.eyePos();
-  p.yaw = Math.atan2(-(q.x - e.x), -(q.z - e.z)); p.pitch = Math.atan2(q.y + (bone === 'head' ? 0.06 : 0) - e.y, Math.hypot(q.x - e.x, q.z - e.z));
+  // (a la cabeza, como apuntan los bots: 8 cm por encima de su hueso)
+  p.yaw = Math.atan2(-(q.x - e.x), -(q.z - e.z)); p.pitch = Math.atan2(q.y + (bone === 'head' ? 0.08 : 0) - e.y, Math.hypot(q.x - e.x, q.z - e.z));
   p.ads = 1; p.weapon.bloom = 0;
-}, bone);
+  p.recoilPending.pitch = p.recoilPending.yaw = 0; p.recoilOffset.pitch = p.recoilOffset.yaw = 0;
+  if (fire) bc.fire(1);
+}, [bone, fire]);
 await page.evaluate(() => {
   const bc = window.__bc, d = bc.game.operators.find((o) => o.id === 'm1');
   bc.place(d.body.pos.x + 3.2, 0.01, d.body.pos.z - 3.8, 0, 0);
@@ -48,17 +51,16 @@ await page.evaluate(() => {
 await frames(20);
 await aimAt('chest');
 await frames(2);
-await page.evaluate(() => { window.__take(); window.__bc.fire(1); });
-await frames(3);
-const j = await page.evaluate(() => { const bc = window.__bc, d = bc.game.operators.find((o) => o.id === 'm1'), v = bc.ctx.chars.views.get(d.id); return { tirón: !!(v && v.jolt), vida: d.hp, sonidos: window.__take() }; });
+// (el tirón dura 0,16 s: se mira en el mismo instante del disparo)
+const j = await page.evaluate(() => { const bc = window.__bc, d = bc.game.operators.find((o) => o.id === 'm1'), v = bc.ctx.chars.views.get(d.id); window.__take(); bc.fire(1); return { tirón: !!(v && v.jolt), vida: d.hp, sonidos: window.__take() }; });
 await shot('i1_cuerpo_polvo', 1);
 console.log('al cuerpo:', JSON.stringify(j));
 check(j.sonidos.some((c) => c[0] === 'hitConfirm' && c[1] === 'hit'), 'al cuerpo no suena el aviso de cuerpo');
 check(j.tirón, 'el maniquí no da el tirón');
 await frames(30);
-await aimAt('head');
-await frames(2);
-await page.evaluate(() => { window.__take(); window.__bc.fire(1); });
+// (apuntar y disparar en el mismo instante: en un par de fotogramas el maniquí se mueve)
+await page.evaluate(() => window.__take());
+await aimAt('head', true);
 await frames(3);
 const h = await page.evaluate(() => ({ sonidos: window.__take(), estado: window.__bc.game.operators.find((o) => o.id === 'm1').state }));
 console.log('a la cabeza:', JSON.stringify(h));
