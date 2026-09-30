@@ -4568,6 +4568,202 @@ Tests.add('Extra N. Derrape con X (en macOS Ctrl + flechas cambia de escritorio)
       '; si ya se guardó con la versión nueva no se vuelve a agregar: ' + kept };
 });
 
+// ---- Ronda 3: porterías, barrido de atascos, latencia del salto, modelo y caja de colisión ----
+/**
+ * Coloca un auto en reposo sobre la superficie que encuentra un rayo desde o en la dirección d, con "arriba" = normal
+ * de la superficie y la nariz a ang radianes de "hacia abajo" (en techo o piso: de +x). Devuelve false si no hay superficie.
+ */
+const _sweepHit = { t: 0, x: 0, y: 0, z: 0, nx: 0, ny: 0, nz: 0 };
+function placeOnSurface(car, o, d, ang) {
+  if (!arenaRaycast(o[0], o[1], o[2], d[0], d[1], d[2], 3000, _sweepHit)) return false;
+  const h = _sweepHit, n = new V3(h.nx, h.ny, h.nz);
+  const ref = new V3(0, 0, -1).addScaled(n, n.z);
+  if (ref.length() < 0.3) ref.set(1, 0, 0).addScaled(n, -n.x);
+  ref.normalize();
+  const side = new V3().crossVectors(n, ref);
+  const f = ref.clone().scale(Math.cos(ang)).addScaled(side, Math.sin(ang)).normalize();
+  const p = new V3(h.x, h.y, h.z).addScaled(n, CONFIG.car.restZ + 1);
+  car.resetState();
+  car.pos.copy(p); car.prevPos.copy(p); car.rot.f.copy(f); car.rot.u.copy(n); car.rot.orthonormalize(); car.prevRot.copy(car.rot);
+  car.vel.set(0, 0, 0); car.angVel.set(0, 0, 0);
+  return true;
+}
+/** Superficies del barrido: porterías (fondo, laterales, techo, piso y tapas junto a los postes) y cancha. */
+function sweepCases() {
+  const cases = [], add = (label, o, d) => cases.push({ label, o, d });
+  for (const sg of [1, -1]) {
+    const YB = AR.YB, YG = AR.YG, W = AR.W;
+    for (const z of [60, 150, 250, 350, 450, 550, 610]) for (const x of [-600, -250, 0, 350, 700]) add('portería, fondo', [x, sg * (YG - 300), z], [0, sg, 0]);
+    for (const sx of [1, -1]) for (const z of [60, 150, 250, 350, 450, 550, 610]) for (const y of [YB + 60, YB + 250, YB + 450, YB + 650, YB + 830]) add('portería, lateral', [sx * (W - 300), sg * y, z], [sx, 0, 0]);
+    for (const x of [-700, -300, 0, 300, 700]) for (const y of [YB + 60, YB + 300, YB + 550, YB + 820]) add('portería, techo', [x, sg * y, 300], [0, 0, 1]);
+    for (const x of [-800, 0, 800]) for (const y of [YB - 350, YB - 100, YB + 200, YB + 500, YB + 800]) add('portería, piso', [x, sg * y, 300], [0, 0, -1]);
+    for (const sx of [1, -1]) for (const y of [AR.Yq + 120, AR.Yq + 260, AR.Yq + 380, YB - 40]) for (const z of [30, 120, 250, 400]) add('tapa junto al poste', [sx * (W - 250), sg * y, z], [sx, 0, 0]);
+    for (const x of [-3000, -1800, -1100, 1100, 1800, 3000]) for (const z of [40, 200, 500, 1000, 1600, 1950]) add('cancha, pared de fondo', [x, sg * (YB - 600), z], [0, sg, 0]);
+    for (const x of [-900, -400, 0, 400, 900]) for (const z of [700, 1000, 1500, 1950]) add('cancha, fondo sobre la portería', [x, sg * (YB - 600), z], [0, sg, 0]);
+    for (const sx of [1, -1]) for (const z of [40, 300, 900, 1600]) add('cancha, chaflán', [sx * 3300, sg * 4300, z], [sx * INV_SQRT2, sg * INV_SQRT2, 0]);
+    for (const sx of [1, -1]) for (const y of [0, 1800, 3600]) for (const z of [40, 300, 900, 1600, 1950]) add('cancha, pared lateral', [sx * 3500, sg * y, z], [sx, 0, 0]);
+    for (const x of [-3000, 0, 3000]) for (const y of [300, 2500, 4500]) add('cancha, techo', [x, sg * y, 1500], [0, 0, 1]);
+  }
+  return cases;
+}
+/**
+ * Barrido de atascos: cada superficie × 8 orientaciones × acelerador y reversa, T segundos. Atasco = una ventana de 2 s
+ * en que el auto se mueve menos de 30 uu sin estar apoyado con 3 ruedas en el piso.
+ */
+async function stuckSweep(T = 4) {
+  const w = new World({ ball: false });
+  const car = w.addCar(new Car(0, 0, 'barrido'));
+  const bad = [];
+  let total = 0, n = 0;
+  const WIN = 2, SAMPLE = 12, back = Math.round(WIN * TICK_RATE / SAMPLE);
+  const hx = new Float32Array(64), hy = new Float32Array(64), hz = new Float32Array(64), hok = new Uint8Array(64);
+  for (const c of sweepCases()) for (let k = 0; k < 8; k++) for (const thr of [1, -1]) {
+    if (!placeOnSurface(car, c.o, c.d, k * Math.PI / 4)) continue;
+    total++;
+    car.controls.reset(); car.controls.throttle = thr;
+    let m = 0, stuck = false;
+    for (let i = 0; i < T * TICK_RATE && !stuck; i++) {
+      w.step();
+      if (i % SAMPLE !== SAMPLE - 1) continue;
+      hx[m] = car.pos.x; hy[m] = car.pos.y; hz[m] = car.pos.z; hok[m] = car.numContacts >= 3 && car.rot.u.z > 0.7 ? 1 : 0; m++;
+      if (m > back) {
+        const a = m - 1 - back;
+        stuck = true;
+        for (let j = a; j < m; j++) if (hok[j] || Math.hypot(hx[j] - hx[a], hy[j] - hy[a], hz[j] - hz[a]) > 30) { stuck = false; break; }
+      }
+    }
+    if (stuck) bad.push(c.label + ' en (' + c.o.join(', ') + '), orientación ' + (k * 45) + '°, ' + (thr > 0 ? 'acelerador' : 'reversa') +
+      ': quieto en (' + car.pos.x.toFixed(0) + ', ' + car.pos.y.toFixed(0) + ', ' + car.pos.z.toFixed(0) + ')');
+    if (++n % 400 === 0) await new Promise((r) => setTimeout(r, 0));
+  }
+  return { total, bad };
+}
+Tests.add('Nueva 7. Porterías: nariz hacia el piso con acelerador (o hacia arriba con reversa) llega al piso con 3 ruedas en menos de 2 s', () => {
+  const w = new World({ ball: false });
+  const car = w.addCar(new Car(0, 0, 'portería'));
+  let total = 0, worst = 0, where = '', fails = [];
+  for (const sg of [1, -1]) {
+    const spots = [];
+    for (const z of [150, 350, 550]) for (const x of [-500, 0, 500]) spots.push(['fondo', [x, sg * (AR.YG - 300), z], [0, sg, 0]]);
+    for (const sx of [1, -1]) for (const z of [150, 350, 550]) for (const y of [AR.YB + 200, AR.YB + 440, AR.YB + 700]) spots.push(['lateral', [sx * (AR.W - 300), sg * y, z], [sx, 0, 0]]);
+    for (const [label, o, d] of spots) for (const [ang, thr] of [[0, 1], [Math.PI, -1]]) {
+      if (!placeOnSurface(car, o, d, ang)) { fails.push(label + ' sin superficie'); continue; }
+      car.controls.reset(); car.controls.throttle = thr;
+      let t = -1;
+      for (let i = 0; i < 2 * TICK_RATE; i++) { w.step(); if (car.numContacts >= 3 && car.rot.u.z > 0.7) { t = (i + 1) * DT; break; } }
+      total++;
+      if (t < 0) fails.push((sg > 0 ? 'naranja' : 'azul') + ', ' + label + ' z=' + o[2] + (thr > 0 ? ' acelerador' : ' reversa'));
+      else if (t > worst) { worst = t; where = (sg > 0 ? 'naranja' : 'azul') + ', ' + label + ' z=' + o[2]; }
+    }
+  }
+  return { pass: fails.length === 0 && total === 108,
+    detail: total + ' casos (2 porterías × fondo y laterales × alturas 150/350/550 × acelerador y reversa); ' + (fails.length ? 'no llegan: ' + fails.slice(0, 6).join('; ') :
+      'todos llegan; el más lento ' + worst.toFixed(2) + ' s (' + where + '). Hacia arriba o desde el techo la física no permite 2 s: ver la prueba siguiente') };
+});
+Tests.add('Nueva 7b. Porterías: hacia arriba, de lado o desde el techo el auto nunca queda atascado y vuelve al piso', () => {
+  const w = new World({ ball: false });
+  const car = w.addCar(new Car(0, 0, 'portería'));
+  let total = 0, stuck = [], never = 0, worst = 0;
+  for (const sg of [1, -1]) {
+    const spots = [];
+    for (const z of [150, 350, 550]) for (const x of [-500, 0, 500]) spots.push(['fondo', [x, sg * (AR.YG - 300), z], [0, sg, 0]]);
+    for (const sx of [1, -1]) for (const z of [150, 350, 550]) for (const y of [AR.YB + 200, AR.YB + 440, AR.YB + 700]) spots.push(['lateral', [sx * (AR.W - 300), sg * y, z], [sx, 0, 0]]);
+    for (const x of [-500, 0, 500]) for (const y of [AR.YB + 200, AR.YB + 440, AR.YB + 700]) spots.push(['techo', [x, sg * y, 300], [0, 0, 1]]);
+    for (const [label, o, d] of spots) for (const [ang, thr] of [[0, -1], [Math.PI, 1], [Math.PI / 2, 1], [Math.PI / 2, -1]]) {
+      if (label === 'techo' && ang !== 0 && ang !== Math.PI) continue;
+      if (!placeOnSurface(car, o, d, ang)) continue;
+      car.controls.reset(); car.controls.throttle = thr;
+      let last = car.pos.clone(), quiet = 0, tFloor = -1, isStuck = false;
+      for (let i = 0; i < 6 * TICK_RATE; i++) {
+        w.step();
+        const ok = car.numContacts >= 3 && car.rot.u.z > 0.7;
+        if (ok && tFloor < 0) tFloor = (i + 1) * DT;
+        if (i % 12 === 11) { const dd = car.pos.distanceTo(last); last.copy(car.pos); quiet = (dd < 10 && !ok) ? quiet + 0.1 : 0; if (quiet > 2) { isStuck = true; break; } }
+      }
+      total++;
+      if (isStuck) stuck.push((sg > 0 ? 'naranja' : 'azul') + ', ' + label + ' z=' + o[2]);
+      if (tFloor < 0) never++; else worst = Math.max(worst, tFloor);
+    }
+  }
+  return { pass: stuck.length === 0 && total > 150,
+    detail: total + ' casos; atascos: ' + (stuck.length ? stuck.slice(0, 6).join('; ') : '0') + '; vuelven al piso con 3 ruedas en ' + (total - never) + ' (el más lento ' +
+      worst.toFixed(2) + ' s); ' + never + ' siguen andando por paredes y techo a los 6 s (pasan al techo por la curva, se sueltan a 0.5 g < g y caen, como en RocketSim)' };
+});
+Tests.add('Nueva 8. Barrido de atascos en toda la cancha y las dos porterías: ningún caso', async () => {
+  const r = await stuckSweep(4);
+  return { pass: r.total > 8000 && r.bad.length === 0,
+    detail: r.total + ' casos (superficies × 8 orientaciones × acelerador y reversa, 4 s cada uno): ' + (r.bad.length ? r.bad.length + ' atascos: ' + r.bad.slice(0, 5).join('; ') : '0 atascos') };
+}, true);
+Tests.add('Nueva 9. Latencia: el salto empieza en el tick siguiente al keydown', () => {
+  const prevData = Settings.data, prevActive = Input.gameActive;
+  if (!Settings.data) Settings.data = Settings.defaults();
+  const m = new Match({ mode: 'practica', seed: 5, headless: true, botFactory: makeBot });
+  const car = m.human, ctl = new Controls();
+  for (let i = 0; i < TICK_RATE; i++) { Input.sample(ctl); m.tick(ctl); }
+  const before = { jumping: car.isJumping, vz: car.vel.z, tick: m.world.tick };
+  Input.down.clear(); Input.latch.clear(); Input.gameActive = true;
+  const code = Settings.data.bindings.saltar[0];
+  let prevented = false;
+  Input.onKeyDown({ code, repeat: false, preventDefault() { prevented = true; } });
+  // lo mismo que Game.tick: se muestrea la entrada y se avanza un tick de física
+  Input.sample(ctl); m.tick(ctl);
+  const after = { jumping: car.isJumping, vz: car.vel.z, tick: m.world.tick };
+  Input.onKeyUp({ code, preventDefault() {} });
+  Input.sample(ctl); m.tick(ctl);
+  Input.gameActive = prevActive; Settings.data = prevData; Input.down.clear(); Input.latch.clear();
+  const pass = !before.jumping && after.jumping && after.tick === before.tick + 1 && after.vz > 250 && prevented;
+  return { pass, detail: 'tick ' + before.tick + ': sin salto (vz ' + before.vz.toFixed(1) + ' uu/s) → keydown de ' + keyLabel(code) + ' → tick ' + after.tick +
+    ': saltando, vz ' + after.vz.toFixed(1) + ' uu/s; el navegador no recibe la tecla (preventDefault): ' + prevented };
+});
+Tests.add('Nueva 10. Modelo 3D y caja de colisión alineados en 100 rotaciones al azar (las tres carrocerías)', async () => {
+  // estas pruebas corren sin render: se carga Three.js solo para construir los modelos
+  if (!THREE) THREE = await import('three');
+  if (!mergeGeometries) mergeGeometries = (await import('three/addons/utils/BufferGeometryUtils.js')).mergeGeometries;
+  if (!_qa.q0) initRenderTemps();
+  const H = CONFIG.car.hitboxHalf, O = CONFIG.car.hitboxOffset, rng = new Rng(2025);
+  const box = { x0: O[0] - H[0], x1: O[0] + H[0], y0: O[1] - H[1], y1: O[1] + H[1], z0: O[2] - H[2], z1: O[2] + H[2] };
+  const rows = [];
+  let worstCorner = 0, worstCenter = 0, fitOk = true;
+  const tv = new THREE.Vector3(), pv = new V3(), pw = new V3();
+  for (let bi = 0; bi < CAR_BODIES.length; bi++) {
+    const model = buildCarModel(0, { body: bi, primary: 0, secondary: 0, boost: 0 });
+    const g = model.group;
+    // caja de la carrocería medida en la geometría real (pintura + cabina), en coordenadas locales de física
+    const bb = new THREE.Box3();
+    g.children.forEach((ch) => { if (ch.isMesh && (ch.userData.part === 'paint' || ch.userData.part === 'glass')) { ch.geometry.computeBoundingBox(); bb.union(ch.geometry.boundingBox); } });
+    const b = { x0: bb.min.x * 100, x1: bb.max.x * 100, y0: -bb.max.z * 100, y1: -bb.min.z * 100, z0: bb.min.y * 100, z1: bb.max.y * 100 };
+    const inside = b.x0 >= box.x0 - 0.5 && b.x1 <= box.x1 + 0.5 && b.y0 >= box.y0 - 0.5 && b.y1 <= box.y1 + 0.5 && b.z0 >= box.z0 - 1.5 && b.z1 <= box.z1 + 0.5;
+    const cover = Math.min((b.x1 - b.x0) / (box.x1 - box.x0), (b.y1 - b.y0) / (box.y1 - box.y0), (b.z1 - b.z0) / (box.z1 - box.z0));
+    if (!inside || cover < 0.9) fitOk = false;
+    rows.push(CAR_BODIES[bi].name + ': carrocería x ' + b.x0.toFixed(1) + '…' + b.x1.toFixed(1) + ', y ±' + b.y1.toFixed(1) + ', z ' + b.z0.toFixed(1) + '…' + b.z1.toFixed(1) +
+      ' (cubre ' + (cover * 100).toFixed(0) + '% de la caja)');
+    const bc = new V3((b.x0 + b.x1) / 2, (b.y0 + b.y1) / 2, (b.z0 + b.z1) / 2);
+    for (let k = 0; k < 100; k++) {
+      // rotación al azar (eje al azar y ángulo al azar) y posición al azar
+      const rot = new Basis();
+      const ax = new V3(rng.range(-1, 1), rng.range(-1, 1), rng.range(-1, 1)).normalize();
+      rot.rotate(ax.scale(rng.range(0, Math.PI)), 1);
+      const pos = new V3(rng.range(-3000, 3000), rng.range(-4000, 4000), rng.range(20, 1800));
+      placeCarGroup(g, pos, rot);
+      g.updateMatrixWorld(true);
+      // esquinas de la caja: la del modelo (helper de F3) contra la de la física
+      for (let c = 0; c < 8; c++) {
+        const lx = O[0] + (c & 1 ? H[0] : -H[0]), ly = O[1] + (c & 2 ? H[1] : -H[1]), lz = O[2] + (c & 4 ? H[2] : -H[2]);
+        rot.toWorld(lx, ly, lz, pw).add(pos);
+        toThree(lx - O[0], ly - O[1], lz - O[2], tv); tv.applyMatrix4(model.hitbox.matrixWorld);
+        worstCorner = Math.max(worstCorner, Math.hypot(tv.x * 100 - pw.x, -tv.z * 100 - pw.y, tv.y * 100 - pw.z));
+      }
+      // centro de la carrocería del modelo contra el centro de la caja de la física
+      rot.toWorld(O[0], O[1], O[2], pw).add(pos);
+      toThree(bc.x, bc.y, bc.z, tv); tv.applyMatrix4(g.matrixWorld);
+      pv.set(tv.x * 100, -tv.z * 100, tv.y * 100);
+      worstCenter = Math.max(worstCenter, pv.distanceTo(pw));
+    }
+  }
+  const pass = fitOk && worstCorner < 0.05 && worstCenter < 4;
+  return { pass, detail: rows.join('; ') + '. En 300 rotaciones: esquinas de la caja del modelo vs física, error máx ' + worstCorner.toFixed(4) +
+    ' uu; centro de la carrocería vs centro de la caja, máx ' + worstCenter.toFixed(2) + ' uu (el modelo gira alrededor del centro de masa)' };
+});
 Tests.add('Extra L. Los bots rotan: dos compañeros no van a la misma pelota', () => {
   const m = new Match({ mode: '3v3', difficulty: 'normal', seed: 77, headless: true, humanPlayer: false, botFactory: makeBot });
   let ticks = 0, overlap = 0, playing = 0, backTicks = 0;
@@ -5226,7 +5422,7 @@ const CAR_BODIES = [
       [-24, 3, 16, 30, 35, 42.5, 37.5], [-10, 2.5, 15, 28, 34, 40, 35], [10, 2.5, 13.5, 25, 34, 39, 34],
       [30, 2.5, 12, 22, 34, 39.5, 33], [44, 3, 11.5, 19.5, 34, 41.5, 33], [51.25, 7, 13, 18.5, 34, 43, 33],
       [60, 3, 10, 16, 33, 41, 31], [68, 3.5, 8.5, 12.5, 30, 37, 27], [73.8, 5, 7, 9, 22, 26, 18]],
-    cabin: { xs: [22, -2, -22, -42], zRoof: 36.5, wBelt: 31, wRoof: 22 },
+    cabin: { xs: [22, -4, -22, -42], zRoof: 38.8, wBelt: 31, wRoof: 22 },
     wing: { x0: -46, x1: -35, z: 42.3, w: 41, strutY: 24, t: 1.8 },
     head: { x: 71, y0: 12, y1: 26, z0: 9.5, z1: 12 }, tail: { y0: 10, y1: 36, z0: 26, z1: 28.5 }, extras: ['tomas', 'capo'] },
   { id: 'brava', name: 'Brava', desc: 'Rally cuadrado: cabina alta, faros extra y toma en el techo.',
@@ -5506,7 +5702,9 @@ function buildCarModel(team, lookIn) {
   parts.dark.push(prepGeo(noz));
   for (const key of Object.keys(parts)) {
     if (!parts[key].length) continue;
-    group.add(new THREE.Mesh(mergeParts(parts[key]), M[key]));
+    const mesh = new THREE.Mesh(mergeParts(parts[key]), M[key]);
+    mesh.userData.part = key;
+    group.add(mesh);
   }
   const glowGeo = new THREE.CircleGeometry(6 * INV_UU, 14);
   glowGeo.rotateY(-Math.PI / 2);
