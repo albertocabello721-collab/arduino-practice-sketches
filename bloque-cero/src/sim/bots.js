@@ -35,9 +35,10 @@ import { angleDiff, clamp } from '../core/math.js';
 import { BONE } from './skeleton.js';
 import { shieldFaces } from './abilities.js';
 import { KIT } from './weapons.js';
+import { Aim, Trails, sightAge, peripheralDelay, AIM } from './ai/aim.js';
 
-// Dificultad (tabla de IA del documento): reacción, error inicial de puntería (grados) que
-// se corrige mientras sigue al blanco, y lo que sabe hacer cada nivel.
+// Dificultad (tabla de IA del documento): reacción, error de puntería (grados) una vez asentado
+// (el de los primeros disparos es mayor: ver HUMAN_AIM), y lo que sabe hacer cada nivel.
 //   novato   · no dispara a través de paredes ni flanquea
 //   normal   · lo básico
 //   veterano · pre-disparo en esquinas conocidas, dispara a paredes blandas si oye pasos
@@ -48,11 +49,27 @@ import { KIT } from './weapons.js';
 const DEG = Math.PI / 180;
 const FOV = 50 * DEG;       // cono de visión de 100°
 export const DIFFICULTY = {
-  novato: { label: 'Novato', react: 0.70, aimErr: 1.8 * DEG, settle: 0.9, turn: 3.0, burst: 0.28, pause: [0.55, 1.0], fov: FOV, range: 26, head: 0.08, recoil: 0.4, hearing: 0.8, wallbang: 0, strafe: 0.1, prefire: 0.2, flank: 0, reposition: 0, kit: 0, kitLate: [0, 0], kitErr: 0, coord: 0 },
-  normal: { label: 'Normal', react: 0.45, aimErr: 1.0 * DEG, settle: 0.6, turn: 4.4, burst: 0.38, pause: [0.35, 0.7], fov: FOV, range: 34, head: 0.18, recoil: 0.6, hearing: 1.0, wallbang: 0, strafe: 0.3, prefire: 0.4, flank: 0.3, reposition: 0.35, kit: 0.45, kitLate: [0.6, 1.6], kitErr: 1.0, coord: 0 },
-  veterano: { label: 'Veterano', react: 0.30, aimErr: 0.6 * DEG, settle: 0.45, turn: 6.0, burst: 0.48, pause: [0.25, 0.5], fov: FOV, range: 42, head: 0.28, recoil: 0.75, hearing: 1.15, wallbang: 0.6, strafe: 0.6, prefire: 0.8, flank: 0.4, reposition: 0.65, kit: 0.75, kitLate: [0.2, 0.7], kitErr: 0.5, coord: 0.5 },
-  elite: { label: 'Élite', react: 0.22, aimErr: 0.35 * DEG, settle: 0.35, turn: 7.5, burst: 0.55, pause: [0.18, 0.4], fov: FOV, range: 48, head: 0.38, recoil: 0.85, hearing: 1.3, wallbang: 0.8, strafe: 0.8, prefire: 1.0, flank: 0.6, reposition: 1.0, kit: 0.85, kitLate: [0, 0.15], kitErr: 0.2, coord: 1 },
+  novato: { label: 'Novato', react: 0.70, aimErr: 1.8 * DEG, turn: 3.0, burst: 0.28, pause: [0.55, 1.0], fov: FOV, range: 26, head: 0.08, hearing: 0.8, wallbang: 0, strafe: 0.1, prefire: 0.2, flank: 0, reposition: 0, kit: 0, kitLate: [0, 0], kitErr: 0, coord: 0 },
+  normal: { label: 'Normal', react: 0.45, aimErr: 1.0 * DEG, turn: 4.4, burst: 0.38, pause: [0.35, 0.7], fov: FOV, range: 34, head: 0.18, hearing: 1.0, wallbang: 0, strafe: 0.3, prefire: 0.4, flank: 0.3, reposition: 0.35, kit: 0.45, kitLate: [0.6, 1.6], kitErr: 1.0, coord: 0 },
+  veterano: { label: 'Veterano', react: 0.30, aimErr: 0.6 * DEG, turn: 6.0, burst: 0.48, pause: [0.25, 0.5], fov: FOV, range: 42, head: 0.28, hearing: 1.15, wallbang: 0.6, strafe: 0.6, prefire: 0.8, flank: 0.4, reposition: 0.65, kit: 0.75, kitLate: [0.2, 0.7], kitErr: 0.5, coord: 0.5 },
+  elite: { label: 'Élite', react: 0.22, aimErr: 0.35 * DEG, turn: 7.5, burst: 0.55, pause: [0.18, 0.4], fov: FOV, range: 48, head: 0.38, hearing: 1.3, wallbang: 0.8, strafe: 0.8, prefire: 1.0, flank: 0.6, reposition: 1.0, kit: 0.85, kitLate: [0, 0.15], kitErr: 0.2, coord: 1 },
 };
+// Puntería humana (F10.6, ai/aim.js). `react` (s) es desde que ve al enemigo hasta que empieza a
+// girar (±20 %, hasta 0,1 s más si aparece en el borde de su vista); `aimSpeed` (°/s) es lo más
+// rápido que gira; en giros de más de 15°, la mitad de las veces se pasa un `overshoot` [mín, máx]
+// del giro, y acaba con un error de `scatter` × el giro. Al terminar el giro, el error sobre el
+// blanco es `firstErr` y baja mientras lo sigue hasta `aimErr` (el del documento) en `settleT` s.
+// Ve al blanco con `lag` s de retraso (si cambias de dirección, tarda eso en notarlo); corrige con
+// una ganancia `aimKp` (1/s); tras un giro de más de 20° espera `flickWait` s antes de disparar.
+// Retroceso: compensa de antemano `recoil` y el resto lo ve con `recoilLag` s de retraso.
+// (`turn`, en rad/s, es lo que gira fuera del combate: vigilar, drones, gadgets, paredes.)
+const HUMAN_AIM = {
+  novato: { firstErr: 4.0 * DEG, settleT: 1.0, aimSpeed: 250, overshoot: [0.08, 0.12], scatter: 0.06, lag: 0.20, aimKp: 6, flickWait: 0.20, recoil: 0.20, recoilLag: 0.25 },
+  normal: { firstErr: 2.8 * DEG, settleT: 0.8, aimSpeed: 350, overshoot: [0.06, 0.10], scatter: 0.05, lag: 0.16, aimKp: 8, flickWait: 0.15, recoil: 0.35, recoilLag: 0.22 },
+  veterano: { firstErr: 2.0 * DEG, settleT: 0.65, aimSpeed: 450, overshoot: [0.04, 0.08], scatter: 0.04, lag: 0.13, aimKp: 11, flickWait: 0.11, recoil: 0.50, recoilLag: 0.18 },
+  elite: { firstErr: 1.4 * DEG, settleT: 0.5, aimSpeed: 550, overshoot: [0.03, 0.06], scatter: 0.03, lag: 0.10, aimKp: 14, flickWait: 0.08, recoil: 0.65, recoilLag: 0.15 },
+};
+for (const [k, v] of Object.entries(HUMAN_AIM)) Object.assign(DIFFICULTY[k], v);
 // Merodeadores de la defensa (F10.1): cuántos (`roamers`, si hay al menos 3 bots y siempre con
 // 2 anclas), cuándo vuelven al sitio (`roamBack`: segundos que quedan de ronda; también al saber
 // que hay atacantes en el sitio), si vuelven al oír una brecha del ataque en el sitio
@@ -99,6 +116,7 @@ export class BotSquad {
     this.insideOnly = (n) => (this.isOutsideNode(n) ? 500 : 0);
     this.sightings = [new Map(), new Map()];   // enemigo → última vez que alguien del equipo lo vio
     this.shotAt = new Map();                   // operador → cuándo disparó por última vez
+    this.trails = new Trails();                // las últimas posiciones de todos (puntería: ai/aim.js)
     this._lastOne = [false, false];
     this._subs = [];
     this._bind();
@@ -117,6 +135,12 @@ export class BotSquad {
     const g = this.game, m = this.match;
     const on = (em, ev, fn) => this._subs.push(em.on(ev, fn));
     on(g, 'shot', (op, w, eye) => { this.shotAt.set(op, g.time); this._noise(op, eye, 'shot', w.def.suppressed ? 45 * KIT.suppressedHearing : 45); });   // (con supresor, 15 m)
+    // (puntería, ai/aim.js: dónde se acaba de romper algo; de una bala, cada vóxel que se lleva)
+    on(g, 'voxels', (list, cause, point) => {
+      const w = g.world;
+      if (list.length <= 8) for (const v of list) this.trails.changed({ x: w.wx(v.x), y: w.wy(v.y), z: w.wz(v.z) }, g.time);
+      else if (point) this.trails.changed(point, g.time);
+    });
     on(g, 'footstep', (op, mat, loud) => this._noise(op, op.body.pos, 'step', 3 + 20 * loud));
     on(g, 'melee', (op, info) => this._noise(op, (info && info.point) || op.body.pos, 'melee', 14));
     on(g, 'vault', (op) => this._noise(op, op.body.pos, 'vault', 9));
@@ -371,6 +395,7 @@ export class BotSquad {
   reset() {
     for (const B of this.brains.values()) B.mover.stop();
     this.brains.clear();
+    this.trails.clear();
     this.boards[0].reset(); this.boards[1].reset();
     this.radio.reset();
     this.sightings[0].clear(); this.sightings[1].clear();
@@ -548,6 +573,7 @@ export class BotSquad {
     if ((phase === 'action' || phase === 'planted') && !this.atkPlan) this._planAttack();
     this.holdBudget = 1;          // como mucho un cálculo de punto de guardia por tick (son caros)
     this._assignPickup();
+    this.trails.record(this.game.operators);
     for (const B of this.brains.values()) B.update(dt, phase);
   }
 
@@ -592,8 +618,10 @@ class Brain {
     this.target = null;
     this.drone = null;
     this.lostT = 0;
-    this.seeT = 0; this.react = 0; this.burst = 0; this.pause = 0; this.semi = false;
-    this.aim = { x: 0, y: 0, vx: 0, vy: 0, gx: 0, gy: 0, jT: 0, t0: -1, head: false };
+    this.burst = 0; this.pause = 0; this.semi = false;
+    this.aim = new Aim(this);     // puntería humana: reacción, giro rápido, seguimiento (ai/aim.js)
+    this.vis = new Map();         // enemigo a la vista → {since: desde cuándo lo ve, last}
+    this.fightAt = -9;            // última vez que combatía (para cambiar de blanco en pleno combate)
     this.strafe = 0; this.strafeT = 0;
     this.thinkT = this.rng.next() * 0.2;
     this.underFire = -9;
@@ -633,11 +661,14 @@ class Brain {
     I.holdWound = false;
     if (op.frozen) { I.moveX = 0; I.moveZ = 0; this._droneTick(dt); return; }
     this._perceive(dt);
+    this.aim.tick(dt);
     this.thinkT -= dt;
     if (this.thinkT <= 0) { this.thinkT = 0.2; this._think(phase); }
     kitThink(this, dt);
     defKitThink(this, dt);
     this._act(dt, phase);
+    // (reaccionando a un enemigo nuevo sigue con lo suyo, pero sin dispararle todavía)
+    if (this.target && this.aim.reacting) I.fire = false;
     gasTick(this, dt);
     // aviso de escaneo: quieto mientras dure (puede girarse y disparar, pero no moverse)
     if (scanFrozen(this)) { I.moveX = 0; I.moveZ = 0; I.sprint = false; return; }
@@ -680,6 +711,13 @@ class Brain {
     const op = this.op, now = this.game.time;
     const enemies = this.sq.enemiesOf(this.team);
     if (this.per.scan(dt, enemies)) {
+      // desde cuándo ve a cada uno (si lo acaba de descubrir, desde cuándo lo habría visto)
+      for (const t of this.per.visible) {
+        const v = this.vis.get(t);
+        if (v && now - v.last < 0.3) v.last = now;
+        else this.vis.set(t, { since: now - sightAge(this, t), last: now });
+      }
+      for (const [t, v] of this.vis) if (now - v.last > 1) this.vis.delete(t);
       for (const t of this.per.visible) {
         if (t.state === 'alive') this.sq.sighted(op, t);
         const last = this.reported.get(t);
@@ -694,6 +732,7 @@ class Brain {
       this.lostT += dt;
       if (this.lostT > 0.45) this.target = null;
     } else this.lostT = 0;
+    if (!this.target && this.aim.tgt) this.aim.clear();
     void op;
   }
 
@@ -716,7 +755,16 @@ class Brain {
     }
     if (!best) return;
     if (this.target && this.target !== best && cur < Infinity && bs > cur * 0.6) return;   // no cambiar sin motivo
-    if (this.target !== best) { this.target = best; this.seeT = 0; this.react = 0; this.aim.t0 = -1; }
+    if (this.target !== best) {
+      // reacción: desde que lo ve (±20 %, algo más si aparece en el borde de la vista); cambiar de
+      // blanco en pleno combate cuesta al menos la mitad
+      const now = this.game.time, D = this.diff, prev = this.target;
+      const v = this.vis.get(best), seenFor = v ? now - v.since : 0;
+      const base = D.react * (0.8 + 0.4 * this.rng.next()) + peripheralDelay(this.op, best);
+      const switching = !!prev || now - this.fightAt < 1.5;
+      this.target = best;
+      this.aim.acquire(best, switching ? Math.max(AIM.switchK * base, base - seenFor) : Math.max(0, base - seenFor));
+    }
   }
 
   // Defensa: drones enemigos a la vista (o que se oyen muy cerca).
@@ -850,11 +898,11 @@ class Brain {
     }
     return false;
   }
-  _boardNear(maxD) {
+  _boardNear(maxD, skip = null) {
     const p = this.op.body.pos, now = this.game.time;
     let best = null, bd = maxD;
     for (const k of this.board.recent(now, 2.5)) {
-      if (!k.precise) continue;
+      if (!k.precise || k.op === skip) continue;
       const d = Math.hypot(k.x - p.x, (k.y - p.y) * 2, k.z - p.z);
       if (d < bd) { bd = d; best = k; }
     }
@@ -912,8 +960,9 @@ class Brain {
     // (un gadget para el combate —la granada de impacto tras el plantado— va antes que disparar)
     if (this.kit && this.kit.act && this.kit.act.combat && runAct(this, dt)) return;
     if (this.target && !channel) {
-      this._fight(dt);
-      return;
+      // (un enemigo nuevo mientras hacía otra cosa: mientras reacciona sigue con lo suyo, sin
+      // girarse hacia él ni dispararle; si ya combatía, se queda en posición sin girarse aún)
+      if (!this.aim.reacting || this.game.time - this.fightAt < 1.5) { this._fight(dt); return; }
     }
     if (this.drone && !channel && this.drone.alive) { this._shootDrone(dt); return; }
     // (defensa) la carga o claymore del ataque que tiene a la vista
@@ -1027,14 +1076,17 @@ class Brain {
   // Posición más probable de un enemigo al que apuntar sin verlo (memoria, pizarra o ruido).
   _threat() {
     const now = this.game.time, e = this.op.eyePos();
-    const f = this.per.freshest(2.2);
+    // (mientras reacciona a un enemigo que acaba de ver, no se gira hacia él: ni por lo que
+    // recuerda, ni por lo que dicen los compañeros, ni por sus pasos)
+    const skip = this.aim.reacting ? this.target : null;
+    const f = this.per.freshest(2.2, false, skip);
     let best = null;
     if (f) best = { x: f.x, y: f.y + 1.2, z: f.z, precise: f.precise, t: f.t };
-    const k = this._boardNear(20);
+    const k = this._boardNear(20, skip);
     if (k && (!best || k.t > best.t + 0.5)) best = { x: k.x, y: k.y + 1.2, z: k.z, precise: true, t: k.t };
     if (!best) {
       const n = this.per.lastNoise(1.8);
-      if (n && n.src && n.src.team !== this.team) best = { x: n.x, y: n.y + 1.0, z: n.z, precise: false, t: n.t };
+      if (n && n.src && n.src.team !== this.team && n.src !== skip) best = { x: n.x, y: n.y + 1.0, z: n.z, precise: false, t: n.t };
     }
     if (!best) return null;
     best.d = Math.hypot(best.x - e.x, best.z - e.z);
@@ -1083,47 +1135,19 @@ class Brain {
     const op = this.op, D = this.diff, I = op.intent, rng = this.rng;
     const t = this.target;
     if (this.mover.busy && !op.rappel) this.mover.stop();
-    this.seeT += dt;
-    this.react += dt;
+    this.fightAt = this.game.time;
     const e = op.eyePos();
-    // Puntería: al ver al blanco, un error inicial (en grados, según la dificultad) que se
-    // corrige mientras lo sigue: un muelle amortiguado que se pasa un poco y vuelve
-    // (sobrecorrección) y un punto de reposo que cambia cada poco (microajustes).
-    const A = this.aim;
-    if (A.t0 < 0) {
-      const a = rng.next() * Math.PI * 2;
-      const mag = D.aimErr * (0.6 + rng.next() * 0.4) * (1 + Math.min(1, t.moveSpeed / 3.3) * 0.5);
-      A.x = Math.cos(a) * mag; A.y = Math.sin(a) * mag * 0.7; A.vx = 0; A.vy = 0; A.t0 = 0; A.jT = 0; A.gx = 0; A.gy = 0;
-      A.head = rng.next() < D.head;
-    }
-    A.jT -= dt;
-    if (A.jT <= 0) {
-      A.jT = 0.25 + rng.next() * 0.35;
-      const r = D.aimErr * 0.22 * (op.moveSpeed > 1 ? 2 : 1) * (1 + Math.min(1, t.moveSpeed / 3.3) * 0.5);
-      A.gx = (rng.next() - 0.5) * 2 * r; A.gy = (rng.next() - 0.5) * 1.4 * r;
-      if (rng.next() < 0.3) A.head = rng.next() < D.head;
-    }
-    const wn = 2.6 / D.settle, zeta = 0.5;
-    A.vx += (wn * wn * (A.gx - A.x) - 2 * zeta * wn * A.vx) * dt;
-    A.vy += (wn * wn * (A.gy - A.y) - 2 * zeta * wn * A.vy) * dt;
-    A.x += A.vx * dt; A.y += A.vy * dt;
-    const tp = aimPoint(t, A.head && t.state === 'alive', e);
-    const dx = tp.x - e.x, dy = tp.y - e.y, dz = tp.z - e.z;
-    const dist = Math.hypot(dx, dz);
-    const wantYaw = Math.atan2(-dx, -dz) + A.x;
-    const wantPitch = Math.atan2(dy, dist) + A.y;
-    const diff = Math.abs(angleDiff(op.yaw, wantYaw));
-    const rate = D.turn * (1 + Math.min(2, diff));
-    op.yaw += clamp(angleDiff(op.yaw, wantYaw), -dt * rate, dt * rate);
-    op.pitch += clamp(wantPitch - op.pitch, -dt * rate * 0.7, dt * rate * 0.7);
+    // Puntería humana (ai/aim.js): reacciona sin moverse, gira rápido con la velocidad de su
+    // dificultad (a veces se pasa), corrige y sigue al blanco con un error que empieza grande y se
+    // asienta; solo dispara con la mira asentada.
+    const A = this.aim.steer(dt, t, e, aimPoint);
+    const dist = A.dist;
     const w = op.weapon.def;
-    I.ads = this.react > D.react * 0.5 && dist > 4.5;
-    const tol = Math.max(0.035, Math.min(0.14, 0.32 / Math.max(1, dist)));
-    const onTarget = Math.abs(angleDiff(op.yaw, wantYaw)) < tol && Math.abs(wantPitch - op.pitch) < tol * 1.2;
+    I.ads = !this.aim.reacting && dist > 4.5;
     // escopeta de lejos: mejor la pistola
     const far = w.cls === 'shotgun' && dist > 16;
     if (far && op.weapons[1] && op.weapons[1].ammo > 0 && op.weaponIndex === 0) I.switchTo = 1;
-    if (this.react > D.react && onTarget) {
+    if (A.canFire) {
       if (this.pause > 0) this.pause -= dt;
       else {
         this.semi = w.auto ? true : !this.semi;

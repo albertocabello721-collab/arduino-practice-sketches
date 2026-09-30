@@ -51,13 +51,16 @@ if (flag('--hijo')) {
           if (E.A !== op) continue;
           const hitT = results.some((r) => r.hitOp === E.T);
           const aimed = B.target === E.T;
-          if (!aimed && !hitT) continue;
+          // (un acierto sin apuntarle —una ráfaga a una pared, a otro— no es reacción: aparte)
+          if (!aimed) { if (hitT && E.hitT < 0) E.stray++; continue; }
           const t = m.game.time - E.t0;
           E.shots++;
           if (E.shotT < 0) E.shotT = t;
-          if (E.shots <= 3) { E.early++; if (hitT) E.earlyHits++; } else { E.late++; if (hitT) E.lateHits++; }
+          const band = E.dist < 6 ? 0 : E.dist < 12 ? 1 : 2;
+          if (E.shots <= 3) { E.early++; if (hitT) E.earlyHits++; E.eb[band * 2]++; if (hitT) E.eb[band * 2 + 1]++; } else { E.late++; if (hitT) E.lateHits++; E.lb[band * 2]++; if (hitT) E.lb[band * 2 + 1]++; }
           if (hitT && E.hitT < 0) {
             E.hitT = t; E.shotsToHit = E.shots;
+            if (process.env.DETALLE && t < 0.22) console.log('rápido', JSON.stringify({ t: +t.toFixed(3), blanco: E.T.name, fase: B.aim && B.aim.phase, react0: B.aim && +(B.aim.react0 || 0).toFixed(3), desdeQueLoEligio: B.aim && +(m.game.time - B.aim.acqT).toFixed(3), loVeDesde: B.vis && B.vis.get(E.T) ? +(m.game.time - B.vis.get(E.T).since).toFixed(3) : null, antesVisto: E.prevSeen, ang: +(E.ang * DEG).toFixed(1), dist: +E.dist.toFixed(1) }));
             const h = hist.get(op) || [];
             // cuánto giró en los 6 pasos (100 ms) antes del disparo que acierta
             if (h.length >= 7) E.turn100 = Math.abs(angDiff(h[h.length - 7], h[h.length - 1]));
@@ -79,9 +82,17 @@ if (flag('--hijo')) {
         if (!h) hist.set(A, h = []);
         if (h.length) {
           const r = Math.abs(angDiff(h[h.length - 1], A.yaw)) / TICK;
-          if (bots.brains.get(A).target) { if (r > maxRate) maxRate = r; if ((n & 3) === 0) rates.push(r); }
+          const BA = bots.brains.get(A), aiming = BA.aim && BA.aim.phase !== undefined ? BA.aim.phase === 'flick' || BA.aim.phase === 'track' : !!BA.target;
+          if (BA.target && aiming) { if (r > maxRate) maxRate = r; if ((n & 3) === 0) rates.push(r); }
         }
         h.push(A.yaw); if (h.length > 12) h.shift();
+        const BR = bots.brains.get(A);
+        if (BR.aim && BR.target && BR.aim.phase !== 'react') {
+          for (const [, E] of open) if (E.A === A && E.T === BR.target && E.angReact < 0) {
+            const e2 = A.eyePos(), c2 = E.T.center();
+            E.angReact = Math.abs(angDiff(A.yaw, Math.atan2(-(c2.x - e2.x), -(c2.z - e2.z))));
+          }
+        }
         const e = A.eyePos();
         const vx = -Math.sin(A.yaw), vz = -Math.cos(A.yaw);
         for (const T of ops) {
@@ -93,7 +104,9 @@ if (flag('--hijo')) {
           let vis = false;
           if (dist <= D.range && !(A.blindT > 0)) {
             const hd = Math.hypot(dx, dz) || 1;
-            if ((dx * vx + dz * vz) / hd >= Math.cos(D.fov) || dist <= 2.2) {
+            // (como la vista de los bots: fuera del cono lo sigue viendo si lo vio hace menos de 0,6 s)
+            const recent = seenAt.has(key) && G.time - seenAt.get(key) < 0.6;
+            if ((dx * vx + dz * vz) / hd >= Math.cos(D.fov) || dist <= 2.2 || recent) {
               const head = T.rig[BONE.head] ? T.rig[BONE.head].p : c, chest = T.rig[BONE.chest] ? T.rig[BONE.chest].p : c;
               vis = lineOfSight(G.world, e.x, e.y, e.z, head.x, head.y + 0.06, head.z) || lineOfSight(G.world, e.x, e.y, e.z, chest.x, chest.y, chest.z);
               if (vis && G.gadgets && G.gadgets.smokes.length && G.gadgets.smokeBlocks(e, head) && G.gadgets.smokeBlocks(e, chest)) vis = false;
@@ -102,11 +115,13 @@ if (flag('--hijo')) {
           const E = open.get(key);
           if (vis) {
             const last = seenAt.get(key);
-            if (!E && (last === undefined || G.time - last > 1.0)) {
+            // (si ya lo tenía como blanco —lo vio antes y lo seguía—, no es un avistamiento nuevo)
+            if (!E && (last === undefined || G.time - last > 1.0) && bots.brains.get(A).target !== T) {
               // ángulo entre donde mira y el enemigo (horizontal y vertical)
               const yawTo = Math.atan2(-dx, -dz), pitchTo = Math.atan2(dy, Math.hypot(dx, dz));
               const ang = Math.hypot(angDiff(A.yaw, yawTo), pitchTo - A.pitch);
-              open.set(key, { A, T, t0: G.time, dist, ang, shotT: -1, hitT: -1, shots: 0, shotsToHit: 0, early: 0, earlyHits: 0, late: 0, lateHits: 0, turn100: -1 });
+              const BV = bots.brains.get(A).vis && bots.brains.get(A).vis.get(T);
+              open.set(key, { A, T, prevSeen: BV ? +(G.time - BV.since).toFixed(2) : null, t0: G.time, dist, ang, shotT: -1, hitT: -1, shots: 0, shotsToHit: 0, stray: 0, angReact: -1, eb: [0, 0, 0, 0, 0, 0], lb: [0, 0, 0, 0, 0, 0], early: 0, earlyHits: 0, late: 0, lateHits: 0, turn100: -1 });
             }
             seenAt.set(key, G.time);
           }
@@ -147,7 +162,7 @@ if (flag('--hijo')) {
 }
 
 function angDiff(a, b) { let d = b - a; while (d > Math.PI) d -= Math.PI * 2; while (d < -Math.PI) d += Math.PI * 2; return d; }
-function pack(E) { return { dist: E.dist, ang: E.ang, shotT: E.shotT, hitT: E.hitT, shotsToHit: E.shotsToHit, early: E.early, earlyHits: E.earlyHits, late: E.late, lateHits: E.lateHits, turn100: E.turn100 }; }
+function pack(E) { return { angReact: E.angReact, eb: E.eb, lb: E.lb, stray: E.stray, dist: E.dist, ang: E.ang, shotT: E.shotT, hitT: E.hitT, shotsToHit: E.shotsToHit, early: E.early, earlyHits: E.earlyHits, late: E.late, lateHits: E.lateHits, turn100: E.turn100 }; }
 function pct(xs, p) { if (!xs.length) return NaN; const s = [...xs].sort((x, y) => x - y); return s[Math.min(s.length - 1, Math.floor(p * s.length))]; }
 function summary(eng, maxRate, rates) {
   const hit = eng.filter((E) => E.hitT >= 0), shot = eng.filter((E) => E.shotT >= 0);
@@ -156,13 +171,22 @@ function summary(eng, maxRate, rates) {
   const sum = (k) => eng.reduce((s, E) => s + E[k], 0);
   return {
     avistamientos: eng.length,
+    aciertosSinApuntar: eng.filter((E) => E.stray > 0 && E.hitT < 0).length,
     conDisparo: shot.length,
     conAcierto: hit.length,
     disparo: { p10: ms(shot.map((E) => E.shotT), 0.1), mediana: ms(shot.map((E) => E.shotT), 0.5), p90: ms(shot.map((E) => E.shotT), 0.9) },
     acierto: { p10: ms(hit.map((E) => E.hitT), 0.1), mediana: ms(hit.map((E) => E.hitT), 0.5), p90: ms(hit.map((E) => E.hitT), 0.9) },
     aciertoDeFrente: { n: front.length, mediana: ms(front.map((E) => E.hitT), 0.5), min: ms(front.map((E) => E.hitT), 0) },
     aciertoGirando: { n: turned.length, mediana: ms(turned.map((E) => E.hitT), 0.5), min: ms(turned.map((E) => E.hitT), 0) },
-    menosDe200ms: hit.length ? Math.round(100 * hit.filter((E) => E.hitT < 0.2).length / hit.length) : 0,
+    disparoDeFrente: ms(shot.filter((E) => E.ang < 10 / DEG).map((E) => E.shotT), 0.5),
+    disparoGirando: ms(shot.filter((E) => E.ang > 30 / DEG).map((E) => E.shotT), 0.5),
+    giroTrasReaccionar: Math.round(pct(shot.filter((E) => E.ang > 30 / DEG && E.angReact >= 0).map((E) => E.angReact), 0.5) * DEG),
+    distanciaMediana: Math.round(pct(eng.map((E) => E.dist), 0.5) * 10) / 10,
+    porDistancia: [0, 1, 2].map((b) => {
+      const e = eng.reduce((a, E) => [a[0] + E.eb[b * 2], a[1] + E.eb[b * 2 + 1]], [0, 0]), l = eng.reduce((a, E) => [a[0] + E.lb[b * 2], a[1] + E.lb[b * 2 + 1]], [0, 0]);
+      return { primeros: e[0] ? Math.round(100 * e[1] / e[0]) : null, despues: l[0] ? Math.round(100 * l[1] / l[0]) : null, n: e[0] };
+    }),
+    menosDe220ms: hit.length ? Math.round(1000 * hit.filter((E) => E.hitT < 0.22).length / hit.length) / 10 : 0,
     giroMaximo: Math.round(maxRate * DEG),
     giroP90: Math.round(pct(rates, 0.9) * DEG),
     giradoEn100msAntesDelAcierto: { mediana: Math.round(pct(hit.filter((E) => E.turn100 >= 0).map((E) => E.turn100), 0.5) * DEG * 10) / 10, p90: Math.round(pct(hit.filter((E) => E.turn100 >= 0).map((E) => E.turn100), 0.9) * DEG * 10) / 10 },
@@ -175,7 +199,9 @@ function print(diff, s) {
   console.log(`\n${diff}: ${s.avistamientos} avistamientos · ${s.conDisparo} con disparo · ${s.conAcierto} con acierto`);
   console.log(`  primer disparo: mediana ${s.disparo.mediana} ms (p10 ${s.disparo.p10}, p90 ${s.disparo.p90})`);
   console.log(`  primer acierto: mediana ${s.acierto.mediana} ms (p10 ${s.acierto.p10}, p90 ${s.acierto.p90}) · de frente (<10°): ${s.aciertoDeFrente.mediana} ms, mín ${s.aciertoDeFrente.min} (n ${s.aciertoDeFrente.n}) · girando (>30°): ${s.aciertoGirando.mediana} ms, mín ${s.aciertoGirando.min} (n ${s.aciertoGirando.n})`);
-  console.log(`  aciertos en menos de 200 ms: ${s.menosDe200ms} %`);
+  console.log(`  aciertos en menos de 220 ms: ${s.menosDe220ms} % · avistamientos en que le dio sin apuntarle (ráfagas a paredes, a otro): ${s.aciertosSinApuntar}`);
   console.log(`  giro: máximo ${s.giroMaximo}°/s, p90 en combate ${s.giroP90}°/s · girado en los 100 ms antes del acierto: mediana ${s.giradoEn100msAntesDelAcierto.mediana}°, p90 ${s.giradoEn100msAntesDelAcierto.p90}° · aciertos girando >20° en esos 100 ms: ${s.aciertosGirandoMas20}`);
-  console.log(`  % de acierto: 3 primeros disparos ${s.punteria3Primeros} % · después ${s.punteriaDespues} %`);
+  console.log(`  primer disparo de frente ${s.disparoDeFrente} ms · girando más de 30° ${s.disparoGirando} ms (al acabar de reaccionar le quedaban ${s.giroTrasReaccionar}°)`);
+  console.log(`  % de acierto: 3 primeros disparos ${s.punteria3Primeros} % · después ${s.punteriaDespues} % · distancia mediana ${s.distanciaMediana} m`);
+  console.log(`  por distancia (3 primeros / después): <6 m ${s.porDistancia[0].primeros} / ${s.porDistancia[0].despues} % · 6–12 m ${s.porDistancia[1].primeros} / ${s.porDistancia[1].despues} % · >12 m ${s.porDistancia[2].primeros} / ${s.porDistancia[2].despues} %`);
 }

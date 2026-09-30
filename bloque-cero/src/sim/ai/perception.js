@@ -32,9 +32,6 @@ export class Perception {
     const cosFov = Math.cos(D.fov);
     this.visible.length = 0;
     if (op.blindT > 0) return true;              // cegado: no ve nada
-    const G = this.game.gadgets;
-    const smoke = G && G.smokes.length ? G : null;
-    const thermal = thermalOn(op);                // LUMEN con el visor: ve a través del humo
     for (const t of enemies) {
       const c = t.center();
       const dx = c.x - e.x, dy = c.y - e.y, dz = c.z - e.z;
@@ -52,7 +49,7 @@ export class Perception {
       if (!seen) seen = lineOfSight(w, e.x, e.y, e.z, chest.x, chest.y, chest.z);
       if (!seen && t.state === 'downed') seen = lineOfSight(w, e.x, e.y, e.z, c.x, c.y, c.z);
       if (!seen) continue;
-      if (smoke && !(thermal && dist <= THERMAL_SCOPE.range) && smoke.smokeBlocks(e, head) && smoke.smokeBlocks(e, chest)) continue;   // tras el humo
+      if (this.smokeHides(e, head, chest, dist)) continue;   // tras el humo
       // de lejos, alguien agachado o tumbado quieto cuesta más de ver
       if (dist > 18 && (t.stance === 'prone' || t.state === 'downed') && t.moveSpeed < 0.2 && !recentlySeen && this.game.rng.next() < 0.5) continue;
       this.visible.push(t);
@@ -64,6 +61,14 @@ export class Perception {
       this.memory.set(t, { x: t.body.pos.x, y: t.body.pos.y, z: t.body.pos.z, t: now, seen: false, precise: true });
     }
     return true;
+  }
+
+  // ¿Tapa el humo la cabeza y el pecho de alguien a `dist` m? (LUMEN, con el visor, ve a través.)
+  smokeHides(e, head, chest, dist) {
+    const G = this.game.gadgets;
+    if (!G || !G.smokes.length) return false;
+    if (thermalOn(this.op) && dist <= THERMAL_SCOPE.range) return false;
+    return G.smokeBlocks(e, head) && G.smokeBlocks(e, chest);
   }
 
   // ¿Ve algún punto del haz (o el punto rojo donde acaba)? Como mucho 3 líneas de visión.
@@ -115,14 +120,14 @@ export class Perception {
     return best;
   }
 
-  // Enemigo recordado más reciente (vivo), opcionalmente solo si es preciso. La memoria
-  // se desvanece a los 10 s.
-  freshest(maxAge = 4, precise = false) {
+  // Enemigo recordado más reciente (vivo), opcionalmente solo si es preciso y sin contar a
+  // `skip` (el que acaba de ver y al que aún está reaccionando). La memoria se desvanece a los 10 s.
+  freshest(maxAge = 4, precise = false, skip = null) {
     const now = this.game.time;
     let best = null, bt = -Infinity;
     for (const [t, m] of this.memory) {
       if (t.state === 'dead' || now - m.t > MEMORY) { this.memory.delete(t); continue; }
-      if (now - m.t > maxAge || (precise && !m.precise)) continue;
+      if (t === skip || now - m.t > maxAge || (precise && !m.precise)) continue;
       if (m.t > bt) { bt = m.t; best = { op: t, ...m }; }
     }
     return best;

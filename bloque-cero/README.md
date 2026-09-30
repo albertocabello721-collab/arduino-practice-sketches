@@ -592,15 +592,17 @@ En Élite, cuántos defensores bot merodean y cuándo vuelven al sitio se eligi�
   en la memoria del ataque y las cámaras vigiladas, en la de la defensa.
 - **Dificultad** (tabla del documento):
 
-  | Nivel | Reacción | Error inicial | Además |
+  | Nivel | Reacción | Error asentado | Además |
   | --- | --- | --- | --- |
   | Novato | 700 ms | 1,8° | no dispara a través de paredes ni flanquea |
   | Normal | 450 ms | 1,0° | cambia de ángulo a veces tras ser visto |
   | Veterano | 300 ms | 0,6° | pre-disparo en esquinas conocidas, dispara a paredes blandas si oye pasos |
   | Élite | 220 ms | 0,35° | flanquea más y siempre cambia de ángulo tras ser visto |
 
-  El error se corrige mientras sigue al blanco (muelle amortiguado con sobrecorrección y
-  microajustes) y el retroceso también les afecta.
+  Desde la F10.6 apuntan como una persona: reaccionan sin girarse, giran con velocidad limitada
+  (a veces se pasan), sus primeros disparos llevan más error (de 4° a 1,4°), que se asienta hasta
+  el de la tabla mientras siguen al blanco, y el retroceso les sube la mira. Ver *Puntería humana
+  de los bots (Fase 10.6)*.
 - **Defensa**: en la preparación reparte los 10 refuerzos y las barricadas del sitio y dispara a
   los drones que ve; después, las anclas sostienen ángulos en diagonal sobre las puertas del
   sitio (agachados si hace falta) y los merodeadores (si hay al menos 3 bots) vigilan salas

@@ -253,6 +253,8 @@ export function describe(B) {
     else if (B.mover) parts.push(MOVE[B.mover.status] || B.mover.status);
   }
   let s = parts.join(' · ');
-  if (B.target && B.target.state !== 'dead') s += ` → ${B.target.name}`;
+  if (B.target && B.target.state !== 'dead') s += ` → ${B.target.name}` + (B.aim && AIMING[B.aim.phase] ? ` (${AIMING[B.aim.phase]})` : '');
   return s;
 }
+// Puntería (F10.6): reacciona sin moverse, gira rápido hacia el blanco, lo sigue y dispara.
+const AIMING = { react: 'reacciona', flick: 'gira', track: 'apunta' };
