@@ -19,7 +19,7 @@ Es un único archivo HTML autónomo: no necesita servidor ni conexión.
 | F6 | Operadores 8 + 8 y contrajuego de gadgets | ✅ arsenal · plantilla de 16 · granadas y explosivos · gadgets defensivos · 16 habilidades · la defensa bot coloca gadgets y habilidades · el ataque bot los usa según la dificultad · contrajuego de la defensa bot y gadgets de acción |
 | F7 | Animaciones en primera y tercera persona, con la recarga por partes (antes F8) | ✅ recarga por partes en primera persona · resto de la primera persona · siluetas de los 16 · tercera persona por capas · muerte con física por partes · repetición de muerte |
 | F9 | Audio 3D con oclusión | ✅ paredes, suelos y rodeo por puertas y agujeros · ambiente · música en menús y últimos 30 s |
-| F10 | Miras y accesorios, rappel en Villa (tejado y fachada, también los bots), equilibrio de Élite, pulido y publicación | en curso: ✅ miras y accesorios · ✅ rappel del jugador · ✅ rappel de los bots · ✅ equilibrio de Élite |
+| F10 | Miras y accesorios, rappel en Villa (tejado y fachada, también los bots), equilibrio de Élite, puntería humana de los bots, pulido y publicación | en curso: ✅ miras y accesorios · ✅ rappel del jugador · ✅ rappel de los bots · ✅ equilibrio de Élite · ✅ puntería humana de los bots |
 | — | Mapa Residencia del Lago | pendiente |
 
 ## Arsenal (Fase 6)
@@ -576,6 +576,69 @@ En Élite, cuántos defensores bot merodean y cuándo vuelven al sitio se eligi�
   prueban otras variantes sin tocar el código, y con `--semillas` sale el resultado de cada
   partida. Con 4 procesos, 160 partidas tardan unos 20 minutos.
 
+## Puntería humana de los bots (Fase 10.6)
+
+Los bots (enemigos y aliados) apuntan como una persona (`src/sim/ai/aim.js`). Antes su reacción
+solo retrasaba el disparo: durante esos 220 ms ya se giraban hacia ti a más de 1.000°/s, así que
+girar no les costaba nada, y sus primeros disparos eran los más precisos.
+
+- **Reacción**: desde que te ven (en su cono y con línea de visión) hasta que empiezan a girar,
+  el tiempo del documento con un ±20 % al azar, y hasta 0,1 s más si apareces en el borde de su
+  vista. Mientras reaccionan no se giran hacia ti (tampoco por tus pasos ni por lo que avisan sus
+  compañeros) ni disparan; si estaban haciendo otra cosa, siguen con ella. Como la vista se barre
+  cada 0,12 s, al descubrirte miran en el rastro de las últimas posiciones desde cuándo te
+  habrían visto y cuentan desde entonces. Cambiar de blanco en pleno combate cuesta al menos la
+  mitad de la reacción. Apretar el gatillo, 50 ms más.
+- **Giro rápido**: arrancan y frenan suave, como la mano, sin pasar de su velocidad máxima. En
+  giros de más de 15°, la mitad de las veces se pasan un poco y corrigen; siempre acaban con un
+  pequeño error que crece con el giro. Girando no disparan, y tras un giro de más de 20° esperan
+  un momento.
+- **Seguimiento**: te siguen donde creen que estás: lo que vieron hace un momento, adelantado con
+  la velocidad que llevabas (si cambias de dirección, tardan en notarlo). Sin verte, donde te
+  vieron por última vez (antes seguían tu posición de verdad durante casi medio segundo tras
+  perderte de vista). Al punto al que apuntan le suman un error que empieza grande en los
+  primeros disparos y se asienta mientras te siguen, hasta el del documento.
+- **Retroceso**: compensan de antemano solo una parte (antes 40/60/75/85 % y al instante) y lo que
+  les sube la mira no lo ven hasta pasado su retraso.
+
+| | Novato | Normal | Veterano | Élite |
+| --- | --- | --- | --- | --- |
+| Reacción | 700 ms | 450 ms | 300 ms | 220 ms |
+| Giro máximo | 250°/s | 350°/s | 450°/s | 550°/s |
+| Se pasa (giros de más de 15°, la mitad de las veces) | 8–12 % | 6–10 % | 4–8 % | 3–6 % |
+| Error de los primeros disparos → asentado | 4° → 1,8° en 1 s | 2,8° → 1° en 0,8 s | 2° → 0,6° en 0,65 s | 1,4° → 0,35° en 0,5 s |
+| Tarda en notar que cambias de dirección | 0,20 s | 0,16 s | 0,13 s | 0,10 s |
+| Espera tras un giro de más de 20° | 0,20 s | 0,15 s | 0,11 s | 0,08 s |
+| Retroceso: compensa / lo ve a los | 20 % / 0,25 s | 35 % / 0,22 s | 50 % / 0,18 s | 65 % / 0,15 s |
+
+**Medido** (`tools/reaccion-bots.mjs`: 12 partidas solo de bots por dificultad, las mismas semillas
+antes y después; cada vez que un bot ve a un enemigo que no veía desde hacía 1 s):
+
+| Antes → después | Novato | Normal | Veterano | Élite |
+| --- | --- | --- | --- | --- |
+| Primer acierto (mediana) | 783 → 1.483 ms | 533 → 1.000 ms | 400 → 717 ms | 317 → 517 ms |
+| … teniendo que girar más de 30° | 783 → 1.633 ms | 533 → 1.067 ms | 383 → 800 ms | 300 → 617 ms |
+| … sin tener que girar (menos de 10°) | 783 → 1.400 ms | 550 → 983 ms | 400 → 667 ms | 317 → 467 ms |
+| Aciertos antes de 220 ms | 0 → 0 | 0 → 0 | 0 → 0 | 0 → 0 (el más rápido, 267 ms) |
+| Giro más rápido | 516 → 250°/s | 735 → 351°/s | 991 → 450°/s | 1.289 → 549°/s |
+| Aciertan con los 3 primeros disparos | 83 → 44 % | 77 → 41 % | 70 → 44 % | 67 → 53 % |
+| … a más de 12 m | 79 → 20 % | 71 → 19 % | 60 → 27 % | 60 → 35 % |
+
+- Antes, girar no les costaba nada (de frente o girando, lo mismo) y sus primeros disparos eran los
+  más precisos. Ahora, en Élite, girar más de 30° cuesta 150 ms más, y los primeros disparos fallan
+  más cuanto más lejos: de cerca (a menos de 12 m), 1,4° de error aún da en el torso.
+- **Equilibrio** (`tools/equilibrio.mjs`: 160 partidas por dificultad, las mismas semillas que en la
+  F10.1): el ataque gana el 48,4 % de las rondas en Élite (antes, 53,0 %) y el 48,0 % en Normal
+  (antes, 51,7 %), ±1,7 cada uno. Baja unos 4 puntos porque quien espera en un ángulo (casi siempre
+  la defensa) apenas tiene que girar, y a quien entra le cuesta más. Los dos quedan entre el 47 y el
+  53 %.
+
+- **Con P**, la etiqueta de un bot con un blanco dice qué hace su puntería: «reacciona», «gira» o
+  «apunta».
+- En la repetición de muerte se ve cómo llega su mira, se pasa a veces y corrige.
+- Lo que ven y oyen, sus tácticas, rutas, rappel y gadgets, disparar a drones y tu puntería no
+  cambian.
+
 ## Bots (Fase 5)
 
 - **Navegación**: rejilla 2,5D de celdas de 0,5 m con varias superficies por columna (sótano,
@@ -747,6 +810,7 @@ node tools/rappel-bots.mjs [rondas] [dificultad] [semilla]  # rondas solo de bot
 node tools/equilibrio.mjs [dificultad] [partidas] [semilla] [procesos] [--merodeadores N --vuelta S --brecha --cerca --semillas]  # % de rondas que gana el ataque, con las mismas semillas
 node tools/smoke-merodeadores.mjs <carpeta> [html]  # los merodeadores de Élite con P: fuera del sitio y cómo vuelven
 node tools/reaccion-bots.mjs [dificultades] [partidas] [semilla] [procesos]  # partidas solo de bots: desde que un bot ve a un enemigo, cuánto tarda en disparar y en acertar, cuánto gira y su % de acierto
+node tools/smoke-punteria.mjs <carpeta> [html]  # un aliado bot en la calle con P: su etiqueta dice «reacciona», «gira» y «apunta», y dispara después
 node tools/perf-partida.mjs [html...]  # llamadas de dibujo, triángulos y CPU con 10 operadores a la vista (con 5 cayendo y lo que cuesta grabar)
 node tools/mapslice.mjs <carpeta> # cortes cenitales del mapa por planta
 ```
