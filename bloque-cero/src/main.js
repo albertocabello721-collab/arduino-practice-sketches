@@ -28,6 +28,8 @@ import { DebugView } from './render/debugview.js';
 import { thermalOn, scopeZoom, THERMAL_SCOPE } from './sim/abilities.js';
 import { FEEL, lowHealth } from './client/feel.js';
 import { Speech } from './client/voice.js';
+import { timeOf } from './render/timeofday.js';
+import { DustMotes } from './render/dust.js';
 
 const $ = (id) => document.getElementById(id);
 const nextFrame = () => new Promise((r) => requestAnimationFrame(() => r()));
@@ -81,6 +83,7 @@ async function boot() {
   const effects = new Effects(scene, world, wr);
   const lasers = new Lasers(scene);   // haces de los láseres (F10.3)
   const ropes = new Ropes(scene);     // cuerdas del rappel (F10.2a)
+  const dust = new DustMotes(scene);  // polvo en la luz, dentro de la casa (F12.5)
   const chars = new CharacterRenderer(scene, wr.uniforms, world);
   const props = new PropRenderer(scene, wr);
   const vm = new ViewModel();
@@ -114,6 +117,7 @@ async function boot() {
     while (wr.lightVolume.job) wr.lightVolume.stepJob(1e9);
     effects.clearAll();
   }
+  wr.setTimeOfDay(settings.timeOfDay);   // la hora elegida (F12.5), ya en el fondo del menú
   await setStep('Listo', 1);
 
   // ---------------------------------------------------------------- contexto compartido
@@ -168,6 +172,7 @@ async function boot() {
   const app = ctx.app = {
     startRange() {
       audio.init(); audio.ui('confirm');
+      wr.setTimeOfDay(settings.timeOfDay);
       setSession(null);
       enterPlay();
       setSession(() => new RangeSession(ctx));
@@ -177,6 +182,7 @@ async function boot() {
       audio.init(); audio.ui('confirm');
       const sideSel = opts.startSide || settings.startSide || 'random';
       const startSide = sideSel === 'random' ? (Math.random() < 0.5 ? 'atk' : 'def') : sideSel;
+      wr.setTimeOfDay(opts.timeOfDay || settings.timeOfDay);
       setSession(null);
       enterPlay();
       setSession(() => new MatchSession(ctx, { startSide, difficulty: opts.difficulty || settings.difficulty, seed: opts.seed, rules: opts.rules }));
@@ -219,6 +225,7 @@ async function boot() {
   bindSelect('set-quality', 'quality', () => { post.setQuality(settings.quality); renderer.setPixelRatio(pixelRatio()); resize(); });
   bindSelect('qm-side', 'startSide');
   bindSelect('qm-diff', 'difficulty');
+  bindSelect('qm-time', 'timeOfDay', () => wr.setTimeOfDay(settings.timeOfDay));
 
   $('btn-play').addEventListener('click', () => app.startRange());
   $('btn-match').addEventListener('click', () => app.startMatch());
@@ -254,7 +261,7 @@ async function boot() {
   let last = performance.now();
   let fpsAcc = 0, fpsFrames = 0, fps = 0, cpuMs = 0;
   let exposure = 1.0;
-  const lightS = { sky: 1, warm: 0, cool: 0 };
+  const lightS = { sky: 1, warm: 0, cool: 0 }, lightV = { sky: 1, warm: 0, cool: 0 };   // (lightV: la del arma, con el cielo de la hora)
   let menuT = 0;
   const perfStats = { frameMs: [] };
   const fwdV = new THREE.Vector3(), upV = new THREE.Vector3();
@@ -368,8 +375,12 @@ async function boot() {
     }
     // exposición automática según la luz ambiente del lugar
     wr.lightVolume.sample(camera.position.x, camera.position.y, camera.position.z, lightS);
-    const lum = 0.05 + lightS.sky * lightS.sky * 0.95 + lightS.warm * lightS.warm * 0.62 + lightS.cool * lightS.cool * 0.5;
-    const target = clamp(0.6 / lum, 0.55, 1.9);
+    // (a otra hora el cielo alumbra menos: F12.5)
+    const tod = timeOf(wr.tod);
+    const lum = 0.05 + lightS.sky * lightS.sky * 0.95 * tod.skyLight + lightS.warm * lightS.warm * 0.62 + lightS.cool * lightS.cool * 0.5;
+    lightV.sky = lightS.sky * Math.sqrt(tod.skyLight); lightV.warm = lightS.warm; lightV.cool = lightS.cool;
+    const indoorK = clamp((0.85 - lightS.sky) / 0.45, 0, 1);   // 0 en la calle … 1 dentro de la casa
+    const target = clamp(0.6 / lum, 0.55, 1.9) * tod.exposure;
     exposure = damp(exposure, target, 1.6, dt);
     renderer.toneMappingExposure = exposure;
     if (audio.ctx) {
@@ -377,13 +388,14 @@ async function boot() {
       audio.setListener(camera.position, fwdV, upV);
       audio.setIndoor(lightS.sky < 0.85 ? 1 : 0);
       // ambiente (viento fuera, zumbido dentro) y música (F12.3): la del menú o la que pida la partida
-      audio.ambience(lightS.sky, clamp((0.85 - lightS.sky) / 0.45, 0, 1));
+      audio.ambience(lightS.sky, indoorK, camera.position, wr.tod);
       const mus = state.mode === 'menu' ? MENU_MUSIC : s && s.music ? s.music : NO_MUSIC;
       audio.music(mus.mode, mus.k);
     }
     wr.update(dt, camera.position, 6);
     wr.renderShadowIfNeeded();
     effects.update(gdt, camera.position);
+    dust.update(paused ? 0 : gdt, camera.position, indoorK, wr.lightVolume, tod.skyLight);
     // visor térmico de LUMEN (apuntando con la principal y quieto): enemigos calientes, humo transparente
     const thermal = !!v && thermalOn(v);
     chars.setHeat(thermal, v ? v.team : 0, THERMAL_SCOPE.range, camera.position);
@@ -412,8 +424,8 @@ async function boot() {
     if (s) s.frame(gdt, acc / TICK);
     // (en la repetición de muerte, el arma del que te mató)
     const rv = !v && s && s.replayView ? s.replayView : null;
-    if (v) vm.update(gdt, v, lightS, v === s.player ? mouse.dx || 0 : 0, v === s.player ? mouse.dy || 0 : 0);
-    else if (rv) vm.update(paused ? 0 : gdt, rv, lightS, 0, 0);
+    if (v) vm.update(gdt, v, lightV, v === s.player ? mouse.dx || 0 : 0, v === s.player ? mouse.dy || 0 : 0);
+    else if (rv) vm.update(paused ? 0 : gdt, rv, lightV, 0, 0);
     vm.setShown((!!v && v.state !== 'dead') || !!rv);
     post.render(dt);
     // HUD del operador visto
@@ -442,7 +454,7 @@ async function boot() {
 
   // ---------------------------------------------------------------- depuración / tests automáticos
   window.__bc = {
-    THREE, world, map, wr, effects, renderer, camera, settings, state, hud, audio, post, ctx, debug: debugView,
+    THREE, world, map, wr, effects, dust, renderer, camera, settings, state, hud, audio, post, ctx, debug: debugView,
     get session() { return session; },
     get game() { return session ? session.game : null; },
     get player() { return session ? session.player : null; },

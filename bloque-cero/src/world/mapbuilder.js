@@ -266,8 +266,9 @@ export class MapBuilder {
     this.box(x - s, y - H, z - s, x + s, y, z + s, kind === 'cool' ? MAT.LAMP_COOL : MAT.LAMP_WARM);
     this.lights.push({ x, y: y - H * 1.5, z, kind, power });
   }
-  // Luz sin luminaria visible (farolas, apliques exteriores).
-  light(x, y, z, kind = 'warm', power = 1) { this.lights.push({ x, y, z, kind, power }); }
+  // Luz sin luminaria visible (farolas, apliques exteriores). opts.street: farola de la calle, que
+  // solo alumbra al atardecer y de noche (F12.5).
+  light(x, y, z, kind = 'warm', power = 1, opts = {}) { this.lights.push({ x, y, z, kind, power, ...opts }); }
 
   zone(id, name, x0, z0, x1, z1, y0 = -10, y1 = 100) { this.zones.push({ id, name, x0, z0, x1, z1, y0, y1 }); }
 

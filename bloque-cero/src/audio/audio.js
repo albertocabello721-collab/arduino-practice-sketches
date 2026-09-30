@@ -5,6 +5,7 @@
 // (viento fuera, zumbido eléctrico dentro). F12.3: la música (music.js) y tres volúmenes aparte,
 // además del general: efectos, música y voz (los gemidos; la voz del navegador lo aplica voice.js).
 import { Music } from './music.js';
+import { Ambience } from './ambience.js';
 
 // La oclusión multiplicada (sirve el número o lo que devuelve la propagación, {x, y, z, occl})
 const scaleOccl = (o, k) => (o && typeof o === 'object' ? { x: o.x, y: o.y, z: o.z, occl: o.occl * k } : o * k);
@@ -896,9 +897,12 @@ export class AudioEngine {
   /**
    * Ambiente de fondo, cada fotograma: viento según el cielo que hay encima (0..1) y zumbido
    * eléctrico según lo dentro que se está (0..1). Sin sonido 3D: rodea al que escucha.
+   * F12.5: con `pos` y `time`, además, lo de cada hora y sitio (ambience.js): pájaros, coches,
+   * grillos, el reloj, la nevera y los crujidos de arriba.
    */
-  ambience(sky, indoor) {
+  ambience(sky, indoor, pos = null, time = 'dia') {
     if (!this.ctx) return;
+    if (pos) { if (!this._amb2) this._amb2 = new Ambience(this); this._amb2.update(pos, indoor, time); }
     const ctx = this.ctx, t = ctx.currentTime;
     if (!this._amb) {
       const out = ctx.createGain(); out.gain.value = 1; out.connect(this.dry);

@@ -21,6 +21,7 @@ export const DEFAULT_SETTINGS = {
   opVoice: true,        // tu operador dice lo que hace: recargar, lanzar, colocar (F12.2)
   difficulty: 'normal',  // bots: 'novato' | 'normal' | 'veterano' | 'elite'
   startSide: 'random',   // partida rápida: 'random' | 'atk' | 'def'
+  timeOfDay: 'dia',      // la hora: 'dia' | 'atardecer' | 'noche' (F12.5; solo cambia lo que se ve y se oye)
   kits: {},             // mira y accesorios elegidos: {operador (o 'campo'): {arma: {sight, barrel, grip, laser}}}
 };
 

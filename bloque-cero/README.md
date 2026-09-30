@@ -21,7 +21,49 @@ Es un único archivo HTML autónomo: no necesita servidor ni conexión.
 | F9 | Audio 3D con oclusión | ✅ paredes, suelos y rodeo por puertas y agujeros · ambiente · música en menús y últimos 30 s |
 | F10 | Miras y accesorios, rappel en Villa (tejado y fachada, también los bots), equilibrio de Élite, puntería humana de los bots, pulido y publicación | en curso: ✅ miras y accesorios · ✅ rappel del jugador · ✅ rappel de los bots · ✅ equilibrio de Élite · ✅ puntería humana de los bots |
 | — | Mapa Residencia del Lago | pendiente |
-| F12 | Sensación de juego: impactos, voces, música, inicio y fin de ronda, ambiente | en curso: ✅ impactos · ✅ voces · ✅ música · ✅ inicio y fin de ronda |
+| F12 | Sensación de juego: impactos, voces, música, inicio y fin de ronda, ambiente | en curso: ✅ impactos · ✅ voces · ✅ música · ✅ inicio y fin de ronda · ✅ ambiente |
+
+## Ambiente (Fase 12.5)
+
+Partida rápida → **Hora**: día, atardecer o noche (se ve ya en el fondo del menú; vale también para
+el campo de pruebas). Es solo lo que se ve y se oye: la simulación, las reglas y lo que ven y oyen
+los bots son iguales a cualquier hora.
+
+- **Luz** (`src/render/timeofday.js`):
+  - de día, la de siempre (los mismos valores de antes);
+  - al atardecer, sol bajo y naranja, sombras largas y cielo morado;
+  - de noche, luna fría con estrellas y el cielo casi negro;
+  - al atardecer y de noche se encienden las tres farolas de la calle; la luz ambiente ahora cubre
+    también la calle para que se vea su charco de luz. Dentro alumbran las lámparas de siempre.
+- **Fuera** (`src/audio/ambience.js`):
+  - de día, pájaros (trinos cortos en lo alto, a 10–30 m) y algún coche lejano que pasa de un lado a
+    otro;
+  - al atardecer, menos pájaros y los primeros grillos;
+  - de noche, grillos a pulsos, cada uno en su sitio del jardín o de la calle, y algún coche;
+  - dentro de la casa todo eso se oye más bajo y apagado.
+- **Dentro**:
+  - el reloj de pared del salón (tic, tac, cada segundo);
+  - la nevera de la cocina (un zumbido que arranca 22 s y para 11);
+  - crujidos del piso de arriba, si hay piso encima;
+  - motas de polvo que flotan y solo se ven donde hay luz: junto a las ventanas de día, bajo las
+    lámparas de noche (`src/render/dust.js`).
+- Los bots no oyen nada de esto: no son ruidos de la partida (no pasan por la simulación).
+- De día solo cambia un detalle: la luz del aplique de la puerta principal ya no se corta de golpe a
+  4 m de la fachada (la luz ambiente ahora llega a la calle). Dentro de la casa, la misma luz, celda
+  a celda.
+- Medido sin partida (`tools/medir-ambiente.mjs`):
+  - en la calle, de día, 7 pájaros en 12 s y ningún grillo; de noche, ningún pájaro y grillos a
+    pulsos (10 dB más en su banda que de día); al atardecer, un poco de cada;
+  - en el salón, 21 tics en 20 s (18 dB por encima del resto en su banda);
+  - en la cocina, el zumbido de la nevera;
+  - en la planta baja, crujidos de arriba; en la planta alta, ni reloj, ni nevera, ni crujidos.
+- En el juego (`tools/smoke-ambiente.mjs`), desde la calle mirando a la casa:
+  - el atardecer se ve más cálido que el día (43 niveles más de rojo que de azul);
+  - la noche, un 40 % más oscura y azulada, con estrellas;
+  - de noche, al pie de la farola, luz cálida (0,77); de día, ninguna;
+  - en el salón, más de 100 motas de polvo iluminadas de día;
+  - en una partida de noche con el ambiente sonando, los bots oyeron 17 ruidos y todos venían de un
+    operador.
 
 ## Inicio y fin de ronda (Fase 12.4)
 
@@ -918,6 +960,8 @@ node tools/smoke-voces.mjs [html]  # una ronda con la voz del navegador sustitui
 node tools/medir-musica.mjs  # la música (sin gráficos): cada fase distinta, el tema en todas, victoria y derrota de 3 s en mayor y menor, y los tres volúmenes independientes
 node tools/smoke-musica.mjs [html]  # una ronda: la música de cada fase, un golpe al primer contacto, un pulso por pitido, victoria o derrota y los deslizadores de volumen
 node tools/smoke-ronda.mjs [carpeta] [html]  # una ronda: el rótulo con los 10 retratos, la cuenta atrás, «1 contra N», la cámara lenta de la última baja y el cartel con el motivo y el mejor
+node tools/medir-ambiente.mjs  # el ambiente (sin gráficos): pájaros de día, grillos de noche, el reloj en el salón, la nevera en la cocina y crujidos solo en la planta baja
+node tools/smoke-ambiente.mjs [carpeta] [html]  # día, atardecer y noche: cada hora más oscura, estrellas y farolas de noche, polvo en el salón, sus sonidos, y que los bots no oyen nada del ambiente
 node tools/smoke-accesorios.mjs <carpeta> [html]  # miras y accesorios: selección, primera persona, zoom, supresor, láser, panel O y capturas
 node tools/smoke-rappel.mjs <carpeta> [html]  # rappel: engancharse en la calle, subir, ventana con barricada, pretil, tejado y otro colgado en tercera persona
 node tools/smoke-rappel-bots.mjs <carpeta> [html]  # rappel de un aliado bot en Élite: con P, su ruta por la fachada en cian; sube y entra en el Estudio

@@ -536,6 +536,6 @@ function buildExterior(b) {
   for (const x of [-6, 20, 44]) {
     b.box(x - 0.125, 0.125, -6.25, x + 0.125, 4.5, -6.0, MAT.METAL_DARK);
     b.box(x - 0.25, 4.5, -6.5, x + 0.25, 4.625, -5.75, MAT.LAMP_WARM);
-    b.light(x, 4.3, -6.1, 'warm', 1.2);
+    b.light(x, 4.3, -6.1, 'warm', 1.2, { street: true });
   }
 }

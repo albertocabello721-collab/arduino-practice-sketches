@@ -216,6 +216,8 @@ uniform vec3 uSunDir;
 uniform vec3 uZenith;
 uniform vec3 uHorizon;
 uniform vec3 uSunColor;
+uniform float uStars;
+uniform float uMoon;
 varying vec3 vDir;
 float h21(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
 float vn(vec2 p) { vec2 i = floor(p), f = fract(p); vec2 u = f * f * (3.0 - 2.0 * f);
@@ -225,7 +227,13 @@ void main() {
   float h = max(d.y, 0.0);
   vec3 col = mix(uHorizon, uZenith, pow(h, 0.45));
   float sd = max(dot(d, uSunDir), 0.0);
-  col += uSunColor * (pow(sd, 900.0) * 30.0 + pow(sd, 18.0) * 0.35 + pow(sd, 3.0) * 0.08);
+  if (uMoon > 0.5) col += uSunColor * (smoothstep(0.99955, 0.9997, sd) * 2.2 + pow(sd, 60.0) * 0.12);
+  else col += uSunColor * (pow(sd, 900.0) * 30.0 + pow(sd, 18.0) * 0.35 + pow(sd, 3.0) * 0.08);
+  // estrellas (de noche): puntos fijos en el cielo, más en lo alto
+  if (uStars > 0.0 && d.y > 0.0) {
+    float s = fract(sin(dot(floor(d * 260.0), vec3(12.9898, 78.233, 37.719))) * 43758.5453);
+    col += vec3(0.8, 0.85, 1.0) * step(0.9972, s) * (0.35 + 0.65 * fract(s * 97.0)) * uStars * smoothstep(0.03, 0.3, d.y);
+  }
   // nubes altas suaves
   if (d.y > 0.02) {
     vec2 cp = d.xz / (d.y + 0.15) * 1.6;
@@ -236,8 +244,9 @@ void main() {
   // colinas lejanas
   float ang = atan(d.z, d.x);
   float hill = 0.035 + vn(vec2(ang * 6.0, 1.0)) * 0.05 + vn(vec2(ang * 17.0, 3.0)) * 0.02;
-  if (d.y < hill) col = mix(vec3(0.05, 0.07, 0.06), uHorizon * 0.55, smoothstep(-0.02, hill, d.y) * 0.6);
-  if (d.y < 0.0) col = vec3(0.04, 0.05, 0.04);
+  // (de noche, las colinas y el suelo lejano no pueden ser más claros que el cielo)
+  if (d.y < hill) col = mix(min(vec3(0.05, 0.07, 0.06), uHorizon * 0.6), uHorizon * 0.55, smoothstep(-0.02, hill, d.y) * 0.6);
+  if (d.y < 0.0) col = min(vec3(0.04, 0.05, 0.04), uHorizon * 0.5);
   gl_FragColor = vec4(col, 1.0);
 }
 `;

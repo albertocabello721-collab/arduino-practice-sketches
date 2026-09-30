@@ -8,6 +8,7 @@ import { meshCell, setMaterialLayers, writeQuadIndices } from './mesher.js';
 import { WORLD_VERT, WORLD_FRAG, PREPASS_FRAG, SKY_VERT, SKY_FRAG, MAX_DYN_LIGHTS } from './shaders.js';
 import { TEXTURE_NAMES, TINTS, TINT_NAMES } from './texgen.js';
 import { LightVolume } from './lightvolume.js';
+import { TIMES, lightsFor } from './timeofday.js';
 import { MC, VS } from '../world/voxelworld.js';
 
 const R = 4; // celdas de mallado (16³) por lado de región: regiones de 8 m
@@ -28,6 +29,7 @@ export class WorldRenderer {
     this.shadowTimer = 0;
     this.lightDirtyBox = null;
     this.lightTimer = 0;
+    this.tod = 'dia';                   // la hora del día (F12.5)
 
     this._initTextures(texData);
     this._initLightVolume();
@@ -73,9 +75,10 @@ export class WorldRenderer {
   }
 
   // ------------------------------------------------------------ luz ambiente
+  // (F12.5: cubre también la calle, para que sus farolas alumbren al atardecer y de noche)
   _initLightVolume() {
-    const lv = new LightVolume(this.world, { x: -4, y: -4, z: -4 }, { x: 44, y: 10, z: 30 });
-    lv.setLights(this.map.lights);
+    const lv = new LightVolume(this.world, { x: -8, y: -4, z: -16 }, { x: 48, y: 10, z: 30 });
+    lv.setLights(lightsFor(this.map, this.tod));
     lv.computeAll();
     this.lightVolume = lv;
     const t = new THREE.Data3DTexture(lv.data, lv.nx, lv.ny, lv.nz);
@@ -98,19 +101,58 @@ export class WorldRenderer {
     rt.depthTexture = dt;
     this.shadowTarget = rt;
     const sun = this.map.sun.dir;
+    this.mapSun = [sun.x, sun.y, sun.z];
     this.sunDir = new THREE.Vector3(sun.x, sun.y, sun.z).normalize();
-    const center = new THREE.Vector3(20, 2, 13);
     const ext = 36;
     const cam = new THREE.OrthographicCamera(-ext, ext, ext, -ext, 1, 140);
+    cam.layers.set(1);
+    this.shadowCam = cam;
+    this.shadowMatrix = new THREE.Matrix4();
+    this._placeShadowCam();
+    this.depthMat = new THREE.MeshBasicMaterial({ colorWrite: false });
+  }
+  // La cámara de la sombra, desde el sol (o la luna) mirando al centro de la villa.
+  _placeShadowCam() {
+    const cam = this.shadowCam, center = new THREE.Vector3(20, 2, 13);
     cam.position.copy(center).addScaledVector(this.sunDir, 70);
     cam.lookAt(center);
     cam.updateMatrixWorld(true);
     cam.updateProjectionMatrix();
-    cam.layers.set(1);
-    this.shadowCam = cam;
     const bias = new THREE.Matrix4().set(0.5, 0, 0, 0.5, 0, 0.5, 0, 0.5, 0, 0, 0.5, 0.5, 0, 0, 0, 1);
-    this.shadowMatrix = new THREE.Matrix4().multiplyMatrices(bias, cam.projectionMatrix).multiply(cam.matrixWorldInverse);
-    this.depthMat = new THREE.MeshBasicMaterial({ colorWrite: false });
+    this.shadowMatrix.multiplyMatrices(bias, cam.projectionMatrix).multiply(cam.matrixWorldInverse);
+  }
+
+  /**
+   * La hora del día (F12.5): 'dia', 'atardecer' o 'noche'. Cambia el sol (o la luna) y su sombra, el
+   * cielo, la niebla y qué farolas alumbran (la luz ambiente se recalcula entera: unas décimas de
+   * segundo). Devuelve si cambió algo.
+   */
+  setTimeOfDay(key) {
+    if (!TIMES[key]) key = 'dia';
+    if (key === this.tod) return false;
+    const T = TIMES[key];
+    this.tod = key;
+    const U = this.uniforms, S = this.sky.material.uniforms;
+    const d = T.sunDir || this.mapSun;
+    this.sunDir.set(d[0], d[1], d[2]).normalize();
+    U.uSunColor.value.fromArray(T.sunColor);
+    U.uSkyColor.value.fromArray(T.skyColor);
+    U.uGroundColor.value.fromArray(T.groundColor);
+    U.uFogColor.value.fromArray(T.fogColor);
+    U.uFogDensity.value = T.fogDensity;
+    S.uZenith.value.fromArray(T.zenith);
+    S.uHorizon.value.fromArray(T.horizon);
+    S.uSunColor.value.fromArray(T.sunDisk);
+    S.uStars.value = T.stars;
+    S.uMoon.value = T.moon;
+    this._placeShadowCam();
+    this.shadowDirty = true;
+    const lv = this.lightVolume;
+    lv.setLights(lightsFor(this.map, key));
+    lv.computeAll();
+    while (lv.job) lv.stepJob(1e9);
+    this.lightTex.needsUpdate = true;
+    return true;
   }
 
   // ------------------------------------------------------------ materiales
@@ -176,6 +218,8 @@ export class WorldRenderer {
         uZenith: { value: new THREE.Vector3(0.1, 0.2, 0.46) },
         uHorizon: { value: new THREE.Vector3(0.46, 0.5, 0.56) },
         uSunColor: { value: new THREE.Vector3(1.2, 1.05, 0.85) },
+        uStars: { value: 0 },     // estrellas (de noche, F12.5)
+        uMoon: { value: 0 },      // el disco es la luna: más pequeño y sin halo
       },
     });
     this.sky = new THREE.Mesh(g, m);
