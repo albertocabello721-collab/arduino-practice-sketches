@@ -550,14 +550,17 @@ const CONFIG = {
     points: { goal: 100, assist: 50, save: 50, shot: 20, demo: 25, touch: 2 },
   },
   bots: {
-    // reaction: s entre decisiones; aimNoise: error de puntería (uu); boostUse: 0-1; jumpShots/doubleJump/aerial/wallShots
-    facil:   { reaction: 0.42, aimNoise: 750, boostUse: 0.25, minBoost: 40, speedScale: 0.82, dodgeShots: false, kickoffDodge: false,
-               jumpShots: true, doubleJump: false, aerial: false, aerialMaxZ: 0, wallShots: false, challengeMargin: 0.5, errorChance: 0.25 },
-    normal:  { reaction: 0.24, aimNoise: 380, boostUse: 0.65, minBoost: 20, speedScale: 0.95, dodgeShots: true, kickoffDodge: true,
-               jumpShots: true, doubleJump: false, aerial: false, aerialMaxZ: 0, wallShots: false, challengeMargin: 0.3, errorChance: 0.1 },
-    dificil: { reaction: 0.1, aimNoise: 130, boostUse: 0.9, minBoost: 10, speedScale: 1.0, dodgeShots: true, kickoffDodge: true,
-               jumpShots: true, doubleJump: true, aerial: true, aerialMaxZ: 950, wallShots: false, challengeMargin: 0.2, errorChance: 0.04 },
-    experto: { reaction: 0.05, aimNoise: 70, boostUse: 1.0, minBoost: 0, speedScale: 1.0, dodgeShots: true, kickoffDodge: true,
+    // reaction: s entre decisiones; aimNoise: error de puntería (uu); boostUse: 0-1; jumpShots/doubleJump/aerial/wallShots;
+    // errorChance: probabilidad de leer mal un plan nuevo (golpe desviado). Medido en 1 vs 1 contra Normal (20 partidos):
+    // Fácil −3.3 goles por partido, Difícil +2.5, Experto +6.5; Experto contra Difícil +1.5 (40 partidos).
+    // Los dodges de tiro a ras de piso quedan apagados: con el dodge de RocketSim no mejoraban el resultado en ningún nivel.
+    facil:   { reaction: 0.7, aimNoise: 1300, boostUse: 0.1, minBoost: 60, speedScale: 0.7, dodgeShots: false, kickoffDodge: false,
+               jumpShots: false, doubleJump: false, aerial: false, aerialMaxZ: 0, wallShots: false, challengeMargin: 0.6, errorChance: 0.5 },
+    normal:  { reaction: 0.3, aimNoise: 500, boostUse: 0.5, minBoost: 25, speedScale: 0.85, dodgeShots: false, kickoffDodge: true,
+               jumpShots: true, doubleJump: false, aerial: false, aerialMaxZ: 0, wallShots: false, challengeMargin: 0.3, errorChance: 0.15 },
+    dificil: { reaction: 0.16, aimNoise: 200, boostUse: 0.9, minBoost: 5, speedScale: 1.0, dodgeShots: false, kickoffDodge: true,
+               jumpShots: true, doubleJump: true, aerial: true, aerialMaxZ: 1000, wallShots: false, challengeMargin: 0.2, errorChance: 0.06 },
+    experto: { reaction: 0.05, aimNoise: 70, boostUse: 1.0, minBoost: 0, speedScale: 1.0, dodgeShots: false, kickoffDodge: true,
                jumpShots: true, doubleJump: true, aerial: true, aerialMaxZ: 1750, wallShots: true, challengeMargin: 0.12, errorChance: 0.0 },
     roleInterval: 0.25,     // s entre reasignaciones de roles del equipo
     roleHysteresis: 0.45,   // s de ventaja necesaria para quitarle el rol de "primero" a otro
@@ -2663,7 +2666,7 @@ class BotBrain {
     if (danger >= 0) {
       if (P.saver === car) {
         const plan = this.findIntercept(pred, true);
-        this.plan = plan || this.goalLinePlan(pred, danger);
+        this.plan = this.misread(plan) || this.goalLinePlan(pred, danger);
         this.state = 'salvada';
         return;
       }
@@ -2675,10 +2678,10 @@ class BotBrain {
       const coming = b.vel.y * this.attackSide < -350 || b.pos.y * this.attackSide < -2500;
       const plan = this.findIntercept(pred, false);
       const planOk = plan && (goalSide || !coming || this.planFromBehind(plan));
-      if (planOk) { this.plan = plan; this.state = 'ataque'; return; }
+      if (planOk) { this.plan = this.misread(plan); this.state = 'ataque'; return; }
       if (!goalSide && coming) { this.state = 'rotacion'; this.retreatTarget(); return; }
       const chase = this.chasePlan(pred);
-      if (chase) { this.plan = chase; this.state = 'ataque'; return; }
+      if (chase) { this.plan = this.misread(chase); this.state = 'ataque'; return; }
     }
     // Roles de apoyo
     const behindBall = (car.pos.y - b.pos.y) * this.attackSide < -200;
@@ -2691,6 +2694,19 @@ class BotBrain {
     if (!behindBall && Math.abs(car.pos.y - ownGoalY) > 2500) { this.state = 'rotacion'; this.rotationTarget(pred); return; }
     if (car.boost < 20 && b.pos.y * this.attackSide > 1500 && this.pickBoostTarget(false)) { this.state = 'turbo'; return; }
     this.state = 'portero'; this.keeperTarget(pred);
+  }
+  /**
+   * Error de lectura según la dificultad: con probabilidad errorChance, un plan nuevo apunta a un punto de contacto
+   * corrido de costado (el golpe sale desviado o de refilón). Los planes que se mantienen no se vuelven a sortear.
+   */
+  misread(plan) {
+    if (!plan || plan === this.plan || plan.misread !== undefined) return plan;
+    plan.misread = this.rng.next() < this.D.errorChance;
+    if (plan.misread) {
+      const off = (this.rng.next() < 0.5 ? -1 : 1) * (70 + 110 * this.rng.next());
+      plan.cx += -plan.sdy * off; plan.cy += plan.sdx * off;
+    }
+    return plan;
   }
   canBeatTeammates(pred) {
     const my = quickIntercept(this.car, pred);
@@ -6404,9 +6420,9 @@ const Quality = {
 // MENÚS — principal, jugar, práctica, ajustes (controles, cámara, sonido, calidad), cómo jugar y pausa
 // =====================================================================
 const DIFF_NOTES = {
-  facil: 'Reaccionan lento, apuntan con poca precisión y casi no usan turbo. Ideal para aprender.',
-  normal: 'Rival razonable: rotan en equipo, usan turbo con criterio, tiran con dodge y hacen saltos.',
-  dificil: 'Reacción rápida y buena puntería. Usan dobles saltos y aéreos sencillos.',
+  facil: 'Reaccionan lento, apuntan mal, se equivocan seguido y casi no usan turbo. No saltan a la pelota. Ideal para aprender.',
+  normal: 'Rival razonable: rotan en equipo, usan turbo con criterio, saltan a pelotas bajas y hacen dodge en el saque.',
+  dificil: 'Reacción rápida y buena puntería. Usan dobles saltos y aéreos a media altura.',
   experto: 'Muy rápidos y precisos. Aéreos altos, tiros desde la pared y turbo agresivo.',
 };
 const Menu = {
