@@ -416,6 +416,7 @@ const CONFIG = {
     goalHeight: 642.775,
     goalDepth: 880,
     goalZoneExt: 1000,      // extensión de la zona especial de la SDF frente a la portería
+    goalFilletRadius: 190,  // radio de las aristas interiores de la portería (≤ altura − radio de la curva = 192.775)
   },
   input: {
     deadzone: 0.15,         // zona muerta del stick (configurable en Ajustes)
@@ -737,11 +738,15 @@ class Rng {
 //   P  = prisma octogonal Q (paredes, chaflanes, piso, techo) dilatado por r:
 //        bordes redondeados de radio r entre piso/paredes/techo y en las esquinas verticales.
 //   C± = cajas de las porterías (extendidas hacia la cancha para cortar la curva del piso).
+//   Las cajas de las porterías tienen las aristas interiores redondeadas con radio c (piso-fondo, piso-laterales,
+//   techo-paredes, fondo-laterales y esquinas): C± = B'± ⊕ esfera(c).
 // D(p) = distancia exacta al borde del espacio libre (positiva dentro), con la normal
 // apuntando hacia el espacio libre. Para la portería se usa la distancia a los parches reales
-// (paredes, techo, fondo, piso y tapas de la curva) y se ignora el hueco de la boca en P.
+// (paredes, techo, fondo, piso, curvas de radio c y tapas junto a los postes, recortadas por la curva del piso)
+// y se ignora el hueco de la boca en P.
 // =====================================================================
-const AR = { r: 0, H: 0, Xq: 0, Yq: 0, Cq: 0, Y1: 0, X1: 0, Zlo: 0, Zhi: 0, W: 0, Hg: 0, YB: 0, YG: 0, E: 0, bex: 0, bey: 0, bel2: 0 };
+const AR = { r: 0, H: 0, Xq: 0, Yq: 0, Cq: 0, Y1: 0, X1: 0, Zlo: 0, Zhi: 0, W: 0, Hg: 0, YB: 0, YG: 0, E: 0, bex: 0, bey: 0, bel2: 0,
+  c: 0, Wc: 0, Hc: 0, YGc: 0, yCap: 0, sinCap: 0, byc: 0, byh: 0 };
 function rebuildArena() {
   const A = CONFIG.arena;
   AR.r = A.filletRadius;
@@ -761,6 +766,12 @@ function rebuildArena() {
   AR.bex = AR.X1 - AR.Xq;
   AR.bey = AR.Yq - AR.Y1;
   AR.bel2 = AR.bex * AR.bex + AR.bey * AR.bey;
+  // Portería redondeada: c ≤ Hg − r para que la tapa junto al poste nunca llegue a la curva del techo
+  AR.c = Math.min(A.goalFilletRadius, AR.Hg - AR.r, AR.W);
+  AR.Wc = AR.W - AR.c; AR.Hc = AR.Hg - AR.c; AR.YGc = AR.YG - AR.c;
+  AR.yCap = AR.Yq + Math.sqrt(AR.r * AR.r - (AR.r - AR.c) * (AR.r - AR.c));   // y donde la curva del piso alcanza la altura c
+  AR.sinCap = (AR.c - AR.r) / AR.r;                                              // seno del ángulo de ese punto (centro (Yq, r))
+  AR.byc = (AR.YB - AR.E + AR.YG) / 2; AR.byh = (AR.YG - AR.YB + AR.E) / 2 - AR.c;   // caja interior B' en y
 }
 rebuildArena();
 
@@ -814,36 +825,115 @@ function dPrism(px, py, pz, n) {
   return AR.r - s;
 }
 
-// Punto más cercano del último sidePatch2D
-let _spy = 0, _spz = 0;
-/** Distancia 2D (en el plano y-z de la pared lateral de la portería) a rect ∪ tapa de la curva. */
-function sidePatch2D(sy, sz) {
-  const YB = AR.YB, YG = AR.YG, Hg = AR.Hg, r = AR.r;
-  // Rectángulo de la pared interior de la portería
-  let ny = sy < YB ? YB : (sy > YG ? YG : sy);
-  let nz = sz < 0 ? 0 : (sz > Hg ? Hg : sz);
-  let best = (sy - ny) * (sy - ny) + (sz - nz) * (sz - nz);
-  _spy = ny; _spz = nz;
-  if (best === 0) return 0;
-  // Tapa R: esquina [YB - r, YB] × [0, r] fuera del círculo de la curva (centro (YB - r, r))
-  const ccy = YB - r, ccz = r;
-  const ry = sy - ccy, rz = sz - ccz, rl2 = ry * ry + rz * rz;
-  if (sy >= ccy && sy <= YB && sz >= 0 && sz <= r && rl2 >= r * r) { _spy = sy; _spz = sz; return 0; }
-  // Borde inferior de la tapa (sobre el piso)
-  ny = sy < ccy ? ccy : (sy > YB ? YB : sy);
-  let d = (sy - ny) * (sy - ny) + sz * sz;
-  if (d < best) { best = d; _spy = ny; _spz = 0; }
-  // Arco de la curva (solo el cuarto que mira a la esquina)
-  if (rl2 < r * r && ry >= 0 && rz <= 0) {
-    const rl = Math.sqrt(rl2);
-    const da = r - rl;
-    if (da * da < best) {
-      best = da * da;
-      if (rl > 1e-9) { _spy = ccy + ry / rl * r; _spz = ccz + rz / rl * r; }
-      else { _spy = ccy + r * INV_SQRT2; _spz = ccz - r * INV_SQRT2; }
-    }
+/** Altura de la curva piso-pared de fondo de P en y ∈ [Yq, YB] (coordenada plegada). */
+function zCurve(y) { const d = y - AR.Yq; return d <= 0 ? 0 : AR.r - Math.sqrt(Math.max(0, AR.r * AR.r - d * d)); }
+
+/** SDF (positiva dentro) de la caja redondeada de la portería, en coordenadas plegadas (|x|, |y|, z). */
+function goalBoxSDF(gx, gy, gz) {
+  const hz = AR.Hg * 0.5;
+  const qx = gx - AR.Wc, qy = Math.abs(gy - AR.byc) - AR.byh, qz = Math.abs(gz - hz) - (hz - AR.c);
+  const ox = qx > 0 ? qx : 0, oy = qy > 0 ? qy : 0, oz = qz > 0 ? qz : 0;
+  const m = qx > qy ? (qx > qz ? qx : qz) : (qy > qz ? qy : qz);
+  return AR.c - Math.sqrt(ox * ox + oy * oy + oz * oz) - (m < 0 ? m : 0);
+}
+
+// Mejor candidato de los parches de la portería (distancia², punto y normal de la cara, en coordenadas plegadas)
+let _gpB = 0, _gpHit = false, _gpX = 0, _gpY = 0, _gpZ = 0, _gpNx = 0, _gpNy = 0, _gpNz = 0;
+function _gpTry(gx, gy, gz, x, y, z, nx, ny, nz) {
+  const dx = gx - x, dy = gy - y, dz = gz - z, d2 = dx * dx + dy * dy + dz * dz;
+  if (d2 < _gpB) { _gpB = d2; _gpHit = true; _gpX = x; _gpY = y; _gpZ = z; _gpNx = nx; _gpNy = ny; _gpNz = nz; }
+}
+// Curvas de radio c (cuarto de cilindro o de esfera). Si el punto queda fuera del cuarto, el más cercano está en una
+// arista que ya cubren las caras vecinas, así que se omite.
+function _gpCylY(gx, gy, gz, ax, az, sx, sz, y0, y1) {       // eje paralelo a y
+  const ex = gx - ax, ez = gz - az;
+  if (ex * sx < 0 || ez * sz < 0) return;
+  const l = Math.sqrt(ex * ex + ez * ez);
+  const ux = l > 1e-9 ? ex / l : sx * INV_SQRT2, uz = l > 1e-9 ? ez / l : sz * INV_SQRT2;
+  _gpTry(gx, gy, gz, ax + AR.c * ux, gy < y0 ? y0 : (gy > y1 ? y1 : gy), az + AR.c * uz, -ux, 0, -uz);
+}
+function _gpCylX(gx, gy, gz, ay, az, sy, sz) {                 // eje paralelo a x, |x| ≤ Wc
+  const ey = gy - ay, ez = gz - az;
+  if (ey * sy < 0 || ez * sz < 0) return;
+  const l = Math.sqrt(ey * ey + ez * ez);
+  const uy = l > 1e-9 ? ey / l : sy * INV_SQRT2, uz = l > 1e-9 ? ez / l : sz * INV_SQRT2;
+  _gpTry(gx, gy, gz, gx < AR.Wc ? gx : AR.Wc, ay + AR.c * uy, az + AR.c * uz, 0, -uy, -uz);
+}
+function _gpCylZ(gx, gy, gz) {                                  // arista vertical fondo-lateral
+  const ex = gx - AR.Wc, ey = gy - AR.YGc;
+  if (ex < 0 || ey < 0) return;
+  const l = Math.sqrt(ex * ex + ey * ey);
+  const ux = l > 1e-9 ? ex / l : INV_SQRT2, uy = l > 1e-9 ? ey / l : INV_SQRT2;
+  _gpTry(gx, gy, gz, AR.Wc + AR.c * ux, AR.YGc + AR.c * uy, gz < AR.c ? AR.c : (gz > AR.Hc ? AR.Hc : gz), -ux, -uy, 0);
+}
+function _gpSphere(gx, gy, gz, cz, sz) {                        // esquinas del fondo
+  const ex = gx - AR.Wc, ey = gy - AR.YGc, ez = gz - cz;
+  if (ex < 0 || ey < 0 || ez * sz < 0) return;
+  const l = Math.sqrt(ex * ex + ey * ey + ez * ez);
+  if (l < 1e-9) return;
+  _gpTry(gx, gy, gz, AR.Wc + AR.c * ex / l, AR.YGc + AR.c * ey / l, cz + AR.c * ez / l, -ex / l, -ey / l, -ez / l);
+}
+/** Distancia² (en el corte) del punto al arco piso-lateral tomado a la altura z ≤ c, más la separación en y. */
+function _gpFsCost(gx, gy, gz, y, z) {
+  const c = AR.c, vz = (z - c) / c, vx = Math.sqrt(Math.max(0, 1 - vz * vz));
+  const dx = gx - (AR.Wc + c * vx), dz = gz - z, dy = gy - y;
+  return dx * dx + dy * dy + dz * dz;
+}
+/**
+ * Curva piso-lateral (eje x = Wc, z = c). Frente a la boca (y < YB) solo es superficie real la parte bajo la curva
+ * del piso de P (z ≤ zCurve(y)); si el punto más cercano del cilindro queda arriba, se busca el mejor punto del borde
+ * recortado minimizando en y (búsqueda gruesa + sección áurea; solo ocurre junto a los postes).
+ */
+function _gpFloorSide(gx, gy, gz) {
+  const c = AR.c, ex = gx - AR.Wc, ez = gz - c;
+  // Punto del cuarto de arco más cercano en el corte; fuera del cuarto se toma el extremo más cercano
+  // (aquí no se omite: frente a la boca el borde recortado no lo cubre ninguna cara vecina).
+  let ux, uz;
+  if (ex >= 0 && ez <= 0) {
+    const l = Math.sqrt(ex * ex + ez * ez);
+    ux = l > 1e-9 ? ex / l : INV_SQRT2; uz = l > 1e-9 ? ez / l : -INV_SQRT2;
+  } else if (ex >= 0) { ux = 1; uz = 0; }
+  else if (ez <= 0) { ux = 0; uz = -1; }
+  else if ((ex - c) * (ex - c) + ez * ez <= ex * ex + (ez + c) * (ez + c)) { ux = 1; uz = 0; }
+  else { ux = 0; uz = -1; }
+  const y0 = AR.Yq, y1 = AR.YGc;
+  const y = gy < y0 ? y0 : (gy > y1 ? y1 : gy);
+  const zs = c + c * uz;
+  if (y >= AR.YB || zs <= zCurve(y) + 1e-9) { _gpTry(gx, gy, gz, AR.Wc + c * ux, y, zs, -ux, 0, -uz); return; }
+  // cota inferior: la distancia al cilindro sin recortar; si ya no puede mejorar, no se busca
+  { const dx = gx - (AR.Wc + c * ux), dy = gy - y, dz = gz - zs; if (dx * dx + dy * dy + dz * dz >= _gpB) return; }
+  const zr = AR.r - zs;
+  const yEnd = Math.min(AR.YB, AR.Yq + Math.sqrt(Math.max(0, AR.r * AR.r - zr * zr)));   // zCurve(yEnd) = zs
+  // búsqueda gruesa
+  const N = 8;
+  let bi = 0, bv = Infinity;
+  for (let i = 0; i <= N; i++) {
+    const yy = y + (yEnd - y) * i / N, v = _gpFsCost(gx, gy, gz, yy, Math.min(zs, zCurve(yy)));
+    if (v < bv) { bv = v; bi = i; }
   }
-  return Math.sqrt(best);
+  let a = y + (yEnd - y) * Math.max(0, bi - 1) / N, b = y + (yEnd - y) * Math.min(N, bi + 1) / N;
+  const G = 0.6180339887498949;
+  let x1 = b - G * (b - a), x2 = a + G * (b - a);
+  let f1 = _gpFsCost(gx, gy, gz, x1, Math.min(zs, zCurve(x1))), f2 = _gpFsCost(gx, gy, gz, x2, Math.min(zs, zCurve(x2)));
+  for (let k = 0; k < 28; k++) {
+    if (f1 < f2) { b = x2; x2 = x1; f2 = f1; x1 = b - G * (b - a); f1 = _gpFsCost(gx, gy, gz, x1, Math.min(zs, zCurve(x1))); }
+    else { a = x1; x1 = x2; f1 = f2; x2 = a + G * (b - a); f2 = _gpFsCost(gx, gy, gz, x2, Math.min(zs, zCurve(x2))); }
+  }
+  const yb = f1 < f2 ? x1 : x2, zb = Math.min(zs, zCurve(yb));
+  const vz = (zb - c) / c, vx = Math.sqrt(Math.max(0, 1 - vz * vz));
+  _gpTry(gx, gy, gz, AR.Wc + c * vx, yb, zb, -vx, 0, -vz);
+}
+/** Pared lateral plana (x = W): rectángulo detrás de la boca + tapa bajo la curva del piso frente a la boca. */
+function _gpSide(gx, gy, gz) {
+  const c = AR.c, W = AR.W;
+  _gpTry(gx, gy, gz, W, gy < AR.YB ? AR.YB : (gy > AR.YGc ? AR.YGc : gy), gz < c ? c : (gz > AR.Hc ? AR.Hc : gz), -1, 0, 0);
+  if (gy >= AR.yCap && gy <= AR.YB && gz >= c && gz <= zCurve(gy)) { _gpTry(gx, gy, gz, W, gy, gz, -1, 0, 0); return; }
+  _gpTry(gx, gy, gz, W, gy < AR.yCap ? AR.yCap : (gy > AR.YB ? AR.YB : gy), c, -1, 0, 0);     // borde inferior de la tapa
+  const ry = gy - AR.Yq, rz = gz - AR.r, rl = Math.sqrt(ry * ry + rz * rz);                   // borde curvo de la tapa
+  if (rl > 1e-9 && ry >= 0) {
+    const sn = rz / rl;
+    if (sn >= AR.sinCap && sn <= 0) _gpTry(gx, gy, gz, W, AR.Yq + ry / rl * AR.r, AR.r + sn * AR.r, -1, 0, 0);
+  }
 }
 
 /**
@@ -854,41 +944,40 @@ function arenaSDF(px, py, pz, n) {
   const dp = dPrism(px, py, pz, n);
   const ay = py < 0 ? -py : py;
   if (ay < AR.YB - AR.E) return dp;
-  const W = AR.W, Hg = AR.Hg, YB = AR.YB, YG = AR.YG, E = AR.E;
   const sgn = py < 0 ? -1 : 1, sxp = px < 0 ? -1 : 1;
   const gx = px * sxp, gy = ay, gz = pz;
-  // ¿El punto más cercano de P cae en el hueco (boca) de la portería?
+  // ¿El punto más cercano de P cae en el hueco (boca) de la portería, es decir, dentro de la caja redondeada?
   const qx = px - dp * n.x, qy = (py - dp * n.y) * sgn, qz = pz - dp * n.z;
-  const inHole = qx < W && qx > -W && qz > 1e-3 && qz < Hg && qy > YB - E;
-  let best = inHole ? Infinity : (dp < 0 ? -dp : dp);
-  let kind = 0, cx = 0, cy = 0, cz = 0, fnx = 0, fny = 0, fnz = 0;
-  let nx, ny, d;
-  // Piso de la portería (extendido hacia la cancha)
-  nx = gx < W ? gx : W;
-  ny = gy < YB - E ? YB - E : (gy > YG ? YG : gy);
-  d = Math.sqrt((gx - nx) * (gx - nx) + (gy - ny) * (gy - ny) + gz * gz);
-  if (d < best) { best = d; kind = 1; cx = nx; cy = ny; cz = 0; fnx = 0; fny = 0; fnz = 1; }
-  // Techo de la portería (travesaño hacia adentro)
-  ny = gy < YB ? YB : (gy > YG ? YG : gy);
-  d = Math.sqrt((gx - nx) * (gx - nx) + (gy - ny) * (gy - ny) + (gz - Hg) * (gz - Hg));
-  if (d < best) { best = d; kind = 1; cx = nx; cy = ny; cz = Hg; fnx = 0; fny = 0; fnz = -1; }
-  // Fondo de la portería
-  const nz = gz < 0 ? 0 : (gz > Hg ? Hg : gz);
-  d = Math.sqrt((gx - nx) * (gx - nx) + (gy - YG) * (gy - YG) + (gz - nz) * (gz - nz));
-  if (d < best) { best = d; kind = 1; cx = nx; cy = YG; cz = nz; fnx = 0; fny = -1; fnz = 0; }
-  // Pared lateral de la portería (+ tapa de la curva del piso junto al poste)
-  const d2 = sidePatch2D(gy, gz);
-  d = Math.sqrt((gx - W) * (gx - W) + d2 * d2);
-  if (d < best) { best = d; kind = 1; cx = W; cy = _spy; cz = _spz; fnx = -1; fny = 0; fnz = 0; }
-
-  if (kind === 0) return dp; // la pared de P es la más cercana: n ya está calculada
-  const inside = dp > 0 || (gx < W && gz > 0 && gz < Hg && gy > YB - E && gy < YG);
-  const vx = px - cx * sxp, vy = py - cy * sgn, vz = pz - cz;
+  const inHole = goalBoxSDF(qx < 0 ? -qx : qx, qy, qz) > 1e-3;
+  _gpB = inHole ? Infinity : dp * dp; _gpHit = false;
+  // Todos los parches de la portería están en la caja [0, W] × [Yq, YG] × [0, Hg] (plegada): si P ya está más cerca, listo
+  if (!inHole) {
+    const bx = gx > AR.W ? gx - AR.W : 0, by = gy < AR.Yq ? AR.Yq - gy : (gy > AR.YG ? gy - AR.YG : 0);
+    const bz = gz < 0 ? -gz : (gz > AR.Hg ? gz - AR.Hg : 0);
+    if (bx * bx + by * by + bz * bz >= _gpB) return dp;
+  }
+  const c = AR.c, Wc = AR.Wc, YGc = AR.YGc;
+  const cx = gx < Wc ? gx : Wc;
+  _gpTry(gx, gy, gz, cx, gy < AR.YB - AR.E ? AR.YB - AR.E : (gy > YGc ? YGc : gy), 0, 0, 0, 1);      // piso (extendido hacia la cancha)
+  _gpTry(gx, gy, gz, cx, gy < AR.YB ? AR.YB : (gy > YGc ? YGc : gy), AR.Hg, 0, 0, -1);             // techo
+  _gpTry(gx, gy, gz, cx, AR.YG, gz < c ? c : (gz > AR.Hc ? AR.Hc : gz), 0, -1, 0);                 // fondo
+  _gpSide(gx, gy, gz);                                                                              // pared lateral + tapa
+  _gpFloorSide(gx, gy, gz);                                                                         // curva piso-lateral
+  _gpCylY(gx, gy, gz, Wc, AR.Hc, 1, 1, AR.YB, YGc);                                                 // curva techo-lateral
+  _gpCylX(gx, gy, gz, YGc, c, 1, -1);                                                               // curva piso-fondo
+  _gpCylX(gx, gy, gz, YGc, AR.Hc, 1, 1);                                                            // curva techo-fondo
+  _gpCylZ(gx, gy, gz);                                                                              // curva fondo-lateral
+  _gpSphere(gx, gy, gz, c, -1);                                                                     // esquinas
+  _gpSphere(gx, gy, gz, AR.Hc, 1);
+  if (!_gpHit) return dp; // la pared de P es la más cercana: n ya está calculada
+  const best = Math.sqrt(_gpB);
+  const inside = dp > 0 || goalBoxSDF(gx, gy, gz) > 0;
+  const vx = px - _gpX * sxp, vy = py - _gpY * sgn, vz = pz - _gpZ;
   if (best > 1e-7) {
     const s = (inside ? 1 : -1) / best;
     n.x = vx * s; n.y = vy * s; n.z = vz * s;
   } else {
-    n.x = fnx * sxp; n.y = fny * sgn; n.z = fnz;
+    n.x = _gpNx * sxp; n.y = _gpNy * sgn; n.z = _gpNz;
   }
   return inside ? best : -best;
 }
@@ -3634,8 +3723,18 @@ Tests.add('Extra A. SDF de la cancha: valores conocidos (piso, paredes, curvas, 
   chk('dentro de la portería (piso)', 0, 5500, 300, 300, [0, 0, 1]);
   chk('boca de la portería (sin pared invisible)', 0, 5120, 300, 300, [0, 0, 1]);
   chk('frente a la boca, junto al piso', 0, 5050, 20, 20, [0, 0, 1]);
-  const dp = Math.hypot(892.755 - 800, 20);
-  chk('cerca del poste (arista exacta)', 800, 5100, 550, dp);
+  // esquina superior de la boca: curva techo-lateral de radio c (centro (Wc, Hc)), 20 uu frente a la línea
+  chk('cerca del poste, esquina superior redondeada', 800, 5100, 550, Math.hypot(AR.c - Math.hypot(800 - AR.Wc, 550 - AR.Hc), 20));
+  // a z = 400 (bajo la pared de fondo, que empieza en z = 450) lo más cercano es el borde curvo de la tapa junto al poste
+  chk('cerca del poste, a media altura', 800, 5100, 400, Math.hypot(892.755 - 800, AR.r - Math.hypot(5100 - AR.Yq, 400 - AR.r)));
+  const k45 = 50, s2 = Math.SQRT2, s3 = Math.sqrt(3);
+  chk('curva piso-fondo de la portería', 0, AR.YGc + k45, AR.c - k45, AR.c - k45 * s2, [0, -INV_SQRT2, INV_SQRT2]);
+  chk('curva piso-lateral de la portería', AR.Wc + k45, 5600, AR.c - k45, AR.c - k45 * s2, [-INV_SQRT2, 0, INV_SQRT2]);
+  chk('curva techo-lateral de la portería', AR.Wc + k45, 5600, AR.Hc + k45, AR.c - k45 * s2, [-INV_SQRT2, 0, -INV_SQRT2]);
+  chk('curva fondo-lateral de la portería', AR.Wc + k45, AR.YGc + k45, 300, AR.c - k45 * s2, [-INV_SQRT2, -INV_SQRT2, 0]);
+  chk('esquina del fondo (esfera)', AR.Wc + 30, AR.YGc + 30, AR.c - 30, AR.c - 30 * s3, [-1 / s3, -1 / s3, 1 / s3]);
+  chk('curva piso-lateral frente a la boca', AR.Wc + k45, AR.YB - 20, AR.c - k45, AR.c - k45 * s2, [-INV_SQRT2, 0, INV_SQRT2]);
+  chk('tapa junto al poste', 852.755, 5090, 250, 40, [-1, 0, 0]);
   chk('bajo el travesaño', 0, 5100, 600, Math.hypot(20, 42.775));
   chk('pared interior de la portería', 850, 5600, 300, 42.755, [-1, 0, 0]);
   chk('fondo de la portería', 0, 5950, 300, 50, [0, -1, 0]);
@@ -4680,6 +4779,157 @@ function boxGeoPhys(x0, y0, z0, x1, y1, z1) {
   return g;
 }
 
+/**
+ * Corte de la portería (plano x-z) como polilínea con normal hacia dentro: curva piso-lateral, pared, curva
+ * techo-lateral, techo y el lado opuesto. Con floor = true incluye el tramo de piso (perfil cerrado).
+ */
+function goalProfile(floor, nArc = 8) {
+  const c = AR.c, Wc = AR.Wc, Hc = AR.Hc, W = AR.W, Hg = AR.Hg, pts = [];
+  const add = (x, z, mx, mz) => pts.push({ x, z, mx, mz });
+  const arc = (cx, cz, a0, a1) => { for (let k = 0; k <= nArc; k++) { const a = a0 + (a1 - a0) * k / nArc, ux = Math.cos(a), uz = Math.sin(a); add(cx + c * ux, cz + c * uz, -ux, -uz); } };
+  if (floor) { add(0, 0, 0, 1); }
+  arc(Wc, c, -Math.PI / 2, 0);                  // piso → pared derecha
+  add(W, (c + Hc) / 2, -1, 0);
+  arc(Wc, Hc, 0, Math.PI / 2);                  // pared → techo
+  add(0, Hg, 0, -1);
+  arc(-Wc, Hc, Math.PI / 2, Math.PI);           // techo → pared izquierda
+  add(-W, (c + Hc) / 2, 1, 0);
+  arc(-Wc, c, Math.PI, Math.PI * 1.5);          // pared → piso
+  if (floor) add(0, 0, 0, 1);
+  // quitar duplicados consecutivos y acumular longitud
+  const out = [];
+  for (const p of pts) { const q = out[out.length - 1]; if (!q || Math.hypot(p.x - q.x, p.z - q.z) > 1e-6) out.push(p); }
+  let acc = 0;
+  out[0].s = 0;
+  for (let i = 1; i < out.length; i++) { acc += Math.hypot(out[i].x - out[i - 1].x, out[i].z - out[i - 1].z); out[i].s = acc; }
+  return out;
+}
+
+/** Superficie en rejilla (filas × columnas de puntos {x,y,z,nx,ny,nz,u,v}) → geometría; opcionalmente con color. */
+function gridGeo(rows, color) {
+  const pos = [], nrm = [], uv = [], col = [], idx = [];
+  const nc = rows[0].length;
+  for (const row of rows) for (const q of row) {
+    pos.push(q.x, q.y, q.z); nrm.push(q.nx, q.ny, q.nz); uv.push(q.u, q.v);
+    if (color) { const t = color(q); col.push(t[0], t[1], t[2]); }
+  }
+  for (let j = 0; j < rows.length - 1; j++) for (let i = 0; i < nc - 1; i++) {
+    const a = j * nc + i, b = a + 1, d = a + nc, e = d + 1;
+    idx.push(a, b, e, a, e, d);
+  }
+  fixWinding(pos, nrm, idx);
+  return geoFromPhys(pos, nrm, uv, idx, color ? col : null);
+}
+
+/** Mallas de una portería (sg = +1 naranja, −1 azul): interior con red, tapas junto a los postes, marco. */
+function buildGoalMeshes(sg, contour, netTex, rampMat, wallMat) {
+  const group = new THREE.Group();
+  const c = AR.c, W = AR.W, Wc = AR.Wc, Hg = AR.Hg, Hc = AR.Hc, YB = AR.YB, YG = AR.YG, YGc = AR.YGc, r = AR.r, Yq = AR.Yq;
+  const teamCol = sg > 0 ? 0xff8a1f : 0x2f8cff;
+  const T = 34;                                   // grosor del marco
+  const blue = [0.25, 0.55, 1.0], orange = [1.0, 0.55, 0.18];
+  const sideCol = () => (sg > 0 ? orange : blue);
+  // ---- Interior: tubo (paredes + techo + curvas), remate del fondo y fondo plano ----
+  const prof = goalProfile(false), full = goalProfile(true);
+  const rowsTube = [];
+  const y0 = YB + T, nY = 5;
+  for (let k = 0; k <= nY; k++) {
+    const y = y0 + (YGc - y0) * k / nY;
+    rowsTube.push(prof.map((p) => ({ x: p.x, y: sg * y, z: p.z, nx: p.mx, ny: 0, nz: p.mz, u: p.s / 90, v: (y - YB) / 90 })));
+  }
+  const rowsCap = [], nPhi = 6;
+  for (let k = 0; k <= nPhi; k++) {
+    const ph = k / nPhi * Math.PI / 2, cp = Math.cos(ph), sp = Math.sin(ph);
+    rowsCap.push(full.map((p) => {
+      const bx = p.x + c * p.mx, bz = p.z + c * p.mz;                       // punto de la caja interior B'
+      return { x: bx - c * cp * p.mx, y: sg * (YGc + c * sp), z: bz - c * cp * p.mz,
+        nx: cp * p.mx, ny: -sg * sp, nz: cp * p.mz, u: p.s / 90, v: (YGc - YB + c * ph) / 90 };
+    }));
+  }
+  const back = [];
+  for (const z of [c, Hc]) back.push([-Wc, Wc].map((x) => ({ x, y: sg * YG, z, nx: 0, ny: -sg, nz: 0, u: x / 90, v: z / 90 })));
+  const netMat = new THREE.MeshStandardMaterial({ color: teamCol, map: netTex, alphaTest: 0.35, side: THREE.DoubleSide,
+    roughness: 0.6, emissive: teamCol, emissiveIntensity: 0.25 });
+  const backMat = new THREE.MeshStandardMaterial({ color: teamCol, transparent: true, opacity: 0.18, depthWrite: false,
+    side: THREE.DoubleSide, emissive: teamCol, emissiveIntensity: 0.4 });
+  for (const rows of [rowsTube, rowsCap, back]) {
+    const g = gridGeo(rows);
+    const shell = new THREE.Mesh(g, backMat); shell.renderOrder = 1; group.add(shell);
+    // red: la misma superficie 2 uu hacia dentro
+    const inset = rows.map((row) => row.map((q) => Object.assign({}, q, { x: q.x + q.nx * 2, y: q.y + q.ny * 2, z: q.z + q.nz * 2 })));
+    group.add(new THREE.Mesh(gridGeo(inset), netMat));
+  }
+  // ---- Frente a la boca: tapas planas, curva piso-lateral recortada y franja de la rampa bajo esa curva ----
+  const capMat = new THREE.MeshStandardMaterial({ color: 0x1d2b40, roughness: 0.55, metalness: 0.25, emissive: teamCol, emissiveIntensity: 0.18 });
+  const zc = (y) => zCurve(y);
+  const rampV = (y) => r * Math.asin(clamp((y - Yq) / r, 0, 1)) / (700 * 0.577);
+  // s del contorno de la rampa sobre la pared de fondo para un x dado (interpolado)
+  const backCols = contour.filter((q) => Math.abs(q.by - sg * Yq) < 1e-6 && q.dx === 0 && q.dy === sg);
+  const sAtX = (x) => {
+    for (let i = 0; i < backCols.length - 1; i++) {
+      const a = backCols[i], b = backCols[i + 1];
+      if ((x - a.bx) * (x - b.bx) <= 0 && a.bx !== b.bx) return a.s + (b.s - a.s) * (x - a.bx) / (b.bx - a.bx);
+    }
+    return 0;
+  };
+  for (const sx of [1, -1]) {
+    // tapa plana x = ±W: y ∈ [yCap, YB], c ≤ z ≤ zCurve(y)
+    const capRows = [], nK = 10;
+    for (let k = 0; k <= nK; k++) {
+      const y = AR.yCap + (YB - AR.yCap) * k / nK, top = zc(y);
+      capRows.push([c, top].map((z) => ({ x: sx * W, y: sg * y, z, nx: -sx, ny: 0, nz: 0, u: y / 90, v: z / 90 })));
+    }
+    group.add(new THREE.Mesh(gridGeo(capRows), capMat));
+    // curva piso-lateral frente a la boca: θ ∈ [θmin(y), π/2], z = c − c·sinθ ≤ zCurve(y)
+    const filRows = [], nF = 14, nT = 6;
+    for (let k = 0; k <= nF; k++) {
+      const y = Yq + (YB - Yq) * k / nF;
+      const smin = clamp(1 - zc(y) / c, 0, 1), th0 = Math.asin(smin);
+      const row = [];
+      for (let j = 0; j <= nT; j++) {
+        const th = th0 + (Math.PI / 2 - th0) * j / nT, cx = Math.cos(th), sz = Math.sin(th);
+        row.push({ x: sx * (Wc + c * cx), y: sg * y, z: c - c * sz, nx: -sx * cx, ny: 0, nz: sz, u: y / 90, v: th });
+      }
+      filRows.push(row);
+    }
+    group.add(new THREE.Mesh(gridGeo(filRows), capMat));
+    // franja de la rampa de la cancha que queda bajo esa curva: x ∈ [xClip(y), W], y ∈ [Yq, yCap]
+    const slRows = [], nS = 12, nX = 5;
+    for (let k = 0; k <= nS; k++) {
+      const y = Yq + (AR.yCap - Yq) * k / nS, z = zc(y);
+      const xClip = Wc + Math.sqrt(Math.max(0, c * c - (c - z) * (c - z)));
+      const ny = (Yq - y) / r, nz = (r - z) / r;
+      const row = [];
+      for (let j = 0; j <= nX; j++) {
+        const x = xClip + (W - xClip) * j / nX;
+        row.push({ x: sx * x, y: sg * y, z, nx: 0, ny: sg * ny, nz, u: sAtX(sx * x) / 700, v: rampV(y) });
+      }
+      slRows.push(row);
+    }
+    group.add(new THREE.Mesh(gridGeo(slRows, sideCol), rampMat));
+    // esquina superior de la boca (pared de fondo entre la curva techo-lateral y la esquina recta)
+    const spPos = [sx * W, sg * YB, Hg], spN = [0, -sg, 0], spUv = [0, 0], spCol = sideCol().slice(), spIdx = [];
+    const nA = 8;
+    for (let k = 0; k <= nA; k++) {
+      const a = k / nA * Math.PI / 2;
+      spPos.push(sx * (Wc + c * Math.cos(a)), sg * YB, Hc + c * Math.sin(a)); spN.push(0, -sg, 0); spUv.push(0, 0); spCol.push(...sideCol());
+      if (k > 0) spIdx.push(0, k, k + 1);
+    }
+    fixWinding(spPos, spN, spIdx);
+    const sp = new THREE.Mesh(geoFromPhys(spPos, spN, spUv, spIdx, spCol), wallMat); sp.renderOrder = 2; group.add(sp);
+  }
+  // ---- Marco: sigue el borde de la boca (postes, esquinas redondeadas y travesaño) ----
+  const frameMat = new THREE.MeshStandardMaterial({ color: 0xffffff, emissive: teamCol, emissiveIntensity: 1.6, roughness: 0.3, metalness: 0.4 });
+  const rim = prof;                                          // bajo z = 450 la cara frontal queda dentro de la rampa
+  const front = [], inner = [];
+  front.push(rim.map((p) => ({ x: p.x, y: sg * (YB - 0.6), z: p.z, nx: 0, ny: -sg, nz: 0, u: 0, v: 0 })));
+  front.push(rim.map((p) => ({ x: p.x - p.mx * T, y: sg * (YB - 0.6), z: p.z - p.mz * T, nx: 0, ny: -sg, nz: 0, u: 0, v: 0 })));
+  for (const y of [YB - 0.6, YB + T]) inner.push(rim.map((p) => ({ x: p.x + p.mx * 0.6, y: sg * y, z: p.z + p.mz * 0.6, nx: p.mx, ny: 0, nz: p.mz, u: 0, v: 0 })));
+  group.add(new THREE.Mesh(gridGeo(front), frameMat));
+  group.add(new THREE.Mesh(gridGeo(inner), frameMat));
+  return group;
+}
+
 function buildArena() {
   const group = new THREE.Group();
   R.arena = { group, mats: {} };
@@ -4692,9 +4942,9 @@ function buildArena() {
   const fieldTex = makeFieldTexture();
   const floorPts = [
     [AR.Xq, -AR.Y1], [AR.Xq, AR.Y1], [AR.X1, AR.Yq],
-    [AR.W, AR.Yq], [AR.W, AR.YG], [-AR.W, AR.YG], [-AR.W, AR.Yq],
+    [AR.W, AR.Yq], [AR.Wc, AR.Yq], [AR.Wc, AR.YGc], [-AR.Wc, AR.YGc], [-AR.Wc, AR.Yq], [-AR.W, AR.Yq],
     [-AR.X1, AR.Yq], [-AR.Xq, AR.Y1], [-AR.Xq, -AR.Y1], [-AR.X1, -AR.Yq],
-    [-AR.W, -AR.Yq], [-AR.W, -AR.YG], [AR.W, -AR.YG], [AR.W, -AR.Yq], [AR.X1, -AR.Yq],
+    [-AR.W, -AR.Yq], [-AR.Wc, -AR.Yq], [-AR.Wc, -AR.YGc], [AR.Wc, -AR.YGc], [AR.Wc, -AR.Yq], [AR.W, -AR.Yq], [AR.X1, -AR.Yq],
   ];
   const floorMat = new THREE.MeshStandardMaterial({ map: fieldTex, roughness: 0.92, metalness: 0.0 });
   const floor = new THREE.Mesh(flatPolygonGeo(floorPts, 0, true, (x, y) => [(x + 4096) / 8192, (y + 6000) / 12000]), floorMat);
@@ -4721,52 +4971,9 @@ function buildArena() {
   const ceil = new THREE.Mesh(flatPolygonGeo(ceilPts, AR.H, false, (x, y) => [x / 700, y / (700 * 0.577)]), ceilMat);
   ceil.renderOrder = 2;
   group.add(ceil);
-  // Porterías
+  // Porterías (misma geometría que la SDF: aristas interiores redondeadas con radio c)
   const netTex = makeNetTexture();
-  for (const sg of [1, -1]) {
-    const teamCol = sg > 0 ? 0xff8a1f : 0x2f8cff;
-    const capMat = new THREE.MeshStandardMaterial({ color: 0x1d2b40, roughness: 0.55, metalness: 0.25, emissive: teamCol, emissiveIntensity: 0.18 });
-    // Tapas de la curva junto a los postes
-    for (const sx of [1, -1]) {
-      const pts = [[AR.YB, 0], [AR.YB, AR.r]];
-      for (let k = 1; k <= 10; k++) {
-        const th = -k / 10 * Math.PI / 2;
-        pts.push([AR.Yq + AR.r * Math.cos(th), AR.r + AR.r * Math.sin(th)]);
-      }
-      const pos = [], nrm = [], idx = [];
-      pos.push(sx * AR.W, sg * AR.YB, 0); nrm.push(-sx, 0, 0);
-      for (let k = 1; k < pts.length; k++) { pos.push(sx * AR.W, sg * pts[k][0], pts[k][1]); nrm.push(-sx, 0, 0); }
-      for (let k = 1; k < pts.length - 1; k++) idx.push(0, k, k + 1);
-      fixWinding(pos, nrm, idx);
-      group.add(new THREE.Mesh(geoFromPhys(pos, nrm, null, idx), capMat));
-    }
-    // Interior: paredes, techo y fondo con red
-    const netMat = new THREE.MeshStandardMaterial({ color: teamCol, map: netTex, alphaTest: 0.35, side: THREE.DoubleSide,
-      roughness: 0.6, emissive: teamCol, emissiveIntensity: 0.25 });
-    const backMat = new THREE.MeshStandardMaterial({ color: teamCol, transparent: true, opacity: 0.18, depthWrite: false,
-      side: THREE.DoubleSide, emissive: teamCol, emissiveIntensity: 0.4 });
-    const D = AR.YG - AR.YB;
-    const faces = [
-      [[AR.W, sg * AR.YB, 0], [0, sg * D, 0], [0, 0, AR.Hg], [-1, 0, 0]],
-      [[-AR.W, sg * AR.YB, 0], [0, sg * D, 0], [0, 0, AR.Hg], [1, 0, 0]],
-      [[-AR.W, sg * AR.YB, AR.Hg], [2 * AR.W, 0, 0], [0, sg * D, 0], [0, 0, -1]],
-      [[-AR.W, sg * AR.YG, 0], [2 * AR.W, 0, 0], [0, 0, AR.Hg], [0, -sg, 0]],
-    ];
-    for (const f of faces) {
-      const inset = [f[0][0] + f[3][0] * 2, f[0][1] + f[3][1] * 2, f[0][2] + f[3][2] * 2];
-      group.add(new THREE.Mesh(quadGeo(inset, f[1], f[2], f[3], 90, 90), netMat));
-      const back = new THREE.Mesh(quadGeo(f[0], f[1], f[2], f[3], 90, 90), backMat);
-      back.renderOrder = 1;
-      group.add(back);
-    }
-    // Marco (postes y travesaño) con brillo del color del equipo
-    const frameMat = new THREE.MeshStandardMaterial({ color: 0xffffff, emissive: teamCol, emissiveIntensity: 1.6, roughness: 0.3, metalness: 0.4 });
-    const T = 34;
-    const y0 = sg > 0 ? AR.YB : -AR.YB - T, y1 = sg > 0 ? AR.YB + T : -AR.YB;
-    group.add(new THREE.Mesh(boxGeoPhys(AR.W, y0, 0, AR.W + T, y1, AR.Hg + T), frameMat));
-    group.add(new THREE.Mesh(boxGeoPhys(-AR.W - T, y0, 0, -AR.W, y1, AR.Hg + T), frameMat));
-    group.add(new THREE.Mesh(boxGeoPhys(-AR.W, y0, AR.Hg, AR.W, y1, AR.Hg + T), frameMat));
-  }
+  for (const sg of [1, -1]) group.add(buildGoalMeshes(sg, contour, netTex, rampMat, wallMat));
   R.scene.add(group);
   R.arena.mats = { floorMat, rampMat, wallMat, topMat, ceilMat };
 }
@@ -6724,7 +6931,8 @@ function debugLines() {
 
 async function boot() {
   const params = new URLSearchParams(location.search);
-  window.__TFT = { CONFIG, World, Car, Ball, BallPredictor, Controls, Match, BotBrain, makeBot, V3, Basis, arenaSDF, arenaRaycast, hitboxMinSDF, AR, DT, TICK_RATE };
+  window.__TFT = { CONFIG, World, Car, Ball, BallPredictor, Controls, Match, BotBrain, makeBot, V3, Basis, arenaSDF, arenaRaycast, hitboxMinSDF, AR, DT, TICK_RATE,
+    dPrism, goalBoxSDF, rebuildArena };
   if (params.has('sim')) { window.__tfArrancado = true; document.getElementById('carga').classList.add('oculto'); return; }
   // ?test o #test (algunos visores embebidos solo pasan el #ancla a la página)
   if (params.has('test') || location.hash === '#test') {
