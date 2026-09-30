@@ -28,8 +28,10 @@ export class AudioEngine {
     const comp = ctx.createDynamicsCompressor();
     comp.threshold.value = -14; comp.knee.value = 12; comp.ratio.value = 4; comp.attack.value = 0.002; comp.release.value = 0.18;
     this.master.connect(comp).connect(ctx.destination);
-    // buses
-    this.sfx = ctx.createGain(); this.sfx.connect(this.master);
+    // buses (los efectos pasan por un filtro que un golpe fuerte cierra un momento: F12.1)
+    this.sfx = ctx.createGain();
+    this.muffle = ctx.createBiquadFilter(); this.muffle.type = 'lowpass'; this.muffle.frequency.value = 20000; this.muffle.Q.value = 0.7;
+    this.sfx.connect(this.muffle).connect(this.master);
     this.reverbRoom = ctx.createConvolver(); this.reverbRoom.buffer = this._impulse(0.9, 3.2, 0.5);
     this.reverbOut = ctx.createConvolver(); this.reverbOut.buffer = this._impulse(2.2, 2.0, 0.25, true);
     this.revRoomGain = ctx.createGain(); this.revRoomGain.gain.value = 0.0;
@@ -320,34 +322,89 @@ export class AudioEngine {
     this._burst(out, t, { type: 'lowpass', freq: 420, q: 1.2, a: 0.001, peak: 0.9, d: 0.08 });
     this._burst(out, t + 0.002, { type: 'bandpass', freq: headshot ? 3000 : 1300, q: 2, a: 0.0005, peak: headshot ? 0.8 : 0.4, d: 0.03 });
   }
-  // Confirmación para quien dispara (seca, sin posicionar).
+  // Confirmación para quien dispara (seca, sin posicionar; F12.1): al cuerpo, un golpe seco con un
+  // chasquido; a la cabeza, el «tin» metálico del casco (parciales inarmónicos que suenan un rato);
+  // una baja, un golpe grave con una campanada; un derribo, el golpe grave solo.
   hitConfirm(kind = 'hit') {
     if (!this.ctx) return;
     const t = this.ctx.currentTime;
-    const g = this.ctx.createGain(); g.gain.value = 0.35; g.connect(this.sfx);
+    const g = this.ctx.createGain(); g.gain.value = 0.38; g.connect(this.sfx);
     if (kind === 'head') {
-      this._tone(g, t, { f0: 2900, f1: 2700, a: 0.001, peak: 0.5, d: 0.12, type: 'triangle' });
-      this._burst(g, t, { type: 'highpass', freq: 5000, q: 0.7, a: 0.0005, peak: 0.4, d: 0.03 });
-    } else if (kind === 'kill') {
-      this._tone(g, t, { f0: 1500, f1: 1400, a: 0.001, peak: 0.35, d: 0.09, type: 'triangle' });
-      this._tone(g, t + 0.06, { f0: 1100, f1: 1000, a: 0.001, peak: 0.3, d: 0.12, type: 'triangle' });
+      this._burst(g, t, { type: 'highpass', freq: 4200, q: 0.7, a: 0.0004, peak: 0.55, d: 0.02 });
+      for (const [f, peak, d] of [[2650, 0.42, 0.42], [4120, 0.26, 0.3], [5690, 0.16, 0.22], [7300, 0.08, 0.14]]) this._tone(g, t + 0.001, { f0: f, f1: f * 0.994, a: 0.0015, peak, d, type: 'sine' });
+    } else if (kind === 'kill' || kind === 'down') {
+      this._tone(g, t, { f0: 120, f1: 42, a: 0.003, peak: 1.0, d: 0.3 });
+      this._burst(g, t, { type: 'lowpass', freq: 420, q: 0.9, a: 0.002, peak: 0.7, d: 0.12 });
+      this._burst(g, t, { type: 'bandpass', freq: 2600, q: 2.5, a: 0.0005, peak: 0.35, d: 0.02 });
+      if (kind === 'kill') {
+        this._tone(g, t + 0.035, { f0: 1175, f1: 1172, a: 0.002, peak: 0.34, d: 0.45 });
+        this._tone(g, t + 0.035, { f0: 2350, f1: 2344, a: 0.002, peak: 0.12, d: 0.3 });
+      }
     } else {
-      this._burst(g, t, { type: 'bandpass', freq: 2400, q: 3, a: 0.0005, peak: 0.45, d: 0.025 });
+      this._tone(g, t, { f0: 190, f1: 110, a: 0.001, peak: 0.55, d: 0.06 });
+      this._burst(g, t, { type: 'lowpass', freq: 900, q: 0.8, a: 0.0008, peak: 0.55, d: 0.045 });
+      this._burst(g, t, { type: 'bandpass', freq: 3200, q: 2, a: 0.0004, peak: 0.4, d: 0.016 });
     }
   }
-  // Recibir daño: golpe grave y pitido si es fuerte.
+  // Recibir daño: golpe sordo; con un golpe de 40 o más, pitan los oídos y el resto suena apagado
+  // un momento (F12.1).
   hurt(amount) {
     if (!this.ctx) return;
     const t = this.ctx.currentTime;
-    const g = this.ctx.createGain(); g.gain.value = 0.5; g.connect(this.sfx);
-    this._tone(g, t, { f0: 140, f1: 60, a: 0.002, peak: Math.min(1, amount / 40), d: 0.18 });
-    this._burst(g, t, { type: 'lowpass', freq: 600, q: 0.8, a: 0.002, peak: 0.5, d: 0.1 });
-    if (amount > 35) this._tone(g, t + 0.02, { f0: 3800, f1: 3700, a: 0.05, peak: 0.07, d: 1.4 });
+    const g = this.ctx.createGain(); g.gain.value = 0.5; g.connect(this.master);
+    this._tone(g, t, { f0: 140, f1: 55, a: 0.002, peak: Math.min(1, 0.35 + amount / 50), d: 0.2 });
+    this._burst(g, t, { type: 'lowpass', freq: 520, q: 0.8, a: 0.002, peak: 0.6, d: 0.12 });
+    if (amount >= 40) {
+      const k = Math.min(1, amount / 80);
+      this.ringing(0.35 + 0.4 * k);
+      const f = this.muffle.frequency;
+      f.cancelScheduledValues(t);
+      f.setValueAtTime(20000, t);
+      f.exponentialRampToValueAtTime(700 - 250 * k, t + 0.03);
+      f.setTargetAtTime(20000, t + 0.35, 0.35 + 0.3 * k);
+    }
+  }
+  // Poca vida (F12.1): latido en bucle, más rápido y más fuerte cuanta menos vida (k 0…1); 0 lo para.
+  lowHealth(k) {
+    if (!this.ctx) return;
+    const ctx = this.ctx;
+    if (!(k > 0) || this._downed) {
+      if (this._low) { clearTimeout(this._low.timer); this._low.g.gain.setTargetAtTime(0, ctx.currentTime, 0.25); this._low = null; }
+      return;
+    }
+    if (!this._low) {
+      const g = ctx.createGain(); g.gain.value = 0; g.connect(this.master);
+      this._low = { g, k };
+      const loop = () => {
+        const L = this._low;
+        if (!L) return;
+        const t = ctx.currentTime;
+        this._tone(L.g, t, { f0: 60, f1: 44, a: 0.01, peak: 0.9, d: 0.11 });
+        this._tone(L.g, t + 0.2, { f0: 54, f1: 41, a: 0.01, peak: 0.55, d: 0.11 });
+        L.timer = setTimeout(loop, 1000 - 380 * L.k);
+      };
+      loop();
+    }
+    this._low.k = k;
+    this._low.g.gain.setTargetAtTime(0.18 + 0.32 * k, ctx.currentTime, 0.3);
+  }
+  // Una bala que te pasa cerca (F12.1): el chasquido (la onda de la bala) y un silbido corto, desde
+  // donde pasó; más fuerte cuanto más cerca.
+  bulletCrack(pos, dist, occl = 0) {
+    if (!this.ctx) return;
+    const t = this.ctx.currentTime;
+    const k = Math.max(0.25, 1 - dist / 1.5);
+    const out = this._out(pos, { gain: 0.9 * k, ref: 0.8, rolloff: 1, occl, reverb: 0.06 });
+    this._burst(out, t, { type: 'highpass', freq: 2600, q: 0.8, a: 0.0003, peak: 1.0, d: 0.018 });
+    const f = this._burst(out, t + 0.004, { type: 'bandpass', freq: 3400, q: 3, a: 0.004, peak: 0.45, d: 0.07 });
+    f.frequency.setValueAtTime(3400, t + 0.004);
+    f.frequency.exponentialRampToValueAtTime(900, t + 0.08);
   }
   // Derribado: latido y respiración en bucle mientras dure.
   startDowned() {
     if (!this.ctx || this._downed) return;
     const ctx = this.ctx;
+    this.lowHealth(0);
     const g = ctx.createGain(); g.gain.value = 0.0; g.connect(this.master);
     g.gain.setTargetAtTime(0.55, ctx.currentTime, 0.3);
     this._downed = { g, beat: 0 };

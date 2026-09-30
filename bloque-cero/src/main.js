@@ -26,6 +26,7 @@ import { MatchSession } from './client/matchsession.js';
 import { navFor } from './sim/bots.js';
 import { DebugView } from './render/debugview.js';
 import { thermalOn, scopeZoom, THERMAL_SCOPE } from './sim/abilities.js';
+import { FEEL, lowHealth } from './client/feel.js';
 
 const $ = (id) => document.getElementById(id);
 const nextFrame = () => new Promise((r) => requestAnimationFrame(() => r()));
@@ -118,9 +119,12 @@ async function boot() {
   let acc = 0;
   let session = null;
   let lockFailed = false;
+  let lowLast = 0;          // (poca vida: el último nivel que se pasó al latido)
   const ctx = {
     THREE, renderer, scene, camera, world, map, nav, wr, effects, lasers, ropes, chars, props, vm, post, audio, input, hud, settings, canvas,
     shake: 0, damageFlash: 0, camEye: camera.position, hear: null, paused: false,
+    // al recibir un balazo (F12.1): la sacudida de la vista (rad, solo en el dibujo) y de dónde vino
+    kick: { pitch: 0, yaw: 0, roll: 0 }, dmgDir: { x: 0, y: 1, k: 0 },
     hearing: new Hearing(world, camera.position),   // por dónde llega cada sonido a la cámara (F9)
     // la cámara salta al operador visto sin interpolar (cambio de vista, reaparición)
     resetView() { view.op = null; },
@@ -145,6 +149,7 @@ async function boot() {
     acc = 0;
     view.op = null;
     ctx.damageFlash = 0; ctx.shake = 0;
+    ctx.kick.pitch = ctx.kick.yaw = ctx.kick.roll = 0; ctx.dmgDir.k = 0;
     hud.setDeath(false); hud.setDowned(false); hud.setRevive(null, 0);
   }
   // el audio arranca con el primer clic (los navegadores no dejan antes): así ya suena la música del menú
@@ -314,7 +319,10 @@ async function boot() {
       const controlled = v === s.player;
       const yaw = controlled ? v.yaw : view.prevYaw + angleDiff(view.prevYaw, view.curYaw) * a;
       const pitch = controlled ? v.pitch : view.prevPitch + (view.curPitch - view.prevPitch) * a;
-      camera.rotation.set(pitch + sy, yaw + sx, v.roll);
+      // (la sacudida de un balazo vuelve sola en ~0,2 s; no mueve la puntería)
+      const K = ctx.kick, kd = 1 - Math.exp(-dt / (FEEL.kickBack / 3));
+      K.pitch -= K.pitch * kd; K.yaw -= K.yaw * kd; K.roll -= K.roll * kd;
+      camera.rotation.set(pitch + sy + K.pitch, yaw + sx + K.yaw, v.roll + K.roll);
       const zoom = 1 + (scopeZoom(v) - 1) * v.ads;
       const fov = 2 * Math.atan(Math.tan(settings.fov * DEG / 2) / zoom) / DEG;
       if (Math.abs(camera.fov - fov) > 0.01) { camera.fov = fov; camera.updateProjectionMatrix(); }
@@ -373,6 +381,13 @@ async function boot() {
     if (!s) props.clear();
     ctx.damageFlash = Math.max(0, ctx.damageFlash - dt * 1.4);
     post.grade.uniforms.uDamage.value = v ? Math.max(ctx.damageFlash, v.state === 'downed' ? 0.55 + Math.sin(performance.now() / 300) * 0.1 : 0, v.state === 'alive' && v.hp < v.maxHp * 0.3 ? 0.25 : 0) : 0;
+    // de dónde vino el último balazo: ese borde, más rojo (F12.1)
+    ctx.dmgDir.k = v ? Math.max(0, ctx.dmgDir.k - dt * 1.6) : 0;
+    post.grade.uniforms.uDmgDir.value.set(ctx.dmgDir.x, ctx.dmgDir.y, ctx.dmgDir.k);
+    // poca vida (menos de 30): colores apagados y latido (F12.1)
+    const low = v && !paused ? lowHealth(v) : 0;
+    post.grade.uniforms.uSat.value = 0.95 - FEEL.lowSat * low;
+    if (Math.abs(low - lowLast) > 0.02 || (low > 0) !== (lowLast > 0)) { audio.lowHealth(low); lowLast = low; }
     // humo alrededor de la cámara y cegadora del operador visto
     const G = s && s.game ? s.game.gadgets : null;
     post.grade.uniforms.uSmoke.value = G && !thermal ? G.smokeAt(camera.position) : 0;

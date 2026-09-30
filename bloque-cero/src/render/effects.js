@@ -390,6 +390,16 @@ export class Effects {
     this.scene.add(mesh);
     this.bloodMesh = mesh; this.bloodNext = 0;
   }
+  // Polvo del chaleco (F12.1): un balazo en el cuerpo levanta un soplo de polvo y fibras que sale
+  // hacia quien dispara.
+  vestPuff(p, dir) {
+    const light = this.lightAt(p.x, p.y, p.z);
+    for (let i = 0; i < 7; i++) {
+      const sp = 0.4 + Math.random() * 0.9, g = 0.4 + Math.random() * 0.12;
+      this.spawnDust(p.x, p.y, p.z, (dir ? -dir.x * sp : 0) + (Math.random() - 0.5) * 0.7, (Math.random() - 0.1) * 0.6, (dir ? -dir.z * sp : 0) + (Math.random() - 0.5) * 0.7,
+        0.06 + Math.random() * 0.07, [g * light + 0.03, (g - 0.02) * light + 0.03, (g - 0.06) * light + 0.025], 0.4 + Math.random() * 0.4, 0.85);
+    }
+  }
   bloodHit(p, dir, head, decal = true) {
     if (!this.bloodMesh) this._initBlood();
     const light = this.lightAt(p.x, p.y, p.z);

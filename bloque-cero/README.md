@@ -21,6 +21,31 @@ Es un único archivo HTML autónomo: no necesita servidor ni conexión.
 | F9 | Audio 3D con oclusión | ✅ paredes, suelos y rodeo por puertas y agujeros · ambiente · música en menús y últimos 30 s |
 | F10 | Miras y accesorios, rappel en Villa (tejado y fachada, también los bots), equilibrio de Élite, puntería humana de los bots, pulido y publicación | en curso: ✅ miras y accesorios · ✅ rappel del jugador · ✅ rappel de los bots · ✅ equilibrio de Élite · ✅ puntería humana de los bots |
 | — | Mapa Residencia del Lago | pendiente |
+| F12 | Sensación de juego: impactos, voces, música, inicio y fin de ronda, ambiente | en curso: ✅ impactos |
+
+## Impactos (Fase 12.1)
+
+Dar y recibir balazos se nota más (`src/client/feel.js` y `src/client/fx.js`). Es solo dibujo y
+sonido: el daño, las reglas y los bots no cambian.
+
+- **Al acertar**, tres avisos distintos: al cuerpo, un golpe seco con un chasquido; a la cabeza, el
+  «tin» metálico del casco, que suena un rato; una baja, un golpe grave con una campanada (un
+  derribo, el golpe grave solo). Medido sin partida (`tools/medir-impactos.mjs`): el del casco lleva
+  35 dB más de agudos que el del cuerpo y el de la baja, 17 dB más de graves.
+- **Al recibir un balazo** (o un golpe, o una explosión):
+  - la vista se sacude hacia arriba y hacia el lado contrario, según el daño (2° con 60 o más), y
+    vuelve en 0,2 s; es solo la vista: la puntería no se mueve;
+  - el borde de la pantalla del lado del disparo se pone rojo, además del indicador de siempre;
+  - suena un golpe sordo; con 40 o más de daño, pitan los oídos y lo demás suena apagado un
+    momento (medido: 49 dB menos de agudos).
+- **Con menos de 30 de vida**: colores apagados y latido, más fuerte y más rápido cuanta menos vida.
+  Derribado suena el latido de siempre.
+- **Balas que te pasan a menos de 1,5 m** sin darte: un chasquido y un silbido corto desde donde
+  pasaron (medido: 18 dB más por el oído de su lado, y 14 dB más a 0,5 m que a 1,4 m). A quemarropa
+  lo que suena es el disparo.
+- **Al alcanzado**: un tirón del cuerpo en la dirección de la bala (sube en 0,04 s y vuelve a los
+  0,16 s) y, salvo en la cabeza, polvo del chaleco hacia quien disparó. Solo en el dibujo: las zonas
+  de impacto no se mueven.
 
 ## Arsenal (Fase 6)
 
@@ -803,6 +828,8 @@ node tools/smoke-repeticion.mjs <carpeta>  # repetición de muerte: desde el que
 node tools/smoke-audio.mjs [html]  # audio 3D: música del menú, viento y zumbido, pared, suelo y puerta, música de los últimos 30 s
 node tools/smoke-menu.mjs <carpeta> [html]  # el fondo del menú sin superficies oscuras (Baja, Media y Alta) y sin la primera persona
 node tools/medir-audio.mjs [motor]  # lo que sale por los altavoces (sin gráficos): disparos libres y tapados, de cerca y de lejos, y pasos
+node tools/medir-impactos.mjs [motor]  # los sonidos de los impactos (sin gráficos): avisos de acierto, golpes recibidos, balas que pasan cerca y latido
+node tools/smoke-impactos.mjs <carpeta> [html]  # impactos en el campo de pruebas: avisos, tirón y polvo, balazo desde la derecha, poca vida y bala cerca
 node tools/smoke-accesorios.mjs <carpeta> [html]  # miras y accesorios: selección, primera persona, zoom, supresor, láser, panel O y capturas
 node tools/smoke-rappel.mjs <carpeta> [html]  # rappel: engancharse en la calle, subir, ventana con barricada, pretil, tejado y otro colgado en tercera persona
 node tools/smoke-rappel-bots.mjs <carpeta> [html]  # rappel de un aliado bot en Élite: con P, su ruta por la fachada en cian; sube y entra en el Estudio

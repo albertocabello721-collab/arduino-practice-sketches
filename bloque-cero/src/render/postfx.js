@@ -45,6 +45,7 @@ const GradeShader = {
     uSat: { value: 0.95 },
     uTint: { value: new THREE.Vector3(1.0, 0.99, 0.97) },
     uDamage: { value: 0 },
+    uDmgDir: { value: new THREE.Vector3(0, 1, 0) },   // de dónde viene el daño en pantalla (x, y) y cuánto (z)
     uFlash: { value: 0 },
     uRes: { value: new THREE.Vector2(1, 1) },
     uFeed: { value: 0 },      // 0 ojos, 1 dron, 2 cámara de seguridad
@@ -55,7 +56,7 @@ const GradeShader = {
   },
   vertexShader: `varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }`,
   fragmentShader: /* glsl */ `
-    uniform sampler2D tDiffuse; uniform float uTime, uVignette, uGrain, uSat, uDamage, uFlash, uFeed, uStatic, uSmoke, uBlind, uGas; uniform vec3 uTint; uniform vec2 uRes;
+    uniform sampler2D tDiffuse; uniform float uTime, uVignette, uGrain, uSat, uDamage, uFlash, uFeed, uStatic, uSmoke, uBlind, uGas; uniform vec3 uTint, uDmgDir; uniform vec2 uRes;
     varying vec2 vUv;
     float h(vec2 p){ return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453); }
     void main(){
@@ -89,6 +90,12 @@ const GradeShader = {
       c *= v;
       // daño: bordes rojos
       c = mix(c, c * vec3(1.6, 0.35, 0.3), uDamage * smoothstep(0.15, 0.7, length(q) * 1.4));
+      // y el borde del lado del que viene el disparo, más rojo (F12.1)
+      if (uDmgDir.z > 0.0) {
+        vec2 qa = vec2(q.x * uRes.x / uRes.y, q.y);
+        float side = max(0.0, dot(qa / max(length(qa), 1e-4), uDmgDir.xy));
+        c = mix(c, c * vec3(1.75, 0.28, 0.22), uDmgDir.z * side * side * smoothstep(0.12, 0.62, length(qa)));
+      }
       c += uFlash;
       // humo alrededor de la cámara: velo gris que casi no deja ver
       if (uSmoke > 0.0) {

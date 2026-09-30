@@ -7,6 +7,7 @@ import { LIGHTING_GLSL } from './shaders.js';
 import { KITS, BUILDS } from './kits.js';
 import { Ragdoll, deathImpulse, RAG, PT } from './ragdoll.js';
 import { WEAPONS, defaultKit } from '../sim/weapons.js';
+import { FEEL, joltAt } from '../client/feel.js';
 
 // ------------------------------------------------------------ camuflaje procedural
 function makeCamoTexture() {
@@ -439,6 +440,11 @@ const HOLSTER_OUT = 0.2;
 const UP = new THREE.Vector3(0, 1, 0);
 const NO_BLOB = { on: false };
 
+// Cuánto se va cada hueso con el tirón de un balazo (F12.1): el tronco de arriba y lo que cuelga.
+const JOLT_BONES = [[BONE.spine, 0.4], [BONE.chest, 1], [BONE.neck, 1.1], [BONE.head, 1.2],
+  [BONE.uarmL, 0.9], [BONE.farmL, 0.9], [BONE.handL, 0.9], [BONE.uarmR, 0.9], [BONE.farmR, 0.9], [BONE.handR, 0.9],
+  [BONE.gun, 0.9], [BONE.holster, 0.4]];
+
 function rigToMatrices(rig, out) {
   for (let i = 0; i < BONE_COUNT; i++) {
     const b = rig[i];
@@ -539,6 +545,14 @@ export class CharacterRenderer {
   }
   clear() { for (const v of [...this.views.values()]) this.remove(v.op); }
   flashHit(op) { const v = this.views.get(op.id); if (v) v.hit = 1; }
+  /** Tirón al recibir un balazo (F12.1): el tronco, la cabeza y los brazos se van un poco en la
+   *  dirección de la bala y vuelven. Solo en el dibujo: las zonas de impacto no se mueven. */
+  jolt(op, dir) {
+    const v = this.views.get(op.id);
+    if (!v || !dir) return;
+    const l = Math.hypot(dir.x, dir.z) || 1;
+    v.jolt = { t: 0, x: dir.x / l, z: dir.z / l };
+  }
   /** Baja (evento 'killed', al momento: el cuerpo aún lleva su velocidad): cómo lo empuja al caer. */
   killed(op, ev) { const v = this.views.get(op.id); if (v) v.impulse = deathImpulse(ev, op); }
 
@@ -612,6 +626,12 @@ export class CharacterRenderer {
       } else {
         // reutiliza la pose que la simulación ya calculó este tick (misma que las zonas de impacto)
         rigToMatrices(op.rig, bones);
+        if (v.jolt) {
+          const J = v.jolt, k = joltAt(J.t) * FEEL.jolt;
+          J.t += dt;
+          if (J.t >= FEEL.joltT) v.jolt = null;
+          if (k > 0) for (const [b, w] of JOLT_BONES) { const o = b * 16; bones[o + 12] += J.x * k * w; bones[o + 14] += J.z * k * w; }
+        }
         this._slots(v, bones);
         v.mesh.material.uniformsNeedUpdate = true;
       }

@@ -2,9 +2,9 @@
 // impactos, daño, derribos, bajas, pasos, recargas) en sonido, efectos y HUD.
 // Lo comparten el campo de pruebas y la partida 5v5.
 import { MATS, SND } from '../world/materials.js';
-import { angleDiff } from '../core/math.js';
 import { BONE } from '../sim/skeleton.js';
 import { thirdPersonDrops } from '../render/character.js';
+import { FEEL, hitSide, kickFrom, nearMiss } from './feel.js';
 
 /**
  * @param {object} ctx     contexto del motor (audio, effects, chars, vm, hud, world)
@@ -61,7 +61,17 @@ export function bindGameFx(ctx, game, view) {
       if (Math.random() < (w.def.pellets > 1 ? 0.35 : 0.5)) effects.addTracer(m, end);
     }
   });
+  // una bala de otro que te pasa a menos de 1,5 m sin darte: chasquido (F12.1)
+  let crackAt = -1;
   on('bullet', (op, res) => {
+    const v = viewer();
+    if (v && op !== v && v.state === 'alive' && res.hitOp !== v) {
+      const now = performance.now() / 1000;
+      if (now - crackAt > FEEL.crackGap) {
+        const nm = nearMiss(res, v.eyePos());
+        if (nm) { crackAt = now; audio.bulletCrack(nm.at, nm.dist, 0); }
+      }
+    }
     effects.bulletImpact(res);
     if (res.hit) {
       const p = { x: res.origin.x + res.dir.x * res.end, y: res.origin.y + res.dir.y * res.end, z: res.origin.z + res.dir.z * res.end };
@@ -185,16 +195,24 @@ export function bindGameFx(ctx, game, view) {
     if (target === viewer()) {
       audio.hurt(ev.amount);
       ctx.damageFlash = Math.min(1, ctx.damageFlash + ev.amount / 60);
-      if (ev.by) {
-        const b = ev.by.body.pos, p = target.body.pos;
-        const ang = Math.atan2(-(b.x - p.x), -(b.z - p.z));
-        hud.damageFrom(-angleDiff(target.yaw, ang));
+      const side = ev.by && ev.by !== target ? hitSide(target, ev.by.body.pos) : null;
+      if (side) hud.damageFrom(-side.rel);
+      // un balazo, un golpe o una explosión (no el gas ni la batería): la vista se sacude (hacia
+      // arriba y hacia el otro lado) y el borde de ese lado se pone rojo
+      if (ev.dir || (ev.weapon && ev.weapon.explosive)) {
+        const K = kickFrom(ev.amount, side || { x: 0, y: 1 });
+        ctx.kick.pitch += K.pitch; ctx.kick.yaw += K.yaw; ctx.kick.roll += K.roll;
+        if (side) { ctx.dmgDir.x = side.x; ctx.dmgDir.y = side.y; ctx.dmgDir.k = Math.min(1, ctx.dmgDir.k + 0.35 + ev.amount / 60); }
       }
+    } else if (ev.point && ev.dir) {
+      // al alcanzado por una bala o un golpe: un tirón del cuerpo y, salvo en la cabeza, polvo del chaleco
+      chars.jolt(target, ev.dir);
+      if (ev.zone !== 'head') effects.vestPuff(ev.point, ev.dir);
     }
   });
   on('downed', (target, ev) => {
     hud.feed(`${nameHtml(ev.by)} <span class="w">derriba a</span> ${nameHtml(target)}`, 'down' + (mine(ev.by, target) ? ' mine' : ''));
-    if (ev.by && ev.by === me()) { hud.hitmarker('kill'); audio.hitConfirm('kill'); }
+    if (ev.by && ev.by === me()) { hud.hitmarker('kill'); audio.hitConfirm('down'); }
     if (target === viewer()) audio.startDowned();
     if (target === me() && view.onMeDowned) view.onMeDowned();
   });
