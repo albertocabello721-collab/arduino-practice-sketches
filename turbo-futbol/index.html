@@ -508,7 +508,16 @@ const CONFIG = {
     goalHeight: 642.775,
     goalDepth: 880,
     goalZoneExt: 1000,      // extensión de la zona especial de la SDF frente a la portería
-    goalFilletRadius: 190,  // radio de las aristas interiores de la portería (≤ altura − radio de la curva = 192.775)
+    goalFilletRadius: 190,  // radio de las aristas interiores al fondo de la portería (≤ altura − radio de la curva = 192.775)
+    goalMouthFloorRadius: 90, // arista piso-poste en la boca y frente a ella (≤ radio de la pelota 91.25: pegada al poste no la toca)
+    goalMouthTopRadius: 90, // arista poste-travesaño en la boca (≤ radio de la pelota: para la pelota es una esquina recta)
+    goalFloorRampFrom: null, // la curva piso-poste crece desde línea de gol + esto (null = radio de la pelota: la pelota ya cruzó)
+    goalFloorRampLength: 450,
+    goalTopRampFrom: null,  // ídem para la curva poste-travesaño
+    goalTopRampLength: 450,
+    capEdgeRadius: 100,     // borde de la rampa junto a cada poste (frente a la boca) redondeado hasta este radio...
+    capEdgeKeep: 10,        // ...sin bajar de (radio de la pelota + esto): la cara del poste sigue entera donde la toca la pelota
+    capEdgeTaper: 80,       // el redondeo se anula suavemente en los últimos uu antes de la boca (arista del poste recta)
   },
   input: {
     deadzone: 0.15,         // zona muerta del stick (configurable en Ajustes)
@@ -833,15 +842,18 @@ class Rng {
 //   P  = prisma octogonal Q (paredes, chaflanes, piso, techo) dilatado por r:
 //        bordes redondeados de radio r entre piso/paredes/techo y en las esquinas verticales.
 //   C± = cajas de las porterías (extendidas hacia la cancha para cortar la curva del piso).
-//   Las cajas de las porterías tienen las aristas interiores redondeadas con radio c (piso-fondo, piso-laterales,
-//   techo-paredes, fondo-laterales y esquinas): C± = B'± ⊕ esfera(c).
+//   La boca de cada portería es cuadrada para la pelota: aristas piso-poste y poste-travesaño de radio cb0, ct0 ≤ radio
+//   de la pelota (una pelota apoyada en el poste no las toca). Detrás de la línea de gol las aristas laterales crecen
+//   con una rampa suave hasta el radio c, el mismo de las aristas del fondo (piso-fondo, techo-fondo, fondo-laterales
+//   y esquinas). Frente a la boca, el borde de la rampa junto a cada poste está redondeado por encima de la pelota.
 // D(p) = distancia exacta al borde del espacio libre (positiva dentro), con la normal
 // apuntando hacia el espacio libre. Para la portería se usa la distancia a los parches reales
-// (paredes, techo, fondo, piso, curvas de radio c y tapas junto a los postes, recortadas por la curva del piso)
+// (paredes, techo, fondo, piso, curvas y tapas junto a los postes, recortadas por la curva del piso)
 // y se ignora el hueco de la boca en P.
 // =====================================================================
 const AR = { r: 0, H: 0, Xq: 0, Yq: 0, Cq: 0, Y1: 0, X1: 0, Zlo: 0, Zhi: 0, W: 0, Hg: 0, YB: 0, YG: 0, E: 0, bex: 0, bey: 0, bel2: 0,
-  c: 0, Wc: 0, Hc: 0, YGc: 0, yCap: 0, sinCap: 0, byc: 0, byh: 0 };
+  c: 0, cb0: 0, ct0: 0, b0: 0, b1: 0, bL: 0, t0: 0, t1: 0, tL: 0, Wc: 0, Hc: 0, YGc: 0, yCap: 0, sinCap: 0, byc: 0, byh: 0,
+  rk: 0, rzk: 0, rtap: 0, yA: 0, phiA: 0 };
 function rebuildArena() {
   const A = CONFIG.arena;
   AR.r = A.filletRadius;
@@ -861,12 +873,25 @@ function rebuildArena() {
   AR.bex = AR.X1 - AR.Xq;
   AR.bey = AR.Yq - AR.Y1;
   AR.bel2 = AR.bex * AR.bex + AR.bey * AR.bey;
-  // Portería redondeada: c ≤ Hg − r para que la tapa junto al poste nunca llegue a la curva del techo
-  AR.c = Math.min(A.goalFilletRadius, AR.Hg - AR.r, AR.W);
+  // Portería: aristas interiores de radio c al fondo (c ≤ Hg − r); en la boca, cb0 abajo y ct0 arriba (≤ radio de la
+  // pelota), y transiciones suaves [b0, b1] (piso-poste) y [t0, t1] (poste-travesaño) que empiezan cuando la pelota ya
+  // cruzó la línea (línea de gol + radio de la pelota).
+  AR.c = Math.max(0, Math.min(A.goalFilletRadius, AR.Hg - AR.r, AR.W));
+  AR.cb0 = Math.max(0, Math.min(A.goalMouthFloorRadius, AR.c));
+  AR.ct0 = Math.max(0, Math.min(A.goalMouthTopRadius, AR.c));
   AR.Wc = AR.W - AR.c; AR.Hc = AR.Hg - AR.c; AR.YGc = AR.YG - AR.c;
-  AR.yCap = AR.Yq + Math.sqrt(AR.r * AR.r - (AR.r - AR.c) * (AR.r - AR.c));   // y donde la curva del piso alcanza la altura c
-  AR.sinCap = (AR.c - AR.r) / AR.r;                                              // seno del ángulo de ese punto (centro (Yq, r))
+  const line = CONFIG.match.goalLine;
+  AR.b0 = Math.max(AR.YB, line + (A.goalFloorRampFrom == null ? CONFIG.ball.radius : A.goalFloorRampFrom));
+  AR.bL = Math.max(1, Math.min(A.goalFloorRampLength, AR.YGc - AR.b0)); AR.b1 = AR.b0 + AR.bL;
+  AR.t0 = Math.max(AR.YB, line + (A.goalTopRampFrom == null ? CONFIG.ball.radius : A.goalTopRampFrom));
+  AR.tL = Math.max(1, Math.min(A.goalTopRampLength, AR.YGc - AR.t0)); AR.t1 = AR.t0 + AR.tL;
+  AR.yCap = AR.Yq + Math.sqrt(AR.r * AR.r - (AR.r - AR.cb0) * (AR.r - AR.cb0));   // y donde la curva del piso alcanza la altura cb0
+  AR.sinCap = (AR.cb0 - AR.r) / AR.r;                                                // seno del ángulo de ese punto (centro (Yq, r))
   AR.byc = (AR.YB - AR.E + AR.YG) / 2; AR.byh = (AR.YG - AR.YB + AR.E) / 2 - AR.c;   // caja interior B' en y
+  // Borde de la rampa junto al poste: redondeo convexo desde la altura rzk (sobre el centro de la pelota pegada al poste)
+  AR.rk = Math.max(0, A.capEdgeRadius); AR.rzk = CONFIG.ball.radius + A.capEdgeKeep; AR.rtap = Math.max(1, A.capEdgeTaper);
+  AR.phiA = Math.acos(Math.min(1, Math.max(-1, 1 - AR.rzk / AR.r)));                 // ángulo de la curva del piso donde z = rzk
+  AR.yA = AR.Yq + AR.r * Math.sin(AR.phiA);
 }
 rebuildArena();
 
@@ -923,13 +948,71 @@ function dPrism(px, py, pz, n) {
 /** Altura de la curva piso-pared de fondo de P en y ∈ [Yq, YB] (coordenada plegada). */
 function zCurve(y) { const d = y - AR.Yq; return d <= 0 ? 0 : AR.r - Math.sqrt(Math.max(0, AR.r * AR.r - d * d)); }
 
-/** SDF (positiva dentro) de la caja redondeada de la portería, en coordenadas plegadas (|x|, |y|, z). */
+/**
+ * Radios de las aristas laterales de la portería según la profundidad y (plegada). En la boca y frente a ella la arista
+ * piso-poste tiene radio cb0 y la poste-travesaño ct0, ambos ≤ radio de la pelota: una pelota apoyada en el poste y el
+ * piso (o el travesaño) no toca la curva, así que rebota igual que en una esquina recta. Detrás de la línea de gol (desde
+ * b0 / t0 = línea + radio de la pelota) crecen hasta c con una rampa coseno de largo bL / tL: el radio y su derivada son
+ * continuos, así que no hay escalón ni arista nueva.
+ */
+function goalRamp01(y, y0, L) { return y <= y0 ? 0 : (y >= y0 + L ? 1 : 0.5 - 0.5 * Math.cos(Math.PI * (y - y0) / L)); }
+function goalRadB(y) { return AR.cb0 + (AR.c - AR.cb0) * goalRamp01(y, AR.b0, AR.bL); }
+function goalRadT(y) { return AR.ct0 + (AR.c - AR.ct0) * goalRamp01(y, AR.t0, AR.tL); }
+/** dρ/dy (para la normal exacta sobre la superficie de radio variable). */
+function goalRadD(y, top) {
+  const y0 = top ? AR.t0 : AR.b0, L = top ? AR.tL : AR.bL, dr = AR.c - (top ? AR.ct0 : AR.cb0);
+  return y <= y0 || y >= y0 + L ? 0 : dr * 0.5 * Math.PI / L * Math.sin(Math.PI * (y - y0) / L);
+}
+
+/** SDF (positiva dentro) de la caja redondeada de radio c, en coordenadas plegadas (|x|, |y|, z). Es el hueco para y ≥ b1, t1. */
 function goalBoxSDF(gx, gy, gz) {
   const hz = AR.Hg * 0.5;
   const qx = gx - AR.Wc, qy = Math.abs(gy - AR.byc) - AR.byh, qz = Math.abs(gz - hz) - (hz - AR.c);
   const ox = qx > 0 ? qx : 0, oy = qy > 0 ? qy : 0, oz = qz > 0 ? qz : 0;
   const m = qx > qy ? (qx > qz ? qx : qz) : (qy > qz ? qy : qz);
   return AR.c - Math.sqrt(ox * ox + oy * oy + oz * oz) - (m < 0 ? m : 0);
+}
+/**
+ * Profundidad (positiva dentro) del hueco de la portería, en coordenadas plegadas. Para y ≥ b1, t1 es la SDF de la caja
+ * redondeada; antes, la distancia dentro del corte en y (rectángulo con esquinas de radio ρb(y) abajo y ρt(y) arriba).
+ * Solo se usa su signo (con un margen pequeño).
+ */
+function goalDepth(gx, gy, gz) {
+  if (gy >= AR.b1 && gy >= AR.t1) return goalBoxSDF(gx, gy, gz);
+  const W = AR.W, Hg = AR.Hg;
+  let d = W - gx;
+  if (gz < d) d = gz;
+  if (Hg - gz < d) d = Hg - gz;
+  if (gx > W - AR.c) {                          // solo cerca de las esquinas importan los radios
+    if (gz < AR.c) {
+      const rb = goalRadB(gy), ex = gx - (W - rb), ez = gz - rb;
+      if (ex > 0 && ez < 0) d = rb - Math.sqrt(ex * ex + ez * ez);
+    } else if (gz > Hg - AR.c) {
+      const rt = goalRadT(gy), fx = gx - (W - rt), fz = gz - (Hg - rt);
+      if (fx > 0 && fz > 0) d = rt - Math.sqrt(fx * fx + fz * fz);
+    }
+  }
+  const dy = gy - (AR.YB - AR.E);
+  if (dy < d) d = dy;
+  // zona que quita el redondeo del borde de la rampa junto al poste: x ∈ (W, W + k), z ∈ (zc − k, zc], fuera del arco
+  if (gx > W && gy > AR.yA && gy < AR.YB && gz <= AR.r + 1e-3) {
+    const k = capEdgeK(gy);
+    if (k > 0 && gx < W + k) {
+      const zc = zCurve(gy), ez = gz - (zc - k);
+      if (ez > 0 && gz <= zc + 1e-3) { const ex = gx - W - k, dz = Math.sqrt(ex * ex + ez * ez) - k; if (dz > d) d = dz; }
+    }
+  }
+  return d;
+}
+/** Radio del redondeo del borde de la rampa junto al poste en y (plegada): 0 bajo rzk, crece con la altura libre y se
+ *  satura suavemente en rk; se anula con un coseno en los últimos rtap uu antes de la boca. */
+function capEdgeK(y) {
+  if (y <= AR.yA || y >= AR.YB || AR.rk <= 0) return 0;
+  const t = (zCurve(y) - AR.rzk) / AR.rk;
+  if (t <= 0) return 0;
+  const h = t >= 2 ? 1 : t - 0.25 * t * t;
+  const y1 = AR.YB - AR.rtap, tap = y <= y1 ? 1 : 0.5 + 0.5 * Math.cos(Math.PI * (y - y1) / AR.rtap);
+  return AR.rk * h * tap;
 }
 
 // Mejor candidato de los parches de la portería (distancia², punto y normal de la cara, en coordenadas plegadas)
@@ -938,16 +1021,17 @@ function _gpTry(gx, gy, gz, x, y, z, nx, ny, nz) {
   const dx = gx - x, dy = gy - y, dz = gz - z, d2 = dx * dx + dy * dy + dz * dz;
   if (d2 < _gpB) { _gpB = d2; _gpHit = true; _gpX = x; _gpY = y; _gpZ = z; _gpNx = nx; _gpNy = ny; _gpNz = nz; }
 }
-// Curvas de radio c (cuarto de cilindro o de esfera). Si el punto queda fuera del cuarto, el más cercano está en una
-// arista que ya cubren las caras vecinas, así que se omite.
-function _gpCylY(gx, gy, gz, ax, az, sx, sz, y0, y1) {       // eje paralelo a y
+// Curvas de radio constante (cuarto de cilindro o de esfera). Si el punto queda fuera del cuarto, el más cercano está en
+// una arista que ya cubren las caras vecinas, así que se omite.
+function _gpCylY(gx, gy, gz, ax, az, sx, sz, y0, y1, rad) {  // eje paralelo a y (tramo y ∈ [y0, y1], radio rad)
+  if (rad <= 0 || y1 < y0) return;
   const ex = gx - ax, ez = gz - az;
   if (ex * sx < 0 || ez * sz < 0) return;
   const l = Math.sqrt(ex * ex + ez * ez);
   const ux = l > 1e-9 ? ex / l : sx * INV_SQRT2, uz = l > 1e-9 ? ez / l : sz * INV_SQRT2;
-  _gpTry(gx, gy, gz, ax + AR.c * ux, gy < y0 ? y0 : (gy > y1 ? y1 : gy), az + AR.c * uz, -ux, 0, -uz);
+  _gpTry(gx, gy, gz, ax + rad * ux, gy < y0 ? y0 : (gy > y1 ? y1 : gy), az + rad * uz, -ux, 0, -uz);
 }
-function _gpCylX(gx, gy, gz, ay, az, sy, sz) {                 // eje paralelo a x, |x| ≤ Wc
+function _gpCylX(gx, gy, gz, ay, az, sy, sz) {                 // eje paralelo a x, |x| ≤ Wc (aristas del fondo, radio c)
   const ey = gy - ay, ez = gz - az;
   if (ey * sy < 0 || ez * sz < 0) return;
   const l = Math.sqrt(ey * ey + ez * ez);
@@ -968,19 +1052,22 @@ function _gpSphere(gx, gy, gz, cz, sz) {                        // esquinas del 
   if (l < 1e-9) return;
   _gpTry(gx, gy, gz, AR.Wc + AR.c * ex / l, AR.YGc + AR.c * ey / l, cz + AR.c * ez / l, -ex / l, -ey / l, -ez / l);
 }
-/** Distancia² (en el corte) del punto al arco piso-lateral tomado a la altura z ≤ c, más la separación en y. */
+/** Distancia² (en el corte) del punto al arco piso-lateral de radio cb0 tomado a la altura z ≤ cb0, más la separación en y. */
 function _gpFsCost(gx, gy, gz, y, z) {
-  const c = AR.c, vz = (z - c) / c, vx = Math.sqrt(Math.max(0, 1 - vz * vz));
-  const dx = gx - (AR.Wc + c * vx), dz = gz - z, dy = gy - y;
+  const c = AR.cb0, vz = (z - c) / c, vx = Math.sqrt(Math.max(0, 1 - vz * vz));
+  const dx = gx - (AR.W - c + c * vx), dz = gz - z, dy = gy - y;
   return dx * dx + dy * dy + dz * dz;
 }
 /**
- * Curva piso-lateral (eje x = Wc, z = c). Frente a la boca (y < YB) solo es superficie real la parte bajo la curva
- * del piso de P (z ≤ zCurve(y)); si el punto más cercano del cilindro queda arriba, se busca el mejor punto del borde
- * recortado minimizando en y (búsqueda gruesa + sección áurea; solo ocurre junto a los postes).
+ * Curva piso-lateral de radio cb0 en la boca y frente a ella (eje x = W − cb0, z = cb0; y ∈ [Yq, b0]). Frente a la boca
+ * (y < YB) solo es superficie real la parte bajo la curva del piso de P (z ≤ zCurve(y)); si el punto más cercano del
+ * cilindro queda arriba, se busca el mejor punto del borde recortado minimizando en y (búsqueda gruesa + sección áurea;
+ * solo ocurre junto a los postes).
  */
 function _gpFloorSide(gx, gy, gz) {
-  const c = AR.c, ex = gx - AR.Wc, ez = gz - c;
+  const c = AR.cb0;
+  if (c <= 0) return;
+  const xc = AR.W - c, ex = gx - xc, ez = gz - c;
   // Punto del cuarto de arco más cercano en el corte; fuera del cuarto se toma el extremo más cercano
   // (aquí no se omite: frente a la boca el borde recortado no lo cubre ninguna cara vecina).
   let ux, uz;
@@ -991,12 +1078,12 @@ function _gpFloorSide(gx, gy, gz) {
   else if (ez <= 0) { ux = 0; uz = -1; }
   else if ((ex - c) * (ex - c) + ez * ez <= ex * ex + (ez + c) * (ez + c)) { ux = 1; uz = 0; }
   else { ux = 0; uz = -1; }
-  const y0 = AR.Yq, y1 = AR.YGc;
+  const y0 = AR.Yq, y1 = AR.b0;
   const y = gy < y0 ? y0 : (gy > y1 ? y1 : gy);
   const zs = c + c * uz;
-  if (y >= AR.YB || zs <= zCurve(y) + 1e-9) { _gpTry(gx, gy, gz, AR.Wc + c * ux, y, zs, -ux, 0, -uz); return; }
+  if (y >= AR.YB || zs <= zCurve(y) + 1e-9) { _gpTry(gx, gy, gz, xc + c * ux, y, zs, -ux, 0, -uz); return; }
   // cota inferior: la distancia al cilindro sin recortar; si ya no puede mejorar, no se busca
-  { const dx = gx - (AR.Wc + c * ux), dy = gy - y, dz = gz - zs; if (dx * dx + dy * dy + dz * dz >= _gpB) return; }
+  { const dx = gx - (xc + c * ux), dy = gy - y, dz = gz - zs; if (dx * dx + dy * dy + dz * dz >= _gpB) return; }
   const zr = AR.r - zs;
   const yEnd = Math.min(AR.YB, AR.Yq + Math.sqrt(Math.max(0, AR.r * AR.r - zr * zr)));   // zCurve(yEnd) = zs
   // búsqueda gruesa
@@ -1016,19 +1103,149 @@ function _gpFloorSide(gx, gy, gz) {
   }
   const yb = f1 < f2 ? x1 : x2, zb = Math.min(zs, zCurve(yb));
   const vz = (zb - c) / c, vx = Math.sqrt(Math.max(0, 1 - vz * vz));
-  _gpTry(gx, gy, gz, AR.Wc + c * vx, yb, zb, -vx, 0, -vz);
+  _gpTry(gx, gy, gz, xc + c * vx, yb, zb, -vx, 0, -vz);
 }
-/** Pared lateral plana (x = W): rectángulo detrás de la boca + tapa bajo la curva del piso frente a la boca. */
+// Curvas laterales de radio variable (transiciones y ∈ [b0, b1] y [t0, t1]). En cada corte y son un cuarto de círculo de
+// radio ρ(y) tangente a la pared x = W y al piso (o al techo); la distancia se minimiza sobre y.
+let _grX = 0, _grZ = 0, _grUx = 0, _grUz = 0;
+/** Distancia² en el corte al cuarto de arco de radio rho (con sus extremos); deja el punto y la dirección radial. */
+function _gpArc(gx, gz, rho, top) {
+  const cx = AR.W - rho, cz = top ? AR.Hg - rho : rho, sz = top ? 1 : -1;
+  const ex = gx - cx, ez = gz - cz;
+  let ux, uz;
+  if (ex >= 0 && ez * sz >= 0) {
+    const l = Math.sqrt(ex * ex + ez * ez);
+    if (l > 1e-9) { ux = ex / l; uz = ez / l; } else { ux = INV_SQRT2; uz = sz * INV_SQRT2; }
+  } else {
+    const a = ez - sz * rho, b = ex - rho;
+    if (ex * ex + a * a <= b * b + ez * ez) { ux = 0; uz = sz; } else { ux = 1; uz = 0; }
+  }
+  _grX = cx + rho * ux; _grZ = cz + rho * uz; _grUx = ux; _grUz = uz;
+  const dx = gx - _grX, dz = gz - _grZ;
+  return dx * dx + dz * dz;
+}
+function _gpRampCost(gx, gy, gz, y, top) {
+  const dy = gy - y;
+  return dy * dy + _gpArc(gx, gz, top ? goalRadT(y) : goalRadB(y), top);
+}
+function _gpRamp(gx, gy, gz, top) {
+  const W = AR.W, c = AR.c, y0 = top ? AR.t0 : AR.b0, y1 = top ? AR.t1 : AR.b1;
+  if (!(y1 > y0)) return;
+  // cota inferior: caja que contiene todo el tramo
+  const zlo = top ? AR.Hg - c : 0, zhi = top ? AR.Hg : c;
+  const bx = gx < W - c ? W - c - gx : (gx > W ? gx - W : 0);
+  const by = gy < y0 ? y0 - gy : (gy > y1 ? gy - y1 : 0);
+  const bz = gz < zlo ? zlo - gz : (gz > zhi ? gz - zhi : 0);
+  if (bx * bx + by * by + bz * bz >= _gpB) return;
+  // ventana: el óptimo cumple (gy − y)² ≤ min(costo en el corte propio, mejor distancia²)
+  const yc = gy < y0 ? y0 : (gy > y1 ? y1 : gy);
+  let yb = yc, fb = _gpRampCost(gx, gy, gz, yc, top);
+  const lim = Math.sqrt(fb < _gpB ? fb : _gpB);
+  const a0 = gy - lim > y0 ? gy - lim : y0, b0 = gy + lim < y1 ? gy + lim : y1;
+  if (b0 - a0 > 0.02 && c !== (top ? AR.ct0 : AR.cb0)) {
+    // búsqueda gruesa (un punto cada ≤ 30 uu) y sección áurea hasta 0.02 uu (el error de la distancia es de 2.º orden)
+    const N = Math.min(8, Math.max(2, Math.ceil((b0 - a0) / 30))), h = (b0 - a0) / N;
+    for (let i = 0; i <= N; i++) {
+      const yy = a0 + h * i, v = _gpRampCost(gx, gy, gz, yy, top);
+      if (v < fb) { fb = v; yb = yy; }
+    }
+    let a = yb - h, b = yb + h;
+    if (a < a0) a = a0;
+    if (b > b0) b = b0;
+    const G = 0.6180339887498949;
+    let x1 = b - G * (b - a), x2 = a + G * (b - a);
+    let f1 = _gpRampCost(gx, gy, gz, x1, top), f2 = _gpRampCost(gx, gy, gz, x2, top);
+    while (b - a > 0.02) {
+      if (f1 < f2) { b = x2; x2 = x1; f2 = f1; x1 = b - G * (b - a); f1 = _gpRampCost(gx, gy, gz, x1, top); }
+      else { a = x1; x1 = x2; f1 = f2; x2 = a + G * (b - a); f2 = _gpRampCost(gx, gy, gz, x2, top); }
+    }
+    if (f1 < fb) { fb = f1; yb = x1; }
+    if (f2 < fb) { fb = f2; yb = x2; }
+  }
+  if (fb >= _gpB) return;
+  _gpArc(gx, gz, top ? goalRadT(yb) : goalRadB(yb), top);
+  // normal exacta de la superficie (hacia el espacio libre): (−ux, ρ'·(1 ∓ uz − ux), −uz)
+  const dr = goalRadD(yb, top);
+  const nx = -_grUx, ny = dr * (1 + (top ? -_grUz : _grUz) - _grUx), nz = -_grUz, nl = Math.sqrt(nx * nx + ny * ny + nz * nz);
+  _gpTry(gx, gy, gz, _grX, yb, _grZ, nx / nl, ny / nl, nz / nl);
+}
+/** Pared lateral plana (x = W): tramo detrás de la boca (entre las curvas de radio ρb(y) y ρt(y)) + tapa frente a la boca. */
 function _gpSide(gx, gy, gz) {
-  const c = AR.c, W = AR.W;
-  _gpTry(gx, gy, gz, W, gy < AR.YB ? AR.YB : (gy > AR.YGc ? AR.YGc : gy), gz < c ? c : (gz > AR.Hc ? AR.Hc : gz), -1, 0, 0);
-  if (gy >= AR.yCap && gy <= AR.YB && gz >= c && gz <= zCurve(gy)) { _gpTry(gx, gy, gz, W, gy, gz, -1, 0, 0); return; }
-  _gpTry(gx, gy, gz, W, gy < AR.yCap ? AR.yCap : (gy > AR.YB ? AR.YB : gy), c, -1, 0, 0);     // borde inferior de la tapa
-  const ry = gy - AR.Yq, rz = gz - AR.r, rl = Math.sqrt(ry * ry + rz * rz);                   // borde curvo de la tapa
+  const W = AR.W, cb = AR.cb0;
+  const yy = gy < AR.YB ? AR.YB : (gy > AR.YGc ? AR.YGc : gy);
+  const zlo = gz < AR.c ? goalRadB(yy) : 0, zhi = gz > AR.Hg - AR.c ? AR.Hg - goalRadT(yy) : AR.Hg;   // radios solo cerca de las esquinas
+  _gpTry(gx, gy, gz, W, yy, gz < zlo ? zlo : (gz > zhi ? zhi : gz), -1, 0, 0);
+  // tapa: y ∈ [yCap, YB], cb0 ≤ z ≤ zCurve(y) − k(y) (k: redondeo del borde de la rampa)
+  if (gy >= AR.yCap && gy <= AR.YB && gz >= cb && gz <= zCurve(gy) - capEdgeK(gy)) { _gpTry(gx, gy, gz, W, gy, gz, -1, 0, 0); return; }
+  _gpTry(gx, gy, gz, W, gy < AR.yCap ? AR.yCap : (gy > AR.YB ? AR.YB : gy), cb, -1, 0, 0);    // borde inferior de la tapa
+  // borde curvo de la tapa (arista viva con la rampa) mientras z ≤ rzk; más arriba lo cubre el redondeo (_gpCapEdge)
+  const ry = gy - AR.Yq, rz = gz - AR.r, rl = Math.sqrt(ry * ry + rz * rz);
   if (rl > 1e-9 && ry >= 0) {
     const sn = rz / rl;
-    if (sn >= AR.sinCap && sn <= 0) _gpTry(gx, gy, gz, W, AR.Yq + ry / rl * AR.r, AR.r + sn * AR.r, -1, 0, 0);
+    if (sn >= AR.sinCap && sn <= 0 && AR.r + sn * AR.r <= AR.rzk) _gpTry(gx, gy, gz, W, AR.Yq + ry / rl * AR.r, AR.r + sn * AR.r, -1, 0, 0);
   }
+}
+// Redondeo del borde de la rampa junto al poste (φ ∈ [phiA, π/2] sobre la curva del piso: y = Yq + r·sen φ,
+// z = r − r·cos φ). En cada corte y es un cuarto de círculo convexo de radio k(y), tangente a la tapa (x = W) y a la
+// rampa; con k = 0 es la arista viva. Se minimiza la distancia sobre φ.
+let _geX = 0, _geZ = 0, _geUx = 0, _geUz = 0;
+function _gpEdgeArc(gx, gz, zc, k) {
+  const cx = AR.W + k, cz = zc - k, ex = gx - cx, ez = gz - cz;
+  let ux, uz;
+  if (ex <= 0 && ez >= 0) {
+    const l = Math.sqrt(ex * ex + ez * ez);
+    if (l > 1e-9) { ux = ex / l; uz = ez / l; } else { ux = -INV_SQRT2; uz = INV_SQRT2; }
+  } else {
+    const a = ex + k, b = ez - k;                         // extremos: (W, zc − k) con u = (−1, 0) y (W + k, zc) con u = (0, 1)
+    if (a * a + ez * ez <= ex * ex + b * b) { ux = -1; uz = 0; } else { ux = 0; uz = 1; }
+  }
+  _geX = cx + k * ux; _geZ = cz + k * uz; _geUx = ux; _geUz = uz;
+  const dx = gx - _geX, dz = gz - _geZ;
+  return dx * dx + dz * dz;
+}
+function _gpEdgeCost(gx, gy, gz, ph) {
+  const y = AR.Yq + AR.r * Math.sin(ph), zc = AR.r - AR.r * Math.cos(ph), dy = gy - y;
+  return dy * dy + _gpEdgeArc(gx, gz, zc, capEdgeK(y));
+}
+function _gpCapEdge(gx, gy, gz) {
+  if (AR.rk <= 0 || AR.yA >= AR.YB) return;
+  const W = AR.W, r = AR.r;
+  // cota inferior: la superficie está en x ∈ [W, W + rk], y ∈ [yA, YB], z ∈ [rzk, r]
+  const bx = gx < W ? W - gx : (gx > W + AR.rk ? gx - W - AR.rk : 0);
+  const by = gy < AR.yA ? AR.yA - gy : (gy > AR.YB ? gy - AR.YB : 0);
+  const bz = gz < AR.rzk ? AR.rzk - gz : (gz > r ? gz - r : 0);
+  if (bx * bx + by * by + bz * bz >= _gpB) return;
+  // ventana en φ: el óptimo cumple (gy − y(φ))² ≤ min(costo en el corte propio, mejor distancia²)
+  const p0 = AR.phiA, p1 = Math.PI / 2, s0 = (gy - AR.Yq) / r;
+  const pc = s0 >= 1 ? p1 : Math.max(p0, Math.asin(Math.max(-1, s0)));
+  let pb = pc, fb = _gpEdgeCost(gx, gy, gz, pc);
+  const lim = Math.sqrt(fb < _gpB ? fb : _gpB);
+  const sa = (gy - lim - AR.Yq) / r, sb = (gy + lim - AR.Yq) / r;
+  const a0 = sa <= -1 ? p0 : Math.max(p0, Math.asin(Math.min(1, sa))), b0 = sb >= 1 ? p1 : Math.min(p1, Math.asin(Math.max(-1, sb)));
+  if (b0 - a0 > 5e-5) {
+    // búsqueda gruesa (un punto cada ≤ 30 uu de curva) y sección áurea hasta 0.02 uu
+    const N = Math.min(12, Math.max(2, Math.ceil((b0 - a0) * r / 30))), h = (b0 - a0) / N;
+    for (let i = 0; i <= N; i++) { const ph = a0 + h * i, v = _gpEdgeCost(gx, gy, gz, ph); if (v < fb) { fb = v; pb = ph; } }
+    let a = pb - h, b = pb + h;
+    if (a < a0) a = a0;
+    if (b > b0) b = b0;
+    const G = 0.6180339887498949;
+    let x1 = b - G * (b - a), x2 = a + G * (b - a);
+    let f1 = _gpEdgeCost(gx, gy, gz, x1), f2 = _gpEdgeCost(gx, gy, gz, x2);
+    while (b - a > 4.5e-5) {
+      if (f1 < f2) { b = x2; x2 = x1; f2 = f1; x1 = b - G * (b - a); f1 = _gpEdgeCost(gx, gy, gz, x1); }
+      else { a = x1; x1 = x2; f1 = f2; x2 = a + G * (b - a); f2 = _gpEdgeCost(gx, gy, gz, x2); }
+    }
+    if (f1 < fb) { fb = f1; pb = x1; }
+    if (f2 < fb) { fb = f2; pb = x2; }
+  }
+  if (fb >= _gpB) return;
+  const y = AR.Yq + r * Math.sin(pb), zc = r - r * Math.cos(pb), k = capEdgeK(y);
+  _gpEdgeArc(gx, gz, zc, k);
+  // normal de la superficie (hacia el espacio libre) con u = (ux, uz) = (−cos ψ, sen ψ): (ux, −zc'·uz − k'·(1 − uz + ux), uz)
+  const zp = Math.tan(pb), kp = (capEdgeK(y + 0.01) - capEdgeK(y - 0.01)) / 0.02;
+  const nx = _geUx, ny = -zp * _geUz - kp * (1 - _geUz + _geUx), nz = _geUz, nl = Math.sqrt(nx * nx + ny * ny + nz * nz);
+  _gpTry(gx, gy, gz, _geX, y, _geZ, nx / nl, ny / nl, nz / nl);
 }
 
 /**
@@ -1041,32 +1258,39 @@ function arenaSDF(px, py, pz, n) {
   if (ay < AR.YB - AR.E) return dp;
   const sgn = py < 0 ? -1 : 1, sxp = px < 0 ? -1 : 1;
   const gx = px * sxp, gy = ay, gz = pz;
-  // ¿El punto más cercano de P cae en el hueco (boca) de la portería, es decir, dentro de la caja redondeada?
+  // ¿El punto más cercano de P cae en el hueco (boca) de la portería?
   const qx = px - dp * n.x, qy = (py - dp * n.y) * sgn, qz = pz - dp * n.z;
-  const inHole = goalBoxSDF(qx < 0 ? -qx : qx, qy, qz) > 1e-3;
+  const inHole = goalDepth(qx < 0 ? -qx : qx, qy, qz) > 1e-3;
   _gpB = inHole ? Infinity : dp * dp; _gpHit = false;
-  // Todos los parches de la portería están en la caja [0, W] × [Yq, YG] × [0, Hg] (plegada): si P ya está más cerca, listo
+  // Todos los parches de la portería están en la caja [0, W + rk] × [Yq, YG] × [0, Hg] (plegada): si P ya está más cerca, listo
   if (!inHole) {
-    const bx = gx > AR.W ? gx - AR.W : 0, by = gy < AR.Yq ? AR.Yq - gy : (gy > AR.YG ? gy - AR.YG : 0);
+    const bx = gx > AR.W + AR.rk ? gx - AR.W - AR.rk : 0, by = gy < AR.Yq ? AR.Yq - gy : (gy > AR.YG ? gy - AR.YG : 0);
     const bz = gz < 0 ? -gz : (gz > AR.Hg ? gz - AR.Hg : 0);
     if (bx * bx + by * by + bz * bz >= _gpB) return dp;
   }
-  const c = AR.c, Wc = AR.Wc, YGc = AR.YGc;
-  const cx = gx < Wc ? gx : Wc;
-  _gpTry(gx, gy, gz, cx, gy < AR.YB - AR.E ? AR.YB - AR.E : (gy > YGc ? YGc : gy), 0, 0, 0, 1);      // piso (extendido hacia la cancha)
-  _gpTry(gx, gy, gz, cx, gy < AR.YB ? AR.YB : (gy > YGc ? YGc : gy), AR.Hg, 0, 0, -1);             // techo
-  _gpTry(gx, gy, gz, cx, AR.YG, gz < c ? c : (gz > AR.Hc ? AR.Hc : gz), 0, -1, 0);                 // fondo
-  _gpSide(gx, gy, gz);                                                                              // pared lateral + tapa
-  _gpFloorSide(gx, gy, gz);                                                                         // curva piso-lateral
-  _gpCylY(gx, gy, gz, Wc, AR.Hc, 1, 1, AR.YB, YGc);                                                 // curva techo-lateral
-  _gpCylX(gx, gy, gz, YGc, c, 1, -1);                                                               // curva piso-fondo
-  _gpCylX(gx, gy, gz, YGc, AR.Hc, 1, 1);                                                            // curva techo-fondo
-  _gpCylZ(gx, gy, gz);                                                                              // curva fondo-lateral
-  _gpSphere(gx, gy, gz, c, -1);                                                                     // esquinas
+  const c = AR.c, W = AR.W, Wc = AR.Wc, YGc = AR.YGc, Hg = AR.Hg;
+  { const yy = gy < AR.YB - AR.E ? AR.YB - AR.E : (gy > YGc ? YGc : gy), xm = gx <= Wc ? gx : W - goalRadB(yy);
+    _gpTry(gx, gy, gz, gx < xm ? gx : xm, yy, 0, 0, 0, 1); }                                         // piso (extendido hacia la cancha)
+  { const yy = gy < AR.YB ? AR.YB : (gy > YGc ? YGc : gy), xm = gx <= Wc ? gx : W - goalRadT(yy);
+    _gpTry(gx, gy, gz, gx < xm ? gx : xm, yy, Hg, 0, 0, -1); }                                      // techo
+  _gpTry(gx, gy, gz, gx < Wc ? gx : Wc, AR.YG, gz < c ? c : (gz > AR.Hc ? AR.Hc : gz), 0, -1, 0);   // fondo
+  _gpSide(gx, gy, gz);                                                                               // pared lateral + tapa
+  _gpCylY(gx, gy, gz, W - AR.ct0, Hg - AR.ct0, 1, 1, AR.YB, AR.t0, AR.ct0);                         // curva techo-lateral en la boca (radio ct0)
+  _gpCylY(gx, gy, gz, Wc, c, 1, -1, AR.b1, YGc, c);                                                 // curva piso-lateral al fondo
+  _gpCylY(gx, gy, gz, Wc, AR.Hc, 1, 1, AR.t1, YGc, c);                                              // curva techo-lateral al fondo
+  _gpCylX(gx, gy, gz, YGc, c, 1, -1);                                                                // curva piso-fondo
+  _gpCylX(gx, gy, gz, YGc, AR.Hc, 1, 1);                                                             // curva techo-fondo
+  _gpCylZ(gx, gy, gz);                                                                               // curva fondo-lateral
+  _gpSphere(gx, gy, gz, c, -1);                                                                      // esquinas
   _gpSphere(gx, gy, gz, AR.Hc, 1);
+  // parches con búsqueda numérica al final: con la mejor distancia ya chica, la cota inferior los descarta casi siempre
+  _gpFloorSide(gx, gy, gz);                                                                          // curva piso-lateral en la boca (radio cb0)
+  _gpRamp(gx, gy, gz, false);                                                                        // transición piso-lateral
+  _gpRamp(gx, gy, gz, true);                                                                         // transición techo-lateral
+  _gpCapEdge(gx, gy, gz);                                                                            // borde redondeado de la rampa junto al poste
   if (!_gpHit) return dp; // la pared de P es la más cercana: n ya está calculada
   const best = Math.sqrt(_gpB);
-  const inside = dp > 0 || goalBoxSDF(gx, gy, gz) > 0;
+  const inside = dp > 0 || goalDepth(gx, gy, gz) > 0;
   const vx = px - _gpX * sxp, vy = py - _gpY * sgn, vz = pz - _gpZ;
   if (best > 1e-7) {
     const s = (inside ? 1 : -1) / best;
@@ -3877,17 +4101,49 @@ Tests.add('Extra A. SDF de la cancha: valores conocidos (piso, paredes, curvas, 
   chk('dentro de la portería (piso)', 0, 5500, 300, 300, [0, 0, 1]);
   chk('boca de la portería (sin pared invisible)', 0, 5120, 300, 300, [0, 0, 1]);
   chk('frente a la boca, junto al piso', 0, 5050, 20, 20, [0, 0, 1]);
-  // esquina superior de la boca: curva techo-lateral de radio c (centro (Wc, Hc)), 20 uu frente a la línea
-  chk('cerca del poste, esquina superior redondeada', 800, 5100, 550, Math.hypot(AR.c - Math.hypot(800 - AR.Wc, 550 - AR.Hc), 20));
+  // 20 uu frente a la línea, junto al poste y bajo el travesaño: lo más cercano es la arista del poste (la boca es recta)
+  chk('cerca del poste, bajo el travesaño', 800, 5100, 550, Math.hypot(AR.W - 800, 20), [-(AR.W - 800) / Math.hypot(AR.W - 800, 20), -20 / Math.hypot(AR.W - 800, 20), 0]);
   // a z = 400 (bajo la pared de fondo, que empieza en z = 450) lo más cercano es el borde curvo de la tapa junto al poste
   chk('cerca del poste, a media altura', 800, 5100, 400, Math.hypot(892.755 - 800, AR.r - Math.hypot(5100 - AR.Yq, 400 - AR.r)));
-  const k45 = 50, s2 = Math.SQRT2, s3 = Math.sqrt(3);
+  const k45 = 50, s2 = Math.SQRT2, s3 = Math.sqrt(3), k40 = 40, yBack = (AR.b1 + AR.YGc) / 2;
+  // boca (antes de la línea + radio de la pelota): aristas de radio cb0 abajo y ct0 arriba
+  chk('boca: arista piso-poste (radio ' + AR.cb0 + ')', AR.W - AR.cb0 + k40, AR.YB + 50, AR.cb0 - k40, AR.cb0 - k40 * s2, [-INV_SQRT2, 0, INV_SQRT2]);
+  chk('boca: arista poste-travesaño (radio ' + AR.ct0 + ')', AR.W - AR.ct0 + k40, AR.YB + 30, AR.Hg - AR.ct0 + k40, AR.ct0 - k40 * s2, [-INV_SQRT2, 0, -INV_SQRT2]);
+  chk('frente a la boca: arista piso-tapa (radio ' + AR.cb0 + ')', AR.W - AR.cb0 + 30, AR.YB - 20, AR.cb0 - 40, AR.cb0 - 50, [-0.6, 0, 0.8]);
+  chk('pelota pegada al poste frente a la boca: distancia = radio', AR.W - CONFIG.ball.radius, AR.YB - 120, CONFIG.ball.radius, CONFIG.ball.radius);
+  chk('pelota pegada al poste en la línea + radio: distancia = radio', AR.W - CONFIG.ball.radius, AR.b0 - 0.01, CONFIG.ball.radius, CONFIG.ball.radius);
+  // transición: distancia de referencia por fuerza bruta sobre y (cuartos de círculo de radio ρ(y))
+  for (const [lab, top, t] of [['piso-poste', false, 0.3], ['piso-poste', false, 0.5], ['poste-travesaño', true, 0.5], ['poste-travesaño', true, 0.8]]) {
+    const y0 = top ? AR.t0 : AR.b0, L = top ? AR.tL : AR.bL, yq = y0 + L * t, rq = top ? goalRadT(yq) : goalRadB(yq);
+    const qx = AR.W - rq + k40, qz = top ? AR.Hg - rq + k40 : rq - k40;
+    let best = Infinity;
+    for (let i = 0; i <= 40000; i++) {
+      const yy = y0 + L * i / 40000, rr = top ? goalRadT(yy) : goalRadB(yy), cz = top ? AR.Hg - rr : rr;
+      const ex = qx - (AR.W - rr), ez = qz - cz, inQ = ex >= 0 && (top ? ez >= 0 : ez <= 0);
+      const d2 = inQ ? rr - Math.hypot(ex, ez) : Math.min(Math.hypot(ex, ez - (top ? rr : -rr)), Math.hypot(ex - rr, ez));
+      best = Math.min(best, Math.hypot(yq - yy, d2));
+    }
+    chk('transición ' + lab + ' al ' + (t * 100) + '% (radio ' + rq.toFixed(1) + ')', qx, yq, qz, best);
+  }
+  // borde redondeado de la rampa junto al poste (frente a la boca): referencia por fuerza bruta sobre φ
+  for (const yq of [5000, 5060]) {
+    // punto libre entre el arco y la antigua arista (a 1.2·k del centro del arco, sobre la bisectriz)
+    const kq = capEdgeK(yq), zq = zCurve(yq), qx = AR.W + kq - 1.2 * kq * INV_SQRT2, qz = zq - kq + 1.2 * kq * INV_SQRT2;
+    let best = Infinity;
+    for (let i = 0; i <= 40000; i++) {
+      const ph = AR.phiA + (Math.PI / 2 - AR.phiA) * i / 40000, yy = AR.Yq + AR.r * Math.sin(ph), zz = AR.r - AR.r * Math.cos(ph), kk = capEdgeK(yy);
+      const ex = qx - (AR.W + kk), ez = qz - (zz - kk);
+      const d2 = ex <= 0 && ez >= 0 ? Math.abs(Math.hypot(ex, ez) - kk) : Math.min(Math.hypot(ex + kk, ez), Math.hypot(ex, ez - kk));
+      best = Math.min(best, Math.hypot(yq - yy, d2));
+    }
+    chk('borde redondeado de la rampa junto al poste, y = ' + yq + ' (radio ' + kq.toFixed(1) + ')', qx, yq, qz, best);
+  }
+  chk('pelota pegada a la tapa bajo el borde redondeado: distancia = radio', AR.W - CONFIG.ball.radius, 5000, CONFIG.ball.radius, CONFIG.ball.radius);
   chk('curva piso-fondo de la portería', 0, AR.YGc + k45, AR.c - k45, AR.c - k45 * s2, [0, -INV_SQRT2, INV_SQRT2]);
-  chk('curva piso-lateral de la portería', AR.Wc + k45, 5600, AR.c - k45, AR.c - k45 * s2, [-INV_SQRT2, 0, INV_SQRT2]);
-  chk('curva techo-lateral de la portería', AR.Wc + k45, 5600, AR.Hc + k45, AR.c - k45 * s2, [-INV_SQRT2, 0, -INV_SQRT2]);
+  chk('curva piso-lateral al fondo', AR.Wc + k45, yBack, AR.c - k45, AR.c - k45 * s2, [-INV_SQRT2, 0, INV_SQRT2]);
+  chk('curva techo-lateral al fondo', AR.Wc + k45, yBack, AR.Hc + k45, AR.c - k45 * s2, [-INV_SQRT2, 0, -INV_SQRT2]);
   chk('curva fondo-lateral de la portería', AR.Wc + k45, AR.YGc + k45, 300, AR.c - k45 * s2, [-INV_SQRT2, -INV_SQRT2, 0]);
   chk('esquina del fondo (esfera)', AR.Wc + 30, AR.YGc + 30, AR.c - 30, AR.c - 30 * s3, [-1 / s3, -1 / s3, 1 / s3]);
-  chk('curva piso-lateral frente a la boca', AR.Wc + k45, AR.YB - 20, AR.c - k45, AR.c - k45 * s2, [-INV_SQRT2, 0, INV_SQRT2]);
   chk('tapa junto al poste', 852.755, 5090, 250, 40, [-1, 0, 0]);
   chk('bajo el travesaño', 0, 5100, 600, Math.hypot(20, 42.775));
   chk('pared interior de la portería', 850, 5600, 300, 42.755, [-1, 0, 0]);
@@ -4687,7 +4943,7 @@ Tests.add('Nueva 7b. Porterías: hacia arriba, de lado o desde el techo el auto 
   }
   return { pass: stuck.length === 0 && total > 150,
     detail: total + ' casos; atascos: ' + (stuck.length ? stuck.slice(0, 6).join('; ') : '0') + '; vuelven al piso con 3 ruedas en ' + (total - never) + ' (el más lento ' +
-      worst.toFixed(2) + ' s); ' + never + ' siguen andando por paredes y techo a los 6 s (pasan al techo por la curva, se sueltan a 0.5 g < g y caen, como en RocketSim)' };
+      worst.toFixed(2) + ' s)' + (never ? '; ' + never + ' siguen andando por paredes y techo a los 6 s (pasan al techo por la curva, se sueltan a 0.5 g < g y caen, como en RocketSim)' : '') };
 });
 Tests.add('Nueva 8. Barrido de atascos en toda la cancha y las dos porterías: ningún caso', async () => {
   const r = await stuckSweep(4);
@@ -4763,6 +5019,118 @@ Tests.add('Nueva 10. Modelo 3D y caja de colisión alineados en 100 rotaciones a
   const pass = fitOk && worstCorner < 0.05 && worstCenter < 4;
   return { pass, detail: rows.join('; ') + '. En 300 rotaciones: esquinas de la caja del modelo vs física, error máx ' + worstCorner.toFixed(4) +
     ' uu; centro de la carrocería vs centro de la caja, máx ' + worstCenter.toFixed(2) + ' uu (el modelo gira alrededor del centro de masa)' };
+});
+/** Corre fn con la portería de aristas rectas (todos los radios en 0) y restaura la geometría. */
+function withSquareGoal(fn) {
+  const A = CONFIG.arena, keep = [A.goalFilletRadius, A.goalMouthFloorRadius, A.goalMouthTopRadius];
+  A.goalFilletRadius = 0; A.goalMouthFloorRadius = 0; A.goalMouthTopRadius = 0; rebuildArena();
+  try { return fn(); } finally { [A.goalFilletRadius, A.goalMouthFloorRadius, A.goalMouthTopRadius] = keep; rebuildArena(); }
+}
+Tests.add('Nueva 11. Pelota rodando pegada a cada poste, a ras del piso: entra igual que con esquinas rectas', () => {
+  const R = CONFIG.ball.radius, lim = CONFIG.match.goalLine + R;
+  // 4 postes × (rodando derecho desde 800 uu antes de la boca | apoyándose en el poste, 8 uu/s hacia él, desde 150 uu antes:
+  // ahí la cara del poste bajo la rampa ya llega a la altura del centro de la pelota)
+  const cases = [];
+  for (const sg of [1, -1]) for (const sx of [1, -1]) for (const [v, vl, d0] of [[700, 0, 800], [1600, 0, 800], [900, 8, 150], [2000, 8, 150]]) cases.push({ sg, sx, v, vl, d0 });
+  const run = (c) => {
+    const b = new Ball(); b.sim = true;
+    b.reset(c.sx * (AR.W - R), c.sg * (AR.YB - c.d0), R);
+    b.vel.set(c.sx * c.vl, c.sg * c.v, 0); b.angVel.set(-c.sg * c.v / R, c.sx * c.vl / R, 0);   // rodando sin deslizar
+    const tr = [];
+    let goal = -1, deep = false, gap = Infinity;
+    for (let i = 0; i < 4 * TICK_RATE; i++) {
+      b.step(DT);
+      if (goal < 0) {
+        tr.push(b.pos.x, b.pos.y, b.pos.z, b.vel.x, b.vel.y, b.vel.z, b.angVel.x, b.angVel.y, b.angVel.z);
+        if (Math.abs(b.pos.y) > AR.YB - 60) gap = Math.min(gap, AR.W - Math.abs(b.pos.x) - R);   // separación con el poste
+        if (Math.abs(b.pos.y) > lim) goal = i;
+      } else if (Math.abs(b.pos.y) > AR.YB + 450) { deep = true; break; }
+    }
+    return { tr, goal, deep, gap };
+  };
+  const real = cases.map(run), ref = withSquareGoal(() => cases.map(run));
+  const fails = [];
+  let worst = 0, maxGap = 0;
+  cases.forEach((c, k) => {
+    const a = real[k], b = ref[k];
+    let d = a.tr.length === b.tr.length ? 0 : Infinity;
+    for (let i = 0; i < Math.min(a.tr.length, b.tr.length); i++) d = Math.max(d, Math.abs(a.tr[i] - b.tr[i]));
+    worst = Math.max(worst, d); maxGap = Math.max(maxGap, a.gap);
+    const label = (c.sg > 0 ? 'naranja' : 'azul') + ' poste ' + (c.sx > 0 ? '+x' : '−x') + ' ' + c.v + ' uu/s' + (c.vl ? ' apoyada' : '');
+    if (a.goal < 0 || b.goal < 0) fails.push(label + ': no entra');
+    else if (a.goal !== b.goal || d > 1e-9) fails.push(label + ': gol en el tick ' + a.goal + ' (rectas: ' + b.goal + '), diferencia máx ' + d.toExponential(2));
+    else if (!a.deep) fails.push(label + ': no sigue hacia el fondo');
+    else if (a.gap > 0.5) fails.push(label + ': no va pegada al poste (separación ' + a.gap.toFixed(2) + ')');
+  });
+  return { pass: fails.length === 0,
+    detail: cases.length + ' tiros (4 postes × 4): mismo tick de gol y misma trayectoria que con esquinas rectas hasta cruzar la línea (diferencia máx ' +
+      worst.toExponential(1) + ' en posición/velocidad/giro; separación con el poste ≤ ' + Math.max(0, maxGap).toFixed(2) + ' uu); después sigue hasta el fondo' +
+      (fails.length ? '. FALLAN: ' + fails.slice(0, 5).join('; ') : '') };
+});
+Tests.add('Nueva 12. Pelota y auto cruzan la línea sin trabarse (junto a los postes, al centro y por la pared de la portería)', () => {
+  const R = CONFIG.ball.radius, fails = [], notes = [];
+  const endY = AR.b1 + 120;                     // pasada la transición de las curvas
+  // Pelota rodando a ras del piso: al centro, a 300 del poste y pegada al poste. Referencia: esquinas rectas.
+  const ballRun = (sg, x, v) => {
+    const b = new Ball(); b.sim = true;
+    b.reset(x, sg * (AR.YB - 400), R); b.vel.set(0, sg * v, 0); b.angVel.set(-sg * v / R, 0, 0);
+    let t = -1, zMax = 0, minVy = Infinity;
+    for (let i = 0; i < 5 * TICK_RATE; i++) {
+      b.step(DT);
+      zMax = Math.max(zMax, b.pos.z); minVy = Math.min(minVy, b.vel.y * sg);
+      if (Math.abs(b.pos.y) > endY) { t = (i + 1) * DT; break; }
+    }
+    return { t, zMax, minVy, vy: b.vel.y * sg };
+  };
+  let ballN = 0, worstRatio = Infinity;
+  for (const sg of [1, -1]) for (const x of [0, AR.W - 300, AR.W - R, -(AR.W - R)]) for (const v of [600, 1800]) {
+    const a = ballRun(sg, x, v), b = withSquareGoal(() => ballRun(sg, x, v));
+    ballN++;
+    const ratio = a.t > 0 && b.t > 0 ? b.t / a.t : 0;
+    worstRatio = Math.min(worstRatio, ratio);
+    if (a.t < 0 || a.minVy < 0.6 * v) fails.push('pelota x=' + x.toFixed(0) + ' ' + v + ' uu/s: ' + (a.t < 0 ? 'no llega al fondo' : 'vy mín ' + a.minVy.toFixed(0)));
+  }
+  notes.push(ballN + ' pelotas rodando cruzan la línea y la transición sin frenarse (hasta el gol son idénticas a esquinas rectas; pegada al poste, la curva la desvía hacia el centro y llega hasta ' +
+    (100 / worstRatio - 100).toFixed(1) + '% más tarde al fondo)');
+  // Auto por el piso: al centro y pegado al poste, entrando (acelerador) y saliendo (reversa); sin turbo.
+  const w = new World({ ball: false }), car = w.addCar(new Car(0, 0, 'línea'));
+  const H = CONFIG.car.hitboxHalf[1];
+  let carN = 0, worstDrop = 0;
+  // El auto entra hasta pasar la transición y sale en reversa por el mismo carril.
+  for (const sg of [1, -1]) for (const x of [0, AR.W - H - 6, -(AR.W - H - 6)]) {
+    car.placeAt(x, sg * (AR.YB - 900), sg > 0 ? Math.PI / 2 : -Math.PI / 2);
+    car.controls.reset();
+    for (const dir of [1, -1]) {
+      car.controls.throttle = dir;
+      let done = false, vPrev = 0, drop = 0;
+      for (let i = 0; i < 6 * TICK_RATE && !done; i++) {
+        w.step();
+        const y = car.pos.y * sg, sp = car.vel.y * sg * dir;      // rapidez en el sentido de la pasada
+        if (i % 12 === 11) { if (y > AR.YB - 150 && y < endY - 60 && vPrev > 150) drop = Math.max(drop, vPrev - sp); vPrev = sp; }
+        done = dir > 0 ? y > endY : y < AR.YB - 300;
+      }
+      carN++; worstDrop = Math.max(worstDrop, drop);
+      if (!done || drop > 60) fails.push('auto x=' + x.toFixed(0) + (dir > 0 ? ' entrando' : ' saliendo en reversa') + ': ' + (done ? 'frena ' + drop.toFixed(0) + ' uu/s en 0.1 s' : 'no cruza'));
+    }
+  }
+  notes.push(carN + ' pasadas de auto por el piso (entrando y saliendo en reversa, al centro y pegado a cada poste) sin frenarse: la mayor caída de rapidez en 0.1 s es ' + worstDrop.toFixed(0) + ' uu/s');
+  // Auto por la pared lateral de la portería, a media altura y abajo, hacia el fondo: cruza la transición sin quedar quieto
+  let wallN = 0;
+  for (const sg of [1, -1]) for (const sx of [1, -1]) for (const z of [150, 330]) {
+    const ang = sx * sg > 0 ? 3 * Math.PI / 2 : Math.PI / 2;           // nariz hacia el fondo de la portería
+    if (!placeOnSurface(car, [sx * (AR.W - 300), sg * (AR.YB + 40), z], [sx, 0, 0], ang)) { fails.push('pared sin superficie'); continue; }
+    car.controls.reset(); car.controls.throttle = 1;
+    let quiet = 0, last = car.pos.clone(), ok = false;
+    for (let i = 0; i < 4 * TICK_RATE; i++) {
+      w.step();
+      if (i % 12 === 11) { quiet = car.pos.distanceTo(last) < 10 ? quiet + 1 : 0; last.copy(car.pos); if (quiet >= 5) break; }
+      if (Math.abs(car.pos.y) > AR.b1 || (car.numContacts >= 3 && car.rot.u.z > 0.7)) { ok = true; break; }
+    }
+    wallN++;
+    if (!ok) fails.push('auto por la pared z=' + z + (quiet >= 5 ? ': queda quieto' : ': no avanza'));
+  }
+  notes.push(wallN + ' autos por la pared lateral pasan la transición o bajan al piso');
+  return { pass: fails.length === 0, detail: notes.join('; ') + (fails.length ? '. FALLAN: ' + fails.slice(0, 6).join('; ') : '') };
 });
 Tests.add('Extra L. Los bots rotan: dos compañeros no van a la misma pelota', () => {
   const m = new Match({ mode: '3v3', difficulty: 'normal', seed: 77, headless: true, humanPlayer: false, botFactory: makeBot });
@@ -5038,7 +5406,8 @@ function arenaContour(arcSegs = 6) {
       const t = ts[k];
       const mouth = (i === 2 || i === 6) && Math.abs(a[0] + (b[0] - a[0]) * t) - AR.W < 1e-6 &&
         k + 1 < ts.length && Math.abs(a[0] + (b[0] - a[0]) * ts[k + 1]) - AR.W < 1e-6;
-      out.push({ bx: a[0] + (b[0] - a[0]) * t, by: a[1] + (b[1] - a[1]) * t, dx: n[0], dy: n[1], mouthNext: mouth });
+      const bx = a[0] + (b[0] - a[0]) * t;
+      out.push({ bx, by: a[1] + (b[1] - a[1]) * t, dx: n[0], dy: n[1], mouthNext: mouth, post: (i === 2 || i === 6) && Math.abs(Math.abs(bx) - AR.W) < 1e-6 });
     }
     const n2 = N[(i + 1) % 8];
     const a0 = Math.atan2(n[1], n[0]);
@@ -5061,8 +5430,10 @@ function arenaContour(arcSegs = 6) {
   return out;
 }
 
+/** Filas de la malla en la curva piso-pared (también las usa el borde redondeado junto a los postes). */
+const ARENA_RAMP_ROWS = 20;
 /** Filas del barrido: curva inferior, paredes (con fila en la altura del travesaño) y curva superior. */
-function arenaRows(nb = 10, nt = 8) {
+function arenaRows(nb = ARENA_RAMP_ROWS, nt = 8) {
   const r = AR.r, H = AR.H, rows = [];
   let acc = 0, prev = null;
   const push = (h, z, nh, nz, part) => {
@@ -5092,7 +5463,10 @@ function buildArenaSurface(contour, rows, rowFrom, rowTo, tile) {
     const row = rows[j];
     for (let c = 0; c < cols; c++) {
       const s = contour[c];
-      const x = s.bx + s.dx * row.h, y = s.by + s.dy * row.h;
+      let x = s.bx + s.dx * row.h;
+      const y = s.by + s.dy * row.h;
+      // junto al poste la rampa termina donde empieza su borde redondeado (x = ±(W + k(y)))
+      if (s.post && row.part === 'rampa') x += Math.sign(s.bx) * capEdgeK(Math.abs(y));
       pos.push(x, y, row.z);
       nrm.push(s.dx * row.nh, s.dy * row.nh, row.nz);
       uv.push(s.s / tile, row.v / (tile * 0.577));
@@ -5151,29 +5525,33 @@ function boxGeoPhys(x0, y0, z0, x1, y1, z1) {
 }
 
 /**
- * Corte de la portería (plano x-z) como polilínea con normal hacia dentro: curva piso-lateral, pared, curva
- * techo-lateral, techo y el lado opuesto. Con floor = true incluye el tramo de piso (perfil cerrado).
+ * Corte de la portería (plano x-z) como polilínea con normal hacia dentro (mx, my, mz): curva piso-lateral de radio rb,
+ * pared, curva techo-lateral de radio rt, techo y el lado opuesto. Con floor = true incluye el tramo de piso (perfil
+ * cerrado). Siempre da la misma cantidad de puntos (filas de rejilla). drb/drt = dρ/dy de cada curva: en la transición la
+ * normal se inclina hacia la boca (my, para la portería de +y).
  */
-function goalProfile(floor, nArc = 8) {
-  const c = AR.c, Wc = AR.Wc, Hc = AR.Hc, W = AR.W, Hg = AR.Hg, pts = [];
-  const add = (x, z, mx, mz) => pts.push({ x, z, mx, mz });
-  const arc = (cx, cz, a0, a1) => { for (let k = 0; k <= nArc; k++) { const a = a0 + (a1 - a0) * k / nArc, ux = Math.cos(a), uz = Math.sin(a); add(cx + c * ux, cz + c * uz, -ux, -uz); } };
-  if (floor) { add(0, 0, 0, 1); }
-  arc(Wc, c, -Math.PI / 2, 0);                  // piso → pared derecha
-  add(W, (c + Hc) / 2, -1, 0);
-  arc(Wc, Hc, 0, Math.PI / 2);                  // pared → techo
-  add(0, Hg, 0, -1);
-  arc(-Wc, Hc, Math.PI / 2, Math.PI);           // techo → pared izquierda
-  add(-W, (c + Hc) / 2, 1, 0);
-  arc(-Wc, c, Math.PI, Math.PI * 1.5);          // pared → piso
+function goalProfile(floor, nArc = 8, rb = AR.c, rt = AR.c, drb = 0, drt = 0) {
+  const W = AR.W, Hg = AR.Hg, pts = [];
+  const add = (x, z, mx, mz, my = 0) => { const l = Math.hypot(mx, my, mz); pts.push({ x, z, mx: mx / l, my: my / l, mz: mz / l }); };
+  const arc = (cx, cz, a0, a1, rr, dr) => {
+    for (let k = 0; k <= nArc; k++) {
+      const a = a0 + (a1 - a0) * k / nArc, ux = Math.cos(a), uz = Math.sin(a);
+      add(cx + rr * ux, cz + rr * uz, -ux, -uz, dr * (1 - Math.abs(ux) - Math.abs(uz)));
+    }
+  };
   if (floor) add(0, 0, 0, 1);
-  // quitar duplicados consecutivos y acumular longitud
-  const out = [];
-  for (const p of pts) { const q = out[out.length - 1]; if (!q || Math.hypot(p.x - q.x, p.z - q.z) > 1e-6) out.push(p); }
+  arc(W - rb, rb, -Math.PI / 2, 0, rb, drb);                   // piso → pared derecha
+  add(W, (rb + Hg - rt) / 2, -1, 0);
+  arc(W - rt, Hg - rt, 0, Math.PI / 2, rt, drt);               // pared → techo
+  add(0, Hg, 0, -1);
+  arc(-(W - rt), Hg - rt, Math.PI / 2, Math.PI, rt, drt);      // techo → pared izquierda
+  add(-W, (rb + Hg - rt) / 2, 1, 0);
+  arc(-(W - rb), rb, Math.PI, Math.PI * 1.5, rb, drb);         // pared → piso
+  if (floor) add(0, 0, 0, 1);
   let acc = 0;
-  out[0].s = 0;
-  for (let i = 1; i < out.length; i++) { acc += Math.hypot(out[i].x - out[i - 1].x, out[i].z - out[i - 1].z); out[i].s = acc; }
-  return out;
+  pts[0].s = 0;
+  for (let i = 1; i < pts.length; i++) { acc += Math.hypot(pts[i].x - pts[i - 1].x, pts[i].z - pts[i - 1].z); pts[i].s = acc; }
+  return pts;
 }
 
 /** Superficie en rejilla (filas × columnas de puntos {x,y,z,nx,ny,nz,u,v}) → geometría; opcionalmente con color. */
@@ -5212,13 +5590,18 @@ function buildGoalMeshes(sg, contour, netTex, rampMat, wallMat) {
   const T = 34;                                   // grosor del marco
   const blue = [0.25, 0.55, 1.0], orange = [1.0, 0.55, 0.18];
   const sideCol = () => (sg > 0 ? orange : blue);
-  // ---- Interior: tubo (paredes + techo + curvas), remate del fondo y fondo plano ----
-  const prof = goalProfile(false), full = goalProfile(true);
-  const rowsTube = [];
-  const y0 = YB + T, nY = 14;
-  for (let k = 0; k <= nY; k++) {
-    const y = y0 + (YGc - y0) * k / nY;
-    rowsTube.push(prof.map((p) => ({ x: p.x, y: sg * y, z: p.z, nx: p.mx, ny: 0, nz: p.mz, u: p.s / 90, v: (y - YB) / 90 })));
+  // ---- Interior: tubo (paredes + techo + curvas de radio variable), remate del fondo y fondo plano ----
+  // La boca es la de la SDF (radios cb0 y ct0); detrás de la línea las curvas crecen hasta c: filas densas en la transición.
+  const prof = goalProfile(false, 8, AR.cb0, AR.ct0), full = goalProfile(true);
+  const rowsTube = [], ys = [];
+  const yT0 = YB + T, ya = Math.min(AR.b0, AR.t0), yb = Math.max(AR.b1, AR.t1);
+  ys.push(yT0, (yT0 + ya) / 2, YGc, (yb + YGc) / 2);
+  for (let k = 0; k <= 20; k++) ys.push(ya + (yb - ya) * k / 20);
+  ys.sort((a, b) => a - b);
+  for (const y of ys) {
+    if (y < yT0 - 1e-6 || y > YGc + 1e-6 || (rowsTube.length && Math.abs(y - Math.abs(rowsTube[rowsTube.length - 1][0].y)) < 1)) continue;
+    const pr = goalProfile(false, 8, goalRadB(y), goalRadT(y), goalRadD(y, false), goalRadD(y, true));
+    rowsTube.push(pr.map((p) => ({ x: p.x, y: sg * y, z: p.z, nx: p.mx, ny: sg * p.my, nz: p.mz, u: p.s / 90, v: (y - YB) / 90 })));
   }
   const rowsCap = [], nPhi = 6;
   for (let k = 0; k <= nPhi; k++) {
@@ -5247,17 +5630,19 @@ function buildGoalMeshes(sg, contour, netTex, rampMat, wallMat) {
   netMat.customProgramCacheKey = () => 'red-porteria';
   const backMat = new THREE.MeshStandardMaterial({ color: teamCol, transparent: true, opacity: 0.18, depthWrite: false,
     side: THREE.DoubleSide, emissive: teamCol, emissiveIntensity: 0.4 });
-  for (const rows of [rowsTube, rowsCap, back]) {
+  for (const [rows, nm] of [[rowsTube, 'tubo'], [rowsCap, 'remate'], [back, 'fondo']]) {
     const g = gridGeo(rows);
-    const shell = new THREE.Mesh(g, backMat); shell.renderOrder = 1; group.add(shell);
+    const shell = new THREE.Mesh(g, backMat); shell.renderOrder = 1; shell.name = 'cubierta-' + nm; group.add(shell);
     // red: la misma superficie 2 uu hacia dentro
     const inset = rows.map((row) => row.map((q) => Object.assign({}, q, { x: q.x + q.nx * 2, y: q.y + q.ny * 2, z: q.z + q.nz * 2 })));
-    group.add(new THREE.Mesh(gridGeo(inset), netMat));
+    group.add(Object.assign(new THREE.Mesh(gridGeo(inset), netMat), { name: 'red-' + nm }));
   }
-  // ---- Frente a la boca: tapas planas, curva piso-lateral recortada y franja de la rampa bajo esa curva ----
+  // ---- Frente a la boca: tapas planas, curva piso-poste (radio cb0) recortada, franja de la rampa bajo esa curva y
+  //      borde redondeado de la rampa junto al poste ----
   const capMat = new THREE.MeshStandardMaterial({ color: 0x1d2b40, roughness: 0.55, metalness: 0.25, emissive: teamCol, emissiveIntensity: 0.18 });
   const zc = (y) => zCurve(y);
   const rampV = (y) => r * Math.asin(clamp((y - Yq) / r, 0, 1)) / (700 * 0.577);
+  const cb = AR.cb0, Wb = W - cb;
   // s del contorno de la rampa sobre la pared de fondo para un x dado (interpolado)
   const backCols = contour.filter((q) => Math.abs(q.by - sg * Yq) < 1e-6 && q.dx === 0 && q.dy === sg);
   const sAtX = (x) => {
@@ -5268,60 +5653,100 @@ function buildGoalMeshes(sg, contour, netTex, rampMat, wallMat) {
     return 0;
   };
   for (const sx of [1, -1]) {
-    // tapa plana x = ±W: y ∈ [yCap, YB], c ≤ z ≤ zCurve(y)
-    const capRows = [], nK = 10;
+    // tapa plana x = ±W: y ∈ [yCap, YB], cb0 ≤ z ≤ zCurve(y) − k(y); filas uniformes en el ángulo de la curva del piso
+    // (cerca de la boca el borde sube casi vertical) y compartidas con el borde redondeado
+    const capRows = [], nK = 36, phC = Math.acos(clamp(1 - cb / r, -1, 1));
     for (let k = 0; k <= nK; k++) {
-      const y = AR.yCap + (YB - AR.yCap) * k / nK, top = zc(y);
-      capRows.push([c, top].map((z) => ({ x: sx * W, y: sg * y, z, nx: -sx, ny: 0, nz: 0, u: y / 90, v: z / 90 })));
+      const ph = phC + (Math.PI / 2 - phC) * k / nK, y = Yq + r * Math.sin(ph), top = Math.max(cb, r - r * Math.cos(ph) - capEdgeK(y));
+      capRows.push([cb, top].map((z) => ({ x: sx * W, y: sg * y, z, nx: -sx, ny: 0, nz: 0, u: y / 90, v: z / 90 })));
     }
-    group.add(new THREE.Mesh(gridGeo(capRows), capMat));
-    // curva piso-lateral frente a la boca: θ ∈ [θmin(y), π/2], z = c − c·sinθ ≤ zCurve(y)
-    const filRows = [], nF = 14, nT = 6;
-    for (let k = 0; k <= nF; k++) {
-      const y = Yq + (YB - Yq) * k / nF;
-      const smin = clamp(1 - zc(y) / c, 0, 1), th0 = Math.asin(smin);
-      const row = [];
-      for (let j = 0; j <= nT; j++) {
-        const th = th0 + (Math.PI / 2 - th0) * j / nT, cx = Math.cos(th), sz = Math.sin(th);
-        row.push({ x: sx * (Wc + c * cx), y: sg * y, z: c - c * sz, nx: -sx * cx, ny: 0, nz: sz, u: y / 90, v: th });
+    group.add(Object.assign(new THREE.Mesh(gridGeo(capRows), capMat), { name: 'tapa' }));
+    // curva piso-poste frente a la boca: θ ∈ [θmin(y), π/2], z = cb0 − cb0·senθ ≤ zCurve(y)
+    if (cb > 0) {
+      const filRows = [], nF = 14, nT = 6;
+      for (let k = 0; k <= nF; k++) {
+        const y = Yq + (YB - Yq) * k / nF;
+        const smin = clamp(1 - zc(y) / cb, 0, 1), th0 = Math.asin(smin);
+        const row = [];
+        for (let j = 0; j <= nT; j++) {
+          const th = th0 + (Math.PI / 2 - th0) * j / nT, cx = Math.cos(th), sz = Math.sin(th);
+          row.push({ x: sx * (Wb + cb * cx), y: sg * y, z: cb - cb * sz, nx: -sx * cx, ny: 0, nz: sz, u: y / 90, v: th });
+        }
+        filRows.push(row);
       }
-      filRows.push(row);
-    }
-    group.add(new THREE.Mesh(gridGeo(filRows), capMat));
-    // franja de la rampa de la cancha que queda bajo esa curva: x ∈ [xClip(y), W], y ∈ [Yq, yCap]
-    const slRows = [], nS = 12, nX = 5;
-    for (let k = 0; k <= nS; k++) {
-      const y = Yq + (AR.yCap - Yq) * k / nS, z = zc(y);
-      const xClip = Wc + Math.sqrt(Math.max(0, c * c - (c - z) * (c - z)));
-      const ny = (Yq - y) / r, nz = (r - z) / r;
-      const row = [];
-      for (let j = 0; j <= nX; j++) {
-        const x = xClip + (W - xClip) * j / nX;
-        row.push({ x: sx * x, y: sg * y, z, nx: 0, ny: sg * ny, nz, u: sAtX(sx * x) / 700, v: rampV(y) });
+      group.add(Object.assign(new THREE.Mesh(gridGeo(filRows), capMat), { name: 'curva-tapa' }));
+      // franja de la rampa de la cancha que queda sobre esa curva: x ∈ [xClip(y), W], y ∈ [Yq, yCap]
+      const slRows = [], nS = 12, nX = 5;
+      for (let k = 0; k <= nS; k++) {
+        const y = Yq + (AR.yCap - Yq) * k / nS, z = zc(y);
+        const xClip = Wb + Math.sqrt(Math.max(0, cb * cb - (cb - z) * (cb - z)));
+        const ny = (Yq - y) / r, nz = (r - z) / r;
+        const row = [];
+        for (let j = 0; j <= nX; j++) {
+          const x = xClip + (W - xClip) * j / nX;
+          row.push({ x: sx * x, y: sg * y, z, nx: 0, ny: sg * ny, nz, u: sAtX(sx * x) / 700, v: rampV(y) });
+        }
+        slRows.push(row);
       }
-      slRows.push(row);
+      group.add(Object.assign(new THREE.Mesh(gridGeo(slRows, sideCol), rampMat), { name: 'franja-rampa' }));
     }
-    group.add(new THREE.Mesh(gridGeo(slRows, sideCol), rampMat));
-    // esquina superior de la boca (pared de fondo entre la curva techo-lateral y la esquina recta)
-    const spPos = [sx * W, sg * YB, Hg], spN = [0, -sg, 0], spUv = [0, 0], spCol = sideCol().slice(), spIdx = [];
-    const nA = 8;
-    for (let k = 0; k <= nA; k++) {
-      const a = k / nA * Math.PI / 2;
-      spPos.push(sx * (Wc + c * Math.cos(a)), sg * YB, Hc + c * Math.sin(a)); spN.push(0, -sg, 0); spUv.push(0, 0); spCol.push(...sideCol());
-      if (k > 0) spIdx.push(0, k, k + 1);
+    // borde redondeado de la rampa junto al poste: cuarto de círculo de radio k(y) entre la tapa y la rampa (φ ∈ [φA, π/2])
+    if (AR.rk > 0) {
+      // filas alineadas con las de la malla de la rampa (3 por cada una), desde la anterior a φA: ahí el borde de esa malla
+      // ya se abre hacia afuera
+      const stp = Math.PI / 2 / ARENA_RAMP_ROWS, j0 = Math.floor(AR.phiA / stp + 1e-9), nE = 3 * (ARENA_RAMP_ROWS - j0), nA = 6;
+      const edRows = [];
+      for (let k = 0; k <= nE; k++) {
+        const ph = (j0 + k / 3) * stp, y = Yq + r * Math.sin(ph), z0 = r - r * Math.cos(ph), kk = capEdgeK(y);
+        const tp = Math.tan(Math.min(ph, 1.55)), kp = (capEdgeK(y + 0.5) - capEdgeK(y - 0.5));
+        // prolongación sobre la tapa (tapa rendijas entre las dos mallas)
+        const row = [{ x: sx * W, y: sg * y, z: z0 - kk - 6, nx: -sx, ny: 0, nz: 0, u: sAtX(sx * W) / 700, v: rampV(y) }];
+        for (let j = 0; j <= nA; j++) {
+          const ps = j / nA * Math.PI / 2, ux = -Math.cos(ps), uz = Math.sin(ps);   // ψ: 0 en la tapa, π/2 en la rampa
+          const nx = ux, ny = -tp * uz - kp * (1 - uz + ux), nz = uz, nl = Math.hypot(nx, ny, nz);
+          const px = W + kk + kk * ux, pz = z0 - kk + kk * uz;
+          row.push({ x: sx * px, y: sg * y, z: pz, nx: sx * nx / nl, ny: sg * ny / nl, nz: nz / nl, u: sAtX(sx * px) / 700, v: rampV(y) });
+        }
+        // prolongación bajo la rampa: tapa las rendijas con la malla de la rampa (sus filas son más espaciadas); con
+        // polygonOffset la rampa gana donde se superponen
+        const q = row[row.length - 1];
+        row.push(Object.assign({}, q, { x: sx * (W + kk + 12), z: z0 - 1, u: sAtX(sx * (W + kk + 12)) / 700 }));
+        edRows.push(row);
+      }
+      const edgeMat = rampMat.clone();
+      edgeMat.polygonOffset = true; edgeMat.polygonOffsetFactor = 1; edgeMat.polygonOffsetUnits = 2;
+      group.add(Object.assign(new THREE.Mesh(gridGeo(edRows, sideCol), edgeMat), { name: 'borde-rampa' }));
     }
-    fixWinding(spPos, spN, spIdx);
-    const sp = new THREE.Mesh(geoFromPhys(spPos, spN, spUv, spIdx, spCol), wallMat); sp.renderOrder = 2; group.add(sp);
+    // esquina superior de la boca (pared de fondo entre la curva poste-travesaño y la esquina recta)
+    const ct = AR.ct0;
+    if (ct > 0) {
+      const spPos = [sx * W, sg * YB, Hg], spN = [0, -sg, 0], spUv = [0, 0], spCol = sideCol().slice(), spIdx = [];
+      const nA = 8;
+      for (let k = 0; k <= nA; k++) {
+        const a = k / nA * Math.PI / 2;
+        spPos.push(sx * (W - ct + ct * Math.cos(a)), sg * YB, Hg - ct + ct * Math.sin(a)); spN.push(0, -sg, 0); spUv.push(0, 0); spCol.push(...sideCol());
+        if (k > 0) spIdx.push(0, k, k + 1);
+      }
+      fixWinding(spPos, spN, spIdx);
+      const sp = new THREE.Mesh(geoFromPhys(spPos, spN, spUv, spIdx, spCol), wallMat); sp.renderOrder = 2; group.add(sp);
+    }
   }
-  // ---- Marco: sigue el borde de la boca (postes, esquinas redondeadas y travesaño) ----
+  // ---- Marco: por dentro sigue el borde de la boca (esquinas de radio cb0/ct0, las de la SDF); por fuera es un
+  //      rectángulo de esquinas rectas (en cada esquina el marco cubre el hueco entre el arco y la esquina) ----
   const frameMat = new THREE.MeshStandardMaterial({ color: 0xffffff, emissive: teamCol, emissiveIntensity: 1.6, roughness: 0.3, metalness: 0.4 });
-  const rim = prof;                                          // bajo z = 450 la cara frontal queda dentro de la rampa
+  const rim = prof;                                          // perfil de la boca; bajo z = 450 la cara frontal queda dentro de la rampa
   const front = [], inner = [];
+  const outer = (p) => {                                     // punto del contorno exterior (rectángulo a T del borde recto)
+    const ox = -p.mx, oz = -p.mz, ez = p.z > Hg / 2 ? Hg + T : -T;
+    const tx = Math.abs(ox) > 1e-9 ? (W + T - Math.abs(p.x)) / Math.abs(ox) : Infinity, tz = Math.abs(oz) > 1e-9 ? (oz > 0 ? ez - p.z : p.z - ez) / Math.abs(oz) : Infinity;
+    const t = Math.min(tx, tz);
+    return { x: p.x + ox * t, z: p.z + oz * t };
+  };
   front.push(rim.map((p) => ({ x: p.x, y: sg * (YB - 0.6), z: p.z, nx: 0, ny: -sg, nz: 0, u: 0, v: 0 })));
-  front.push(rim.map((p) => ({ x: p.x - p.mx * T, y: sg * (YB - 0.6), z: p.z - p.mz * T, nx: 0, ny: -sg, nz: 0, u: 0, v: 0 })));
+  front.push(rim.map((p) => { const q = outer(p); return { x: q.x, y: sg * (YB - 0.6), z: q.z, nx: 0, ny: -sg, nz: 0, u: 0, v: 0 }; }));
   for (const y of [YB - 0.6, YB + T]) inner.push(rim.map((p) => ({ x: p.x + p.mx * 0.6, y: sg * y, z: p.z + p.mz * 0.6, nx: p.mx, ny: 0, nz: p.mz, u: 0, v: 0 })));
-  group.add(new THREE.Mesh(gridGeo(front), frameMat));
-  group.add(new THREE.Mesh(gridGeo(inner), frameMat));
+  group.add(Object.assign(new THREE.Mesh(gridGeo(front), frameMat), { name: 'marco-frente' }));
+  group.add(Object.assign(new THREE.Mesh(gridGeo(inner), frameMat), { name: 'marco-interior' }));
   return group;
 }
 
@@ -5329,17 +5754,23 @@ function buildArena() {
   const group = new THREE.Group();
   R.arena = { group, mats: {} };
   const contour = arenaContour(6);
-  const rows = arenaRows(10, 8);
+  const rows = arenaRows(ARENA_RAMP_ROWS, 8);
   const nRamp = rows.findIndex((r) => r.part === 'pared') - 1;
   const nTop = rows.findIndex((r) => r.part === 'arriba') - 1;
   const hexTex = makeHexTexture();
   // Piso con líneas
   const fieldTex = makeFieldTexture();
+  // piso del canal y de la portería: llega hasta x = ±(W − ρb(y)) (la curva piso-poste crece detrás de la línea)
+  const chY = [AR.Yq, AR.b0];
+  for (let k = 1; k <= 16; k++) chY.push(AR.b0 + AR.bL * k / 16);
+  if (AR.YGc > chY[chY.length - 1] + 1e-6) chY.push(AR.YGc);
+  const chR = chY.map((y) => [AR.W - goalRadB(y), y]);          // borde derecho, de Yq a YGc
   const floorPts = [
-    [AR.Xq, -AR.Y1], [AR.Xq, AR.Y1], [AR.X1, AR.Yq],
-    [AR.W, AR.Yq], [AR.Wc, AR.Yq], [AR.Wc, AR.YGc], [-AR.Wc, AR.YGc], [-AR.Wc, AR.Yq], [-AR.W, AR.Yq],
-    [-AR.X1, AR.Yq], [-AR.Xq, AR.Y1], [-AR.Xq, -AR.Y1], [-AR.X1, -AR.Yq],
-    [-AR.W, -AR.Yq], [-AR.Wc, -AR.Yq], [-AR.Wc, -AR.YGc], [AR.Wc, -AR.YGc], [AR.Wc, -AR.Yq], [AR.W, -AR.Yq], [AR.X1, -AR.Yq],
+    [AR.Xq, -AR.Y1], [AR.Xq, AR.Y1], [AR.X1, AR.Yq], [AR.W, AR.Yq],
+    ...chR, ...chR.map(([x, y]) => [-x, y]).reverse(),
+    [-AR.W, AR.Yq], [-AR.X1, AR.Yq], [-AR.Xq, AR.Y1], [-AR.Xq, -AR.Y1], [-AR.X1, -AR.Yq], [-AR.W, -AR.Yq],
+    ...chR.map(([x, y]) => [-x, -y]), ...chR.map(([x, y]) => [x, -y]).reverse(),
+    [AR.W, -AR.Yq], [AR.X1, -AR.Yq],
   ];
   const floorMat = new THREE.MeshStandardMaterial({ map: fieldTex, roughness: 0.92, metalness: 0.0 });
   const floor = new THREE.Mesh(flatPolygonGeo(floorPts, 0, true, (x, y) => [(x + 4096) / 8192, (y + 6000) / 12000]), floorMat);
@@ -5366,7 +5797,7 @@ function buildArena() {
   const ceil = new THREE.Mesh(flatPolygonGeo(ceilPts, AR.H, false, (x, y) => [x / 700, y / (700 * 0.577)]), ceilMat);
   ceil.renderOrder = 2;
   group.add(ceil);
-  // Porterías (misma geometría que la SDF: aristas interiores redondeadas con radio c)
+  // Porterías (misma geometría que la SDF: boca de radios cb0/ct0, curvas que crecen hasta c detrás de la línea)
   GoalFx.init();
   const netTex = makeNetTexture();
   for (const sg of [1, -1]) group.add(buildGoalMeshes(sg, contour, netTex, rampMat, wallMat));
@@ -8005,7 +8436,7 @@ function debugLines() {
 async function boot() {
   const params = new URLSearchParams(location.search);
   window.__TFT = { CONFIG, World, Car, Ball, BallPredictor, Controls, Match, BotBrain, makeBot, V3, Basis, arenaSDF, arenaRaycast, hitboxMinSDF, AR, DT, TICK_RATE,
-    dPrism, goalBoxSDF, rebuildArena };
+    dPrism, goalBoxSDF, goalDepth, goalRadB, goalRadT, rebuildArena, Tests };
   if (params.has('sim')) { window.__tfArrancado = true; document.getElementById('carga').classList.add('oculto'); return; }
   // ?test o #test (algunos visores embebidos solo pasan el #ancla a la página)
   if (params.has('test') || location.hash === '#test') {
