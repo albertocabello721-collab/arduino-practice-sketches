@@ -48,6 +48,12 @@
 
   /* ---------------- HUD ---------------- */
   #hud { position: fixed; inset: 0; pointer-events: none; z-index: 20; }
+  #lab-saltos { position: absolute; left: 18px; top: 50%; transform: translateY(-50%); width: 270px; padding: 12px 14px 10px;
+    background: var(--panel); border: 1px solid var(--borde); border-radius: 12px; font-variant-numeric: tabular-nums; }
+  #lab-saltos .lab-tit { font-weight: 900; font-style: italic; letter-spacing: 1px; text-transform: uppercase; font-size: 13px; color: var(--acento); margin-bottom: 8px; }
+  #lab-saltos dl { display: grid; grid-template-columns: auto 1fr; gap: 5px 12px; margin: 0; font-size: 13px; }
+  #lab-saltos dt { opacity: 0.7; } #lab-saltos dd { margin: 0; text-align: right; font-weight: 700; }
+  #lab-saltos .lab-pie { margin-top: 9px; font-size: 11px; opacity: 0.55; line-height: 1.35; }
   #marcador { position: absolute; top: 14px; left: 50%; transform: translateX(-50%); display: flex; align-items: stretch;
     font-weight: 900; font-style: italic; filter: drop-shadow(0 6px 18px rgba(0,0,0,0.45)); }
   #marcador .equipo { display: flex; align-items: center; gap: 12px; padding: 6px 18px; min-width: 150px; }
@@ -285,6 +291,11 @@
   </div>
   <div id="repeticion-banner"><span class="r"><b>●</b>REPETICIÓN</span><span class="s" id="repeticion-sub">Pulsa Espacio / A para saltar</span></div>
   <div id="tabla" class="oculto"><div class="panel-tabla" id="tabla-contenido"></div></div>
+  <div id="lab-saltos" class="oculto">
+    <div class="lab-tit">Laboratorio de saltos</div>
+    <dl id="lab-datos"></dl>
+    <div class="lab-pie">L: mostrar u ocultar · la estela muestra el último intento (y el anterior, más tenue)</div>
+  </div>
 </div>
 <div id="fin" class="oculto"><div class="caja">
   <h2 class="res" id="fin-res">VICTORIA</h2>
@@ -318,6 +329,7 @@
       <h2>Práctica libre</h2>
       <p class="nota">Tú, la pelota y la cancha, sin rivales ni reloj. Pulsa <span class="tecla" id="tecla-reiniciar">R</span> para reiniciar la pelota en el centro.</p>
       <div class="ajuste"><span class="nom">Turbo ilimitado</span><input type="checkbox" id="chk-turbo-inf" checked></div>
+      <div class="ajuste"><span class="nom">Laboratorio de saltos (estela, altura, tiempos y giro; tecla L en la cancha)</span><input type="checkbox" id="chk-lab-saltos"></div>
       <div class="fila-botones"><button class="boton grande primario" data-accion="practicar">Entrar a la cancha</button><button class="boton" data-ir="principal">Volver</button></div>
     </div>
     <div class="menu-pagina oculto" id="pag-ajustes">
@@ -3231,6 +3243,7 @@ const Settings = {
       audio: Object.assign({}, CONFIG.audio),
       quality: { preset: 'auto', bloom: true },
       playerName: 'Tú',
+      jumpLab: false,
     };
   },
   load() {
@@ -3246,7 +3259,7 @@ const Settings = {
   merge(saved) {
     const d = this.defaults();
     if (!saved || typeof saved !== 'object') return d;
-    for (const k of ['deadzone', 'playerName']) if (saved[k] !== undefined) d[k] = saved[k];
+    for (const k of ['deadzone', 'playerName', 'jumpLab', 'practiceUnlimited', 'lastMode', 'lastDifficulty']) if (saved[k] !== undefined) d[k] = saved[k];
     for (const k of ['camera', 'audio', 'quality']) if (saved[k]) Object.assign(d[k], saved[k]);
     if (saved.bindings) for (const a of Object.keys(d.bindings)) if (Array.isArray(saved.bindings[a])) d.bindings[a] = saved.bindings[a].slice(0, 2);
     // Ajustes guardados antes de la versión 2: se agrega X como derrape alternativo si ese hueco está libre y X no se usa
@@ -3264,6 +3277,12 @@ const Settings = {
 // =====================================================================
 // ENTRADA — teclado, ratón y gamepad. Se muestrea en cada tick de física (no por frame).
 // =====================================================================
+/** Quita el foco de botones del menú (Espacio/Enter los activaría) y lo pasa al lienzo del juego. */
+function releaseFocus() {
+  const a = document.activeElement;
+  if (a && a !== document.body && typeof a.blur === 'function') a.blur();
+  if (R.renderer) R.renderer.domElement.focus({ preventScroll: true });
+}
 function keyLabel(code) {
   if (!code) return '—';
   const map = { Space: 'Espacio', ShiftLeft: 'Shift izq.', ShiftRight: 'Shift der.', ControlLeft: 'Ctrl izq.', ControlRight: 'Ctrl der.',
@@ -3311,6 +3330,8 @@ const Input = {
     for (const a of acts) this.emit(a, true, 'teclado');
   },
   onKeyUp(e) {
+    // Espacio "hace clic" en el botón con foco al soltarse: también se bloquea mientras se juega
+    if (this.gameActive && this.actionsOf(e.code).length) e.preventDefault();
     this.down.delete(e.code);
     for (const a of this.actionsOf(e.code)) this.emit(a, false, 'teclado');
   },
@@ -4493,6 +4514,27 @@ function initRenderer() {
   window.addEventListener('resize', onResize);
 }
 
+/**
+ * Compila de una vez todos los materiales de la escena (incluidos los efectos ocultos: llama, estelas, anillos…).
+ * Three.js compila cada material la primera vez que lo dibuja; sin esto, el primer turbo o la primera vez que la
+ * cámara mira una parte del estadio provocan un tirón en pleno partido.
+ */
+function prewarmShaders() {
+  if (!R.renderer) return;
+  const hidden = [];
+  R.scene.traverse((o) => { if (!o.visible) { hidden.push(o); o.visible = true; } });
+  try {
+    // dos variantes por material: salida directa al lienzo (sRGB) y hacia el búfer lineal del bloom
+    R.renderer.compile(R.scene, R.camera);
+    if (typeof Quality !== 'undefined' && Quality.composer) {
+      const prev = R.renderer.getRenderTarget();
+      R.renderer.setRenderTarget(Quality.composer.readBuffer);
+      R.renderer.compile(R.scene, R.camera);
+      R.renderer.setRenderTarget(prev);
+    }
+  } finally { for (const o of hidden) o.visible = false; }
+}
+
 function onResize() {
   const w = window.innerWidth, h = window.innerHeight;
   R.width = w; R.height = h;
@@ -5089,6 +5131,7 @@ function mergeParts(list) {
   return g;
 }
 const CAR_VIS_WHEEL_Y = [37, -37, 39, -39];
+const CAR_VIS_DROOP = 7;     // uu extra que bajan las ruedas en el aire (solo visual)
 function buildCarModel(team) {
   const M = carMaterials(team), T = TEAM_COLORS[team];
   const group = new THREE.Group();
@@ -5216,8 +5259,9 @@ class CarView {
     this.renderPos = new V3();
     this.renderRot = new Basis();
     this.srcCar = car;
+    this.droop = [0, 0, 0, 0];
   }
-  update(alpha) {
+  update(alpha, dt = 1 / 60) {
     const car = this.car;
     this.group.visible = !car.demolished;
     if (car.demolished) return;
@@ -5233,7 +5277,12 @@ class CarView {
     this.renderRot.orthonormalize();
     for (let i = 0; i < 4; i++) {
       const w = car.wheels[i], vw = this.model.wheels[i];
-      toThree(w.x, CAR_VIS_WHEEL_Y[i], w.z - w.susLen, vw.pivot.position);
+      // En el aire la suspensión física queda en su largo de reposo; en pantalla la rueda baja un poco más
+      // (solo visual) para que se note el despegue. Al tocar vuelve de inmediato.
+      const free = w.susLen >= w.rest - 0.05;
+      const target = free ? CAR_VIS_DROOP : 0;
+      this.droop[i] += (target - this.droop[i]) * (target > this.droop[i] ? 1 - Math.exp(-9 * dt) : 1);
+      toThree(w.x, CAR_VIS_WHEEL_Y[i], w.z - w.susLen - this.droop[i], vw.pivot.position);
       vw.pivot.rotation.y = w.front ? car.steerVis : 0;
       vw.spinner.rotation.z = -w.spin;
     }
@@ -5523,9 +5572,9 @@ function slerpUnitToward(v, target, k, axisHint) {
 
 const CameraRig = {
   pos: new V3(), look: new V3(), up: new V3(0, 0, 1), upPos: new V3(0, 0, 1), heading: new V3(0, 1, 0), elev: 0,
-  ballCam: true, inited: false, shakeAmp: 0, shakeTime: 0, swivel: 0,
+  ballCam: true, inited: false, shakeAmp: 0, shakeTime: 0, swivel: 0, anchor: new V3(), anchorInit: false, lag: 0,
   _w: new V3(), _t: new V3(), _d: new V3(), _n: new V3(), _hit: { t: 0, x: 0, y: 0, z: 0, nx: 0, ny: 0, nz: 0 },
-  reset() { this.inited = false; },
+  reset() { this.inited = false; this.anchorInit = false; this.lag = 0; },
   addShake(a) { if (Settings.data.camera.shake) this.shakeAmp = Math.max(this.shakeAmp, a); },
   update(dt, carPos, carRot, carOnGround, ballPos, carSpeed) {
     const S = Settings.data.camera;
@@ -5539,6 +5588,18 @@ const CameraRig = {
     slerpUnitToward(this.up, tu, ku, this.heading);
     slerpUnitToward(this.upPos, tu, kp, this.heading);
     const U = this.upPos;
+    // Punto de anclaje: sigue al auto al instante en el plano y con un retraso corto a lo largo de "arriba"
+    // (constante de tiempo 110 ms con rigidez 0, 22 ms con rigidez 1). Así el salto y el aterrizaje no mueven
+    // la cámara de golpe: el auto sube un poco en pantalla y la cámara lo alcanza.
+    if (!this.anchorInit) { this.anchor.copy(carPos); this.anchorInit = true; this.lag = 0; }
+    {
+      const A = this.anchor;
+      const du = (carPos.x - A.x) * U.x + (carPos.y - A.y) * U.y + (carPos.z - A.z) * U.z;
+      const k = Math.exp(-lerp(9, 45, clamp(S.stiffness, 0, 1)) * dt);
+      this.lag = clamp(du * k, -45, 45);
+      A.set(carPos.x - U.x * this.lag, carPos.y - U.y * this.lag, carPos.z - U.z * this.lag);
+    }
+    const P = this.anchor;
     // Dirección deseada
     const useBall = this.ballCam && ballPos;
     if (useBall) w.subVectors(ballPos, carPos);
@@ -5575,7 +5636,7 @@ const CameraRig = {
     const dist = S.distance * (1 + (1 - S.stiffness) * 0.18 * clamp(carSpeed / 2300, 0, 1));
     const ce = Math.cos(camElev), se = Math.sin(camElev);
     const hU = Math.max(S.height - dist * se, Math.min(S.height, 30));
-    this.pos.copy(carPos).addScaled(U, hU).addScaled(H, -dist * ce);
+    this.pos.copy(P).addScaled(U, hU).addScaled(H, -dist * ce);
     // Mirada: hacia la pelota, limitada para que el auto siga dentro del cuadro
     let lookElev = ang + (useBall ? clamp(this.elev, -0.4, 1.25) * 0.72 : 0);
     const aspect = R.camera ? R.camera.aspect : 16 / 9;
@@ -5584,7 +5645,7 @@ const CameraRig = {
     lookElev = clamp(lookElev, carEl - halfV + 0.2, carEl + halfV - 0.2);
     this.look.copy(H).scale(Math.cos(lookElev)).addScaled(U, Math.sin(lookElev));
     // Anticolisión: acercar la cámara si una pared se interpone
-    const fx = carPos.x + U.x * S.height * 0.6, fy = carPos.y + U.y * S.height * 0.6, fz = carPos.z + U.z * S.height * 0.6;
+    const fx = P.x + U.x * S.height * 0.6, fy = P.y + U.y * S.height * 0.6, fz = P.z + U.z * S.height * 0.6;
     const dx = this.pos.x - fx, dy = this.pos.y - fy, dz = this.pos.z - fz;
     const len = Math.sqrt(dx * dx + dy * dy + dz * dz);
     const margin = 32;
@@ -5617,6 +5678,111 @@ const CameraRig = {
     const vfov = 2 * Math.atan(Math.tan(S.fov * Math.PI / 360) / cam.aspect) * 180 / Math.PI;
     const f = clamp(vfov, 30, 125);
     if (Math.abs(cam.fov - f) > 1e-3) { cam.fov = f; cam.updateProjectionMatrix(); }
+  },
+};
+
+// =====================================================================
+// LABORATORIO DE SALTOS (práctica libre): estela de la trayectoria y datos de cada intento
+// =====================================================================
+const JumpLab = {
+  on: false, el: null, dl: null, lines: [], apex: null, domT: 0,
+  cur: null, last: null, prevOnGround: true,
+  MAXP: 720,
+  init() {
+    this.el = document.getElementById('lab-saltos');
+    this.dl = document.getElementById('lab-datos');
+    // dos estelas: el intento actual y el anterior (más tenue); búferes fijos, sin crear objetos al jugar
+    for (let k = 0; k < 2; k++) {
+      const g = new THREE.BufferGeometry();
+      g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(this.MAXP * 3), 3).setUsage(THREE.DynamicDrawUsage));
+      g.setAttribute('color', new THREE.BufferAttribute(new Float32Array(this.MAXP * 3), 3).setUsage(THREE.DynamicDrawUsage));
+      g.setDrawRange(0, 0);
+      const line = new THREE.Line(g, new THREE.LineBasicMaterial({ vertexColors: true, transparent: true, opacity: k ? 0.35 : 1, depthTest: false, toneMapped: false }));
+      line.frustumCulled = false; line.renderOrder = 15; line.visible = false;
+      R.scene.add(line);
+      this.lines.push({ line, n: 0 });
+    }
+    this.apex = new THREE.Mesh(new THREE.SphereGeometry(7 * INV_UU, 12, 8), new THREE.MeshBasicMaterial({ color: 0xffd24a, depthTest: false, toneMapped: false }));
+    this.apex.renderOrder = 16; this.apex.visible = false;
+    R.scene.add(this.apex);
+    window.addEventListener('keydown', (e) => {
+      if (e.code !== 'KeyL' || e.repeat || !Game.match || !Game.match.practice || Game.attract || Menu.visible() || Input.actionsOf('KeyL').length) return;
+      Settings.data.jumpLab = !this.on; Settings.save();
+      this.setOn(!this.on);
+    });
+  },
+  setOn(v) {
+    this.on = !!v;
+    if (this.el) this.el.classList.toggle('oculto', !this.on);
+    for (const L of this.lines) L.line.visible = this.on && L.n > 1;
+    if (this.apex) this.apex.visible = this.on && !!this.last;
+    if (!this.on) this.cur = null;
+  },
+  /** Se llama en cada tick de física con el auto del jugador y sus controles. */
+  tick(car, ctl, tick) {
+    const onGround = car.onGround;
+    // inicio de un intento: el primer tick del salto (arranca con el auto apoyado)
+    if (car.isJumping && car.jumpTime <= DT * 1.01 && !this.cur) {
+      const L0 = this.lines[0], L1 = this.lines[1];
+      // la estela actual pasa a ser la anterior
+      L1.line.geometry.attributes.position.array.set(L0.line.geometry.attributes.position.array);
+      L1.line.geometry.attributes.color.array.set(L0.line.geometry.attributes.color.array);
+      L1.n = L0.n; L1.line.geometry.setDrawRange(0, L1.n);
+      L1.line.geometry.attributes.position.needsUpdate = true; L1.line.geometry.attributes.color.needsUpdate = true;
+      L0.n = 0;
+      this.cur = { t0: tick, n0: car.groundNormal.clone(), p0: car.pos.clone(), held: 0, releasedAt: -1, takeoff: -1, land: -1,
+        maxH: 0, h: 0, apex: car.pos.clone(), maxSpin: 0, second: '', vz0: 0, done: false };
+    }
+    const c = this.cur;
+    if (c && !c.done) {
+      const t = tick - c.t0;
+      if (ctl.jump && c.releasedAt < 0) c.held = (t + 1) * DT; else if (c.releasedAt < 0) c.releasedAt = t;
+      if (c.takeoff < 0 && car.numContacts === 0) { c.takeoff = t; c.vz0 = car.vel.dot(c.n0); }
+      // altura del centro de masa sobre el punto de despegue, medida a lo largo de la normal de la superficie
+      const h = (car.pos.x - c.p0.x) * c.n0.x + (car.pos.y - c.p0.y) * c.n0.y + (car.pos.z - c.p0.z) * c.n0.z;
+      if (h > c.maxH) { c.maxH = h; c.apex.copy(car.pos); }
+      c.h = h;
+      c.maxSpin = Math.max(c.maxSpin, car.angVel.length());
+      if (!c.second && car.hasFlipped) c.second = 'dodge a ' + (t * DT).toFixed(2) + ' s';
+      else if (!c.second && car.hasDoubleJumped) c.second = 'doble salto a ' + (t * DT).toFixed(2) + ' s';
+      const L0 = this.lines[0];
+      if (L0.n < this.MAXP && t % 2 === 0) {
+        const pa = L0.line.geometry.attributes.position.array, ca = L0.line.geometry.attributes.color.array, i = L0.n * 3;
+        const v = toThree(car.pos.x, car.pos.y, car.pos.z, R.tmpV);
+        pa[i] = v.x; pa[i + 1] = v.y; pa[i + 2] = v.z;
+        const k = clamp(t * DT / 1.6, 0, 1);            // de amarillo a celeste con el tiempo
+        ca[i] = lerp(1.0, 0.45, k); ca[i + 1] = lerp(0.82, 0.85, k); ca[i + 2] = lerp(0.29, 1.0, k);
+        L0.n++;
+      }
+      // fin: vuelve a apoyarse después de despegar
+      if (c.takeoff >= 0 && onGround && !this.prevOnGround) { c.land = t; c.done = true; this.last = c; this.cur = null; }
+      else if (t > 10 * TICK_RATE) { c.done = true; this.last = c; this.cur = null; }
+    }
+    this.prevOnGround = onGround;
+  },
+  render() {
+    const L0 = this.lines[0], L1 = this.lines[1];
+    L0.line.geometry.setDrawRange(0, L0.n);
+    L0.line.geometry.attributes.position.needsUpdate = true; L0.line.geometry.attributes.color.needsUpdate = true;
+    L0.line.visible = L0.n > 1; L1.line.visible = L1.n > 1;
+    const c = this.cur || this.last;
+    if (c) { toThree(c.apex.x, c.apex.y, c.apex.z, this.apex.position); this.apex.visible = c.maxH > 5; }
+    if (--this.domT > 0) return;
+    this.domT = 6;                                         // el texto se actualiza unas 10 veces por segundo
+    const car = Game.player;
+    const f = (v, d = 2) => (v === undefined || v < 0 ? '—' : v.toFixed(d));
+    const air = c ? (c.takeoff < 0 ? -1 : ((c.land >= 0 ? c.land : (Game.world.tick - c.t0)) - c.takeoff) * DT) : -1;
+    const rows = [
+      ['Altura máx.', c ? f(c.maxH, 1) + ' uu' : '—'],
+      ['Altura ahora', c && !c.done ? f(c.h, 1) + ' uu' : '—'],
+      ['Botón presionado', c ? f(c.held) + ' s' + (c.held >= CONFIG.jump.maxHold ? ' (máx.)' : '') : '—'],
+      ['Tiempo en el aire', c ? f(air) + ' s' + (c.done ? '' : ' …') : '—'],
+      ['Velocidad al despegar', c && c.takeoff >= 0 ? f(c.vz0, 0) + ' uu/s' : '—'],
+      ['Giro ahora', car ? car.angVel.length().toFixed(2) + ' rad/s' : '—'],
+      ['Giro máx.', c ? f(c.maxSpin) + ' rad/s' : '—'],
+      ['Segundo salto', c && c.second ? c.second : '—'],
+    ];
+    this.dl.innerHTML = rows.map((r) => '<dt>' + r[0] + '</dt><dd>' + r[1] + '</dd>').join('');
   },
 };
 
@@ -6133,6 +6299,16 @@ const Effects = {
         0.4, 0.42, 0.45, 0.35 * s + 0.15, 0.7, 2.2, 0, 1.5, 0.35);
     }
   },
+  /** Polvo bajo las ruedas que todavía tocan al saltar. */
+  jumpDust(car) {
+    if (!car || !car.wheels) return;
+    for (const w of car.wheels) {
+      if (!w.contact) continue;
+      toThree(w.px, w.py, w.pz + 2, this.v1);
+      for (let i = 0; i < 3; i++) this.smoke.emit(this.v1.x, this.v1.y, this.v1.z, (Math.random() - 0.5) * 2.4, 0.4 + Math.random() * 0.8, (Math.random() - 0.5) * 2.4,
+        0.46, 0.47, 0.44, 0.22, 0.5, 2.0, 0, 1.4, 0.3);
+    }
+  },
   pickup(e) {
     this.burst(e.x, e.y, 60, e.big ? 60 : 16, e.big ? 7 : 4, 1.8, 1.25, 0.4, e.big ? 0.4 : 0.22, e.big ? 0.8 : 0.45, 1, 1);
   },
@@ -6142,6 +6318,7 @@ const Effects = {
       case 'demolicion': this.demolition(e); break;
       case 'toque': this.hitSpark(e); break;
       case 'aterrizaje': this.landing(e.car, e.speed); break;
+      case 'salto': this.jumpDust(e.car); break;
       case 'turbo': this.pickup(e); break;
       default: break;
     }
@@ -6439,6 +6616,7 @@ const Menu = {
     this.updateNote();
     document.querySelectorAll('#pestanas-ajustes [data-tab]').forEach((b) => b.addEventListener('click', () => { Sound.ui(); this.tab(b.dataset.tab); }));
     document.getElementById('chk-turbo-inf').checked = d.practiceUnlimited !== false;
+    document.getElementById('chk-lab-saltos').checked = !!d.jumpLab;
     this.buildSettings();
     this.buildHelp();
     document.querySelectorAll('#pausa [data-pausa]').forEach((b) => b.addEventListener('click', () => { Sound.ui(); Pause.action(b.dataset.pausa); }));
@@ -6485,7 +6663,8 @@ const Menu = {
       this.hide();
       Game.startMatch({ mode: this.mode, difficulty: this.difficulty });
     } else if (a === 'practicar') {
-      d.practiceUnlimited = document.getElementById('chk-turbo-inf').checked; Settings.save();
+      d.practiceUnlimited = document.getElementById('chk-turbo-inf').checked;
+      d.jumpLab = document.getElementById('chk-lab-saltos').checked; Settings.save();
       this.hide();
       Game.startMatch({ mode: 'practica', unlimitedBoost: d.practiceUnlimited });
     }
@@ -6636,6 +6815,7 @@ const Pause = {
     Game.paused = false;
     Input.gameActive = true;
     Input.down.clear();
+    releaseFocus();
   },
   toggle() { if (this.isOpen()) this.resume(); else if (!Menu.visible()) this.open(); },
   action(a) {
@@ -6780,6 +6960,10 @@ const Game = {
     this.state = 'jugando'; this.paused = false; this.acc = 0; this.requestSkip = false;
     Input.gameActive = !attract;
     Input.down.clear();
+    if (!attract) releaseFocus();
+    JumpLab.setOn(!attract && m.practice && !!Settings.data.jumpLab);
+    for (const v of this.views) Effects.fxFor(v);        // llama, estelas y sombra existen antes de precompilar
+    prewarmShaders();
     this.handleEvents();
   },
   tick() {
@@ -6787,6 +6971,7 @@ const Game = {
     if (this.requestSkip) { this.requestSkip = false; m.skipReplay(); this.handleEvents(); }
     if (m.human) Input.sample(this.humanCtl); else Input.pollPad();
     m.tick(m.human ? this.humanCtl : null);
+    if (JumpLab.on && m.human) JumpLab.tick(m.human, this.humanCtl, m.world.tick);
     this.handleEvents();
     if (this.attract && m.state === 'fin' && m.stateTime > 3) this.startAttract();
   },
@@ -6799,6 +6984,7 @@ const Game = {
       if (e.type === 'gol') Stadium.celebrate(e.practice ? 2 : 5);
       if (e.type === 'repeticion') ReplayCam.reset(m.goalInfo ? m.goalInfo.side : 1, m.replayPlayer ? m.replayPlayer.ghostBall.pos : null);
       if (e.type === 'saque' || (e.type === 'reaparece' && e.car === this.match.human)) CameraRig.reset();
+      if (e.type === 'aterrizaje' && e.car === this.match.human && !this.attract) CameraRig.addShake(clamp((e.speed - 250) / 900, 0, 1) * 3.5);
     }
   },
   render(dt, alpha) {
@@ -6813,7 +6999,7 @@ const Game = {
     this.ballView.ball = rp ? rp.ghostBall : m.world.ball;
     this.ballView.visible = rp ? true : m.world.ballEnabled;
     if (rp) a = rp.alpha;
-    for (const v of this.views) { v.update(a); Effects.updateCar(v, dt); }
+    for (const v of this.views) { v.update(a, dt); Effects.updateCar(v, dt); }
     this.ballView.update(a);
     this.padsView.update(this.time);
     const ballPos = this.ballView.visible ? this.ballView.renderPos : null;
@@ -6836,6 +7022,7 @@ const Game = {
     if (!this.attract) HUD.update(dt, R.camera, this.views, ballPos, rp ? null : m.human);
     Stadium.update(dt, this.attract ? null : m);
     if (Debug.on) DebugViz.targets = m.controllers.filter((c) => c.brain && !rp).map((c) => c.brain.debugTarget());
+    if (JumpLab.on) JumpLab.render(dt);
   },
 };
 function hideEndScreen() { document.getElementById('fin').classList.add('oculto'); }
@@ -6989,11 +7176,13 @@ async function boot() {
   Quality.init();
   CameraRig.ballCam = Settings.data.camera.ballCam;
   HUD.init();
+  JumpLab.init();
   Pause.init();
   Menu.init();
   Menu.show();
+  prewarmShaders();
   document.getElementById('carga').classList.add('oculto');
-  window.__TF = { CONFIG, FreeCam, arenaSDF, R, V3, Game, Input, CameraRig, Settings, Menu, Pause, Quality, Effects, Sound, makeBot, HUD };
+  window.__TF = { CONFIG, FreeCam, arenaSDF, R, V3, Game, Input, CameraRig, Settings, Menu, Pause, Quality, Effects, Sound, makeBot, HUD, JumpLab };
   window.__tfArrancado = true;
   Main.start();
 }
