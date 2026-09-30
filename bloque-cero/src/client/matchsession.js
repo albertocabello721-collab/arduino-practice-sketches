@@ -16,6 +16,7 @@ import { DeathReplay } from './replay.js';
 import { MatchUI } from '../ui/matchui.js';
 import { BONE } from '../sim/skeleton.js';
 import { saveSettings } from '../core/settings.js';
+import { Announcer } from './announcer.js';
 
 const DEATH_CAM = 3.0;   // segundos mirando tu propio cuerpo antes de observar a un compañero (si no hay repetición)
 
@@ -30,6 +31,8 @@ export class MatchSession extends Session {
     this.ui = new MatchUI(ctx, this);
     this.feed = new FeedController(ctx, () => this.match.recon, () => this.match.player);
     this.chat = new TeamChat(ctx);
+    // el locutor (F12.2): fases de la ronda, últimos 30 s, plantado, eres el último y el final
+    this.announcer = new Announcer((text) => { if (ctx.voice) ctx.voice.announce(text); });
     this.disposers.push(() => this.chat.dispose());
     this.disposers.push(() => { const el = document.getElementById('alert'); if (el) el.classList.add('hidden'); });
     this.wheel = new OrderWheel();
@@ -171,6 +174,7 @@ export class MatchSession extends Session {
       this.ui.buildTop(m);
       this.ctx.resetView();
       audio.cue('prep');
+      this.announcer.roundStart(m.round);
       const side = this.mySide();
       this.ui.showPhase('Fase de preparación', side === 'def' ? `Defiendes ${m.site.name}` : 'Localiza el objetivo con tu dron', 3);
       this.ui.setPrepInfo(side === 'atk'
@@ -179,6 +183,7 @@ export class MatchSession extends Session {
     });
     on('action', () => {
       audio.cue('action');
+      this.announcer.action();
       if (this.feed.mode === 'drone') this.feed.exit();
       this.ui.setPrepInfo(null);
       const found = m.objectiveFound;
@@ -187,6 +192,7 @@ export class MatchSession extends Session {
     on('plantStart', (op) => { if (op === this.player) audio.cue('plantStart'); });
     on('planted', (op, site) => {
       audio.cue('planted');
+      this.announcer.planted();
       this.ui.showPhase('Desactivador plantado', `Sitio ${site} · ${this.mySide() === 'atk' ? 'defiéndelo 45 s' : 'inutilízalo antes de 45 s'}`, 3);
     });
     on('disableStart', (op) => { if (op === this.player) audio.cue('plantStart'); });
@@ -198,6 +204,7 @@ export class MatchSession extends Session {
       this.ui.clearPhase();
       this.ui.showBanner(res, m);
       audio.cue(res.winner === 0 ? 'win' : 'lose');
+      this.announcer.roundEnd(res.winner === 0);
       audio.stopDowned();
       hud.setDeath(false);
       this.ui.setPrepInfo(null);
@@ -207,6 +214,7 @@ export class MatchSession extends Session {
       hud.show(false);
       input.exitLock();
       audio.cue(e.winner === 0 ? 'matchWin' : 'matchLose');
+      this.announcer.matchEnd(e.winner === 0);
       this.ui.showMatchEnd(m, e);
     });
     onGame('objectiveFound', () => {
@@ -316,6 +324,7 @@ export class MatchSession extends Session {
   tick(dt) {
     this.bots.update(dt);
     this.match.tick(dt);
+    this.announcer.tick(this.match, this.player);
   }
 
   onKey() {
@@ -685,6 +694,7 @@ export class MatchSession extends Session {
     this.ctx.chars.clear();
     this.ctx.props.clear();
     this.ctx.audio.stopDowned();
+    if (this.ctx.voice) this.ctx.voice.cancel();
     this.ctx.hud.setRevive(null, 0);
     document.getElementById('gear').classList.add('hidden');
     document.getElementById('kit').classList.add('hidden');

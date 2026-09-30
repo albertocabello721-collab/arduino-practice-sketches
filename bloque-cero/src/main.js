@@ -27,6 +27,7 @@ import { navFor } from './sim/bots.js';
 import { DebugView } from './render/debugview.js';
 import { thermalOn, scopeZoom, THERMAL_SCOPE } from './sim/abilities.js';
 import { FEEL, lowHealth } from './client/feel.js';
+import { Speech } from './client/voice.js';
 
 const $ = (id) => document.getElementById(id);
 const nextFrame = () => new Promise((r) => requestAnimationFrame(() => r()));
@@ -126,6 +127,7 @@ async function boot() {
     // al recibir un balazo (F12.1): la sacudida de la vista (rad, solo en el dibujo) y de dónde vino
     kick: { pitch: 0, yaw: 0, roll: 0 }, dmgDir: { x: 0, y: 1, k: 0 },
     hearing: new Hearing(world, camera.position),   // por dónde llega cada sonido a la cámara (F9)
+    voice: new Speech(settings),                     // el locutor y tu operador (F12.2)
     // la cámara salta al operador visto sin interpolar (cambio de vista, reaparición)
     resetView() { view.op = null; },
     place(x, y, z, yaw, pitch = 0) {
@@ -204,6 +206,8 @@ async function boot() {
   bindCheck('set-invert', 'invertY');
   bindCheck('set-perf', 'showPerf');
   bindCheck('set-voice', 'allyVoice', () => { if (!settings.allyVoice) { try { if (window.speechSynthesis) window.speechSynthesis.cancel(); } catch (e) { /* sin voz */ } } });
+  bindCheck('set-announcer', 'announcer', () => { if (!settings.announcer) ctx.voice.cancel(); });
+  bindCheck('set-opvoice', 'opVoice', () => { if (!settings.opVoice) ctx.voice.cancel(); });
   const bindSelect = (id, key, apply) => { const el = $(id); el.value = settings[key]; el.addEventListener('change', () => { settings[key] = el.value; apply && apply(); saveSettings(settings); }); };
   bindSelect('set-quality', 'quality', () => { post.setQuality(settings.quality); renderer.setPixelRatio(pixelRatio()); resize(); });
   bindSelect('qm-side', 'startSide');

@@ -14,6 +14,8 @@ export const DEFAULT_SETTINGS = {
   quality: 'alta',      // 'baja' | 'media' | 'alta'
   showPerf: false,
   allyVoice: false,     // leer en voz alta los avisos de radio de los aliados
+  announcer: true,      // el locutor anuncia las fases de la ronda (F12.2)
+  opVoice: true,        // tu operador dice lo que hace: recargar, lanzar, colocar (F12.2)
   difficulty: 'normal',  // bots: 'novato' | 'normal' | 'veterano' | 'elite'
   startSide: 'random',   // partida rápida: 'random' | 'atk' | 'def'
   kits: {},             // mira y accesorios elegidos: {operador (o 'campo'): {arma: {sight, barrel, grip, laser}}}

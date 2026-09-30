@@ -5,6 +5,7 @@ import { MATS, SND } from '../world/materials.js';
 import { BONE } from '../sim/skeleton.js';
 import { thirdPersonDrops } from '../render/character.js';
 import { FEEL, hitSide, kickFrom, nearMiss } from './feel.js';
+import { OperatorVoice } from './announcer.js';
 
 /**
  * @param {object} ctx     contexto del motor (audio, effects, chars, vm, hud, world)
@@ -187,8 +188,26 @@ export function bindGameFx(ctx, game, view) {
     if (v && hitList.includes(v)) audio.ringing(Math.min(1, v.blindT / 3.5));
   });
   on('smoke', (s) => { audio.smokeHiss(s, heard(s)); ctx.smokes = ctx.smokes || []; ctx.smokes.push(s); });
+  // gemidos (F12.2): cada operador con su tono; como mucho uno cada 0,35 s por operador
+  const groanAt = new Map();
+  const seedOf = (op) => { let h = 0; for (const c of String(op.name)) h = (h * 31 + c.charCodeAt(0)) >>> 0; return h; };
+  const groan = (op, kind) => {
+    const now = performance.now() / 1000;
+    if (kind !== 'down' && now - (groanAt.get(op) ?? -9) < 0.35) return;
+    groanAt.set(op, now);
+    const at = op.eyePos(), local = op === viewer();
+    audio.grunt(at, kind, seedOf(op), local ? 0 : heard(at), local);
+  };
+  // tu operador dice lo que hace (F12.2): recargar, lanzar o colocar un gadget, reforzar
+  const myVoice = new OperatorVoice((text) => { const my = me(); if (ctx.voice && my) ctx.voice.mine(text, my.name); });
+  const mySay = (op, kind) => { if (op && op === me()) myVoice.line(kind, performance.now() / 1000); };
+  on('reload', (op) => mySay(op, 'reload'));
+  on('gadgetThrown', (op, it) => mySay(op, it.kind));
+  on('gadgetPlaced', (op, c) => mySay(op, c && c.kind));
+  on('reinforced', (op) => mySay(op, 'reinforced'));
   on('damaged', (target, ev) => {
     chars.flashHit(target);
+    if (ev.amount >= 4 && target.state === 'alive' && target.hp > 0) groan(target, 'pain');   // (si cae, suena el de derribado)
     if (ev.point) effects.bloodHit(ev.point, ev.dir, ev.zone === 'head');
     if (ev.point) audio.hitFlesh(ev.point, ev.zone === 'head', target === viewer() ? 0 : heard(ev.point));
     if (ev.by && ev.by === me() && target !== me()) { hud.hitmarker('hit'); audio.hitConfirm('hit'); }
@@ -213,6 +232,7 @@ export function bindGameFx(ctx, game, view) {
   on('downed', (target, ev) => {
     hud.feed(`${nameHtml(ev.by)} <span class="w">derriba a</span> ${nameHtml(target)}`, 'down' + (mine(ev.by, target) ? ' mine' : ''));
     if (ev.by && ev.by === me()) { hud.hitmarker('kill'); audio.hitConfirm('down'); }
+    groan(target, 'down');
     if (target === viewer()) audio.startDowned();
     if (target === me() && view.onMeDowned) view.onMeDowned();
   });

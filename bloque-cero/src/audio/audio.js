@@ -388,6 +388,34 @@ export class AudioEngine {
     this._low.k = k;
     this._low.g.gain.setTargetAtTime(0.18 + 0.32 * k, ctx.currentTime, 0.3);
   }
+  // Un gemido (F12.2): al recibir daño, corto; al caer derribado, largo y cayendo. Una voz sintetizada
+  // (diente de sierra por tres formantes, como una «u» cerrada, y algo de aire) con el tono de cada
+  // operador (`seed`); en 3D y tapado por las paredes como los demás sonidos. El propio, sin posición.
+  grunt(pos, kind = 'pain', seed = 0, occl = 0, local = false) {
+    if (!this.ctx) return;
+    const ctx = this.ctx, t = ctx.currentTime + 0.005;
+    const down = kind === 'down';
+    const f0 = 105 + (seed % 7) * 14, len = down ? 0.7 : 0.17 + (seed % 3) * 0.02;
+    let out;
+    if (local) { out = ctx.createGain(); out.gain.value = down ? 0.4 : 0.32; out.connect(this.sfx); }
+    else out = this._out(pos, { gain: down ? 0.95 : 0.8, ref: 2, rolloff: 1.3, occl, reverb: 0.2 });
+    const o = ctx.createOscillator(); o.type = 'sawtooth';
+    o.frequency.setValueAtTime(f0 * (down ? 1.05 : 1.2), t);
+    o.frequency.exponentialRampToValueAtTime(f0 * (down ? 0.7 : 0.88), t + len);
+    const env = ctx.createGain();
+    env.gain.setValueAtTime(0.0001, t);
+    env.gain.exponentialRampToValueAtTime(1, t + 0.018);
+    env.gain.setTargetAtTime(0.0001, t + len * 0.55, len * 0.22);
+    o.connect(env);
+    const F = down ? [[620, 6, 1], [1050, 7, 0.55], [2450, 9, 0.2]] : [[520, 6, 1], [950, 7, 0.6], [2400, 9, 0.22]];
+    for (const [f, q, g] of F) {
+      const bp = ctx.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = f; bp.Q.value = q;
+      const gg = ctx.createGain(); gg.gain.value = g * 2.4;
+      env.connect(bp).connect(gg).connect(out);
+    }
+    this._burst(out, t, { type: 'bandpass', freq: 1400, q: 0.8, a: 0.012, peak: 0.1, d: len * 0.8, pink: true });
+    o.start(t); o.stop(t + len + 0.6);
+  }
   // Una bala que te pasa cerca (F12.1): el chasquido (la onda de la bala) y un silbido corto, desde
   // donde pasó; más fuerte cuanto más cerca.
   bulletCrack(pos, dist, occl = 0) {

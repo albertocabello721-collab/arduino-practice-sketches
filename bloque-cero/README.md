@@ -21,7 +21,25 @@ Es un único archivo HTML autónomo: no necesita servidor ni conexión.
 | F9 | Audio 3D con oclusión | ✅ paredes, suelos y rodeo por puertas y agujeros · ambiente · música en menús y últimos 30 s |
 | F10 | Miras y accesorios, rappel en Villa (tejado y fachada, también los bots), equilibrio de Élite, puntería humana de los bots, pulido y publicación | en curso: ✅ miras y accesorios · ✅ rappel del jugador · ✅ rappel de los bots · ✅ equilibrio de Élite · ✅ puntería humana de los bots |
 | — | Mapa Residencia del Lago | pendiente |
-| F12 | Sensación de juego: impactos, voces, música, inicio y fin de ronda, ambiente | en curso: ✅ impactos |
+| F12 | Sensación de juego: impactos, voces, música, inicio y fin de ronda, ambiente | en curso: ✅ impactos · ✅ voces |
+
+## Voces (Fase 12.2)
+
+Con la voz del navegador, en español (`src/client/announcer.js` decide qué y cuándo; `voice.js` lo
+lee). Si el navegador no tiene voz en español usa la que tenga, y sin voz no suena nada.
+
+- **Locutor** (Opciones → Locutor, encendido): «Ronda 3. Preparación.», «¡Acción!», «Treinta
+  segundos.» (una vez, al quedar 30 s de acción), «Desactivador plantado.», «Eres el último.» (si te
+  quedas solo en pie con enemigos vivos), «Ronda ganada.» o «Ronda perdida.», y al final «Partida
+  ganada.» o «Partida perdida.». Voz grave y pausada; pasa por delante de lo que se esté diciendo.
+- **Tu operador** (Opciones → Voz de tu operador, encendida): «¡Recargando!», «¡Granada!»,
+  «¡Cegadora!», «¡Humo!», «¡C4 fuera!», «Carga puesta.», «Refuerzo puesto.»… Una frase cada 2,5 s
+  como mucho, y solo si no habla nadie; cada operador con su tono.
+- **Gemidos**: al recibir daño, corto; al caer derribado, largo. Es una voz sintetizada con el tono
+  de cada operador, en 3D y tapada por las paredes como el resto: se oye a un enemigo herido al otro
+  lado. Medido (`tools/medir-voces.mjs`): suena 4,8 dB más por el oído de su lado; el de derribado
+  dura más del doble; dos operadores, a 111 y 174 Hz; tras una pared, más bajo y 6 dB más apagado.
+- La voz de los aliados (su radio) sigue como estaba, apagada por defecto.
 
 ## Impactos (Fase 12.1)
 
@@ -830,6 +848,8 @@ node tools/smoke-menu.mjs <carpeta> [html]  # el fondo del menú sin superficies
 node tools/medir-audio.mjs [motor]  # lo que sale por los altavoces (sin gráficos): disparos libres y tapados, de cerca y de lejos, y pasos
 node tools/medir-impactos.mjs [motor]  # los sonidos de los impactos (sin gráficos): avisos de acierto, golpes recibidos, balas que pasan cerca y latido
 node tools/smoke-impactos.mjs <carpeta> [html]  # impactos en el campo de pruebas: avisos, tirón y polvo, balazo desde la derecha, poca vida y bala cerca
+node tools/medir-voces.mjs [motor]  # los gemidos (sin gráficos): de qué lado suenan, cuánto duran, el tono de cada operador y tras una pared
+node tools/smoke-voces.mjs [html]  # una ronda con la voz del navegador sustituida: el locutor en cada momento, tu operador al recargar y los gemidos
 node tools/smoke-accesorios.mjs <carpeta> [html]  # miras y accesorios: selección, primera persona, zoom, supresor, láser, panel O y capturas
 node tools/smoke-rappel.mjs <carpeta> [html]  # rappel: engancharse en la calle, subir, ventana con barricada, pretil, tejado y otro colgado en tercera persona
 node tools/smoke-rappel-bots.mjs <carpeta> [html]  # rappel de un aliado bot en Élite: con P, su ruta por la fachada en cian; sube y entra en el Estudio
