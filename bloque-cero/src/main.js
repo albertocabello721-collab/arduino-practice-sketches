@@ -30,7 +30,7 @@ import { DebugView } from './render/debugview.js';
 import { thermalOn, scopeZoom, THERMAL_SCOPE } from './sim/abilities.js';
 import { FEEL, lowHealth } from './client/feel.js';
 import { Speech } from './client/voice.js';
-import { timeOf } from './render/timeofday.js';
+import { timeOf, TIMES } from './render/timeofday.js';
 import { DustMotes } from './render/dust.js';
 
 const $ = (id) => document.getElementById(id);
@@ -517,7 +517,7 @@ async function boot() {
 
   // ---------------------------------------------------------------- depuración / tests automáticos
   window.__bc = {
-    THREE, world, map, wr, effects, dust, renderer, camera, settings, state, hud, audio, post, ctx, debug: debugView,
+    THREE, world, map, wr, effects, dust, renderer, camera, settings, state, hud, audio, post, ctx, debug: debugView, times: TIMES,   // (times: las horas, para las mediciones)
     get session() { return session; },
     get game() { return session ? session.game : null; },
     get player() { return session ? session.player : null; },
