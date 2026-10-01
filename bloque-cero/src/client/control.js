@@ -1,4 +1,6 @@
-// Teclado y ratón → intenciones del operador del jugador (común a todas las sesiones).
+// Teclado y ratón → intenciones del operador del jugador (común a todas las sesiones). El mando
+// (F10.5) llega por la misma entrada; aquí solo se añade lo suyo: el stick izquierdo (analógico) y
+// B (agacharse; mantener: tumbarse) e Y (cambiar de arma), que no son teclas.
 import { clamp } from '../core/math.js';
 import { scopeZoom } from '../sim/abilities.js';
 
@@ -7,8 +9,9 @@ export class PlayerControl {
     this.ctx = ctx;
     this.stance = 'stand';
     this.lean = 0;
+    this.padCrouch = false;    // agachado con el mando (con C «mantener», que no lo levante soltar C)
   }
-  reset(stance = 'stand') { this.stance = stance; this.lean = 0; }
+  reset(stance = 'stand') { this.stance = stance; this.lean = 0; this.padCrouch = false; }
 
   /**
    * Lee la entrada y escribe las intenciones de `op`. Si `active` es falso, deja el
@@ -22,15 +25,19 @@ export class PlayerControl {
       input.consumeMouse();
       return { dx: 0, dy: 0, wheel: 0 };
     }
-    I.moveZ = (input.isDown('forward') ? 1 : 0) - (input.isDown('back') ? 1 : 0);
-    I.moveX = (input.isDown('right') ? 1 : 0) - (input.isDown('left') ? 1 : 0);
+    const pm = input.pad.move;
+    I.moveZ = clamp((input.isDown('forward') ? 1 : 0) - (input.isDown('back') ? 1 : 0) + pm.z, -1, 1);
+    I.moveX = clamp((input.isDown('right') ? 1 : 0) - (input.isDown('left') ? 1 : 0) + pm.x, -1, 1);
     I.sprint = input.isDown('sprint');
     // postura
     if (op.state === 'downed') this.stance = 'prone';
     if (settings.crouchToggle) { if (input.pressed('crouch')) this.stance = this.stance === 'crouch' ? 'stand' : 'crouch'; }
-    else this.stance = input.isDown('crouch') ? 'crouch' : (this.stance === 'crouch' ? 'stand' : this.stance);
+    else if (!this.padCrouch || input.isDown('crouch')) { this.padCrouch = false; this.stance = input.isDown('crouch') ? 'crouch' : (this.stance === 'crouch' ? 'stand' : this.stance); }
     if (input.pressed('prone')) this.stance = this.stance === 'prone' ? 'stand' : 'prone';
+    if (input.padEvent('crouch')) { this.stance = this.stance === 'crouch' ? 'stand' : 'crouch'; this.padCrouch = this.stance === 'crouch'; }
+    if (input.padEvent('prone')) this.stance = this.stance === 'prone' ? 'stand' : 'prone';
     if (I.sprint && I.moveZ > 0 && this.stance !== 'prone') this.stance = 'stand';
+    if (this.stance !== 'crouch') this.padCrouch = false;
     I.stance = this.stance;
     // asomarse
     if (settings.leanToggle) {
@@ -54,6 +61,7 @@ export class PlayerControl {
     if (input.pressed('secondary')) I.switchTo = 1;
     const m = input.consumeMouse();
     if (m.wheel && op.weapons.length > 1) I.switchTo = (op.weaponIndex + (m.wheel > 0 ? 1 : op.weapons.length - 1)) % op.weapons.length;
+    if (input.padEvent('nextWeapon') && op.weapons.length > 1) I.switchTo = (op.weaponIndex + 1) % op.weapons.length;
     I.interact = input.isDown('interact');
     I.holdWound = op.state === 'downed' && input.isDown('interact');
     // mirar con el ratón (inmediato, fuera del tick fijo)

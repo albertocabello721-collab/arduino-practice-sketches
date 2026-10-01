@@ -19,9 +19,53 @@ Es un único archivo HTML autónomo: no necesita servidor ni conexión.
 | F6 | Operadores 8 + 8 y contrajuego de gadgets | ✅ arsenal · plantilla de 16 · granadas y explosivos · gadgets defensivos · 16 habilidades · la defensa bot coloca gadgets y habilidades · el ataque bot los usa según la dificultad · contrajuego de la defensa bot y gadgets de acción |
 | F7 | Animaciones en primera y tercera persona, con la recarga por partes (antes F8) | ✅ recarga por partes en primera persona · resto de la primera persona · siluetas de los 16 · tercera persona por capas · muerte con física por partes · repetición de muerte |
 | F9 | Audio 3D con oclusión | ✅ paredes, suelos y rodeo por puertas y agujeros · ambiente · música en menús y últimos 30 s |
-| F10 | Miras y accesorios, rappel en Villa (tejado y fachada, también los bots), equilibrio de Élite, puntería humana de los bots, pulido y publicación | en curso: ✅ miras y accesorios · ✅ rappel del jugador · ✅ rappel de los bots · ✅ equilibrio de Élite · ✅ puntería humana de los bots |
+| F10 | Miras y accesorios, rappel en Villa (tejado y fachada, también los bots), equilibrio de Élite, puntería humana de los bots, mando, pulido y publicación | en curso: ✅ miras y accesorios · ✅ rappel del jugador · ✅ rappel de los bots · ✅ equilibrio de Élite · ✅ puntería humana de los bots · ✅ mando |
 | — | Mapa Residencia del Lago | pendiente |
 | F12 | Sensación de juego: impactos, voces, música, inicio y fin de ronda, ambiente | en curso: ✅ impactos · ✅ voces · ✅ música · ✅ inicio y fin de ronda · ✅ ambiente |
+
+## Mando (Fase 10.5)
+
+Se juega entero con un mando Xbox, PlayStation o compatible (el mapeo estándar del navegador):
+menús, selección de operador, partida y campo de pruebas. Al tocarlo aparece «Mando conectado» y
+desde entonces manda él; al tocar el teclado o el ratón, vuelven ellos. Con el mando no hace falta
+capturar el ratón. Botones, como Siege en consola:
+
+| Mando | Acción |
+| --- | --- |
+| Stick izquierdo / L3 | Moverse (analógico) / correr (hasta soltar el stick o ir hacia atrás) |
+| Stick derecho / R3 | Mirar (zona muerta del 15 %, respuesta suave: a media palanca gira menos de la mitad) / cuerpo a cuerpo |
+| RT / LT | Disparar / apuntar |
+| A | Saltar obstáculo, rappel, ventana (Espacio) |
+| B | Agacharse; mantener 0,35 s: cuerpo a tierra |
+| X | Recargar; mantener 0,3 s: interactuar (F: reforzar, plantar, inutilizar, reanimar…) |
+| Y | Cambiar de arma; mantener 0,45 s: dron o cámaras (5) |
+| LB / RB | Gadget secundario (G) / habilidad del operador (X) |
+| ◀ / ▶ | Asomarse (Q / E); en las cámaras, cambiar de cámara; muerto, otro dron |
+| ▲ / ▼ | Marcar (T) / órdenes (H: mantener, elegir con el stick derecho, soltar) |
+| Start | Pausa (la simulación se para); en pausa, B sale al menú; en la selección, «Listo» |
+| Select | Marcador (Tab); en el campo de pruebas, cambiar de arsenal (L) |
+| ▼ (campo de pruebas) | Mira y accesorios (O); B vuelve |
+
+- En los menús: la cruceta o el stick izquierdo llevan el foco al botón o ajuste más cercano en esa
+  dirección (`src/input/padnav.js`; se repite al mantener: 0,38 s y luego cada 0,14 s), A pulsa,
+  marca una casilla o pasa a la siguiente opción de un desplegable, ◀/▶ mueven un deslizador y B
+  vuelve. El menú se desplaza para que se vea lo enfocado. El primer toque solo enseña dónde está el
+  foco.
+- Los avisos nombran los botones del mando mientras se juega con él («Pulsa A para hacer rappel»,
+  «Mantén X para plantar», «mantén Y: dron», «▼ órdenes», «Listo · Start»), y vuelven a las teclas
+  con el teclado.
+- Ajustes: **Sensibilidad del mando** (0,3–2,5; a 1, el stick a tope gira a 195°/s), **invertir su
+  eje vertical** (aparte del del ratón) y **vibrar** al disparar (más con la escopeta y el tirador) y
+  al recibir daño (según el daño). Sin asistencia de apuntado, como Siege.
+- Cómo entra (`src/input/gamepad.js`): cada fotograma el mando se traduce a lo mismo que el teclado
+  y el ratón (teclas virtuales, clics y píxeles de ratón), así que las sesiones, la rueda de órdenes,
+  el dron y las cámaras no cambian; el stick izquierdo se suma analógico al WASD. Sin mando, la
+  entrada es la de siempre.
+- Probado con un mando simulado en el navegador (`tools/smoke-mando.mjs`): una ronda entera sin
+  tocar el ratón (menú → selección → dron → mover, correr, mirar, disparar, apuntar, recargar,
+  posturas, arma, gadget, habilidad, rappel, marcar, órdenes, marcador, dron → fin de ronda),
+  sensibilidad ×4 de 0,5 a 2, invertir, vibración (y sin ella en Ajustes), Start/B y el campo de
+  pruebas; y después, el teclado como siempre. Lo que dice cada botón: `test/mando.test.mjs`.
 
 ## Ambiente (Fase 12.5)
 
@@ -932,6 +976,7 @@ o no la fuente:
 | F3 | Medidor de rendimiento |
 | P | Depuración: rejilla de navegación, rutas y conos de visión de los bots, su estado y los FPS |
 | Esc | Pausa |
+| Mando | Ver *Mando (Fase 10.5)*: sticks, RT/LT, A/B/X/Y, LB/RB, cruceta, Start y Select |
 
 ## Desarrollo
 
@@ -977,6 +1022,7 @@ node tools/equilibrio.mjs [dificultad] [partidas] [semilla] [procesos] [--merode
 node tools/smoke-merodeadores.mjs <carpeta> [html]  # los merodeadores de Élite con P: fuera del sitio y cómo vuelven
 node tools/reaccion-bots.mjs [dificultades] [partidas] [semilla] [procesos]  # partidas solo de bots: desde que un bot ve a un enemigo, cuánto tarda en disparar y en acertar, cuánto gira y su % de acierto
 node tools/smoke-punteria.mjs <carpeta> [html]  # un aliado bot en la calle con P: su etiqueta dice «reacciona», «gira» y «apunta», y dispara después
+node tools/smoke-mando.mjs [carpeta] [html]  # mando simulado: menús, selección, una ronda entera sin ratón, sensibilidad, vibración, Start/B y el campo de pruebas
 node tools/perf-partida.mjs [html...]  # llamadas de dibujo, triángulos y CPU con 10 operadores a la vista (con 5 cayendo y lo que cuesta grabar)
 node tools/mapslice.mjs <carpeta> # cortes cenitales del mapa por planta
 ```

@@ -4,6 +4,7 @@
 import { OP_BY_ID, opsForSide, GADGETS, ARMOR_SPEED } from '../sim/operators.js';
 import { WEAPONS, SIGHTS, BARRELS, GRIPS, KIT_RULES, normalizeKit, kitDef } from '../sim/weapons.js';
 import { emblemURL } from './emblems.js';
+import { padText } from '../input/gamepad.js';
 import { INTRO_SECS, CLUTCH_SECS, mvpLine } from '../client/roundflow.js';
 
 const $ = (id) => document.getElementById(id);
@@ -305,6 +306,10 @@ export class MatchUI {
     const my = me.team;
     const side = match.sideOf(my);
     this._set('selT', this.el.selTimer, fmtTime(match.timeLeft));
+    // (al pasar del teclado al mando, o al revés, lo que dice cómo elegir y cómo confirmar)
+    const pad = this.ctx.input.padActive;
+    if (pad !== this._selPad) { this._selPad = pad; full = true; }
+    const T = (s) => (pad ? padText(s) : s);
     if (!full) return;
     this.el.selRound.textContent = `Ronda ${match.round}`;
     this.el.selSide.textContent = SIDE_NAME[side];
@@ -322,7 +327,7 @@ export class MatchUI {
       </button>`).join('');
     // detalle
     const def = me.opId ? OP_BY_ID[me.opId] : null;
-    if (!def) this.el.selDetail.innerHTML = '<p class="note">Elige un operador (clic o teclas 1–8).</p>';
+    if (!def) this.el.selDetail.innerHTML = T('<p class="note">Elige un operador (clic o teclas 1–8).</p>');
     else {
       const wbtn = (id, act, idx, cur) => {
         const w = WEAPONS[id];
@@ -366,7 +371,7 @@ export class MatchUI {
       return `<div class="m${s.human ? ' me' : ''}"><div class="pt ally${s.human ? ' me' : ''}">${d ? `<img src="${emblemURL(d.id, '#ffffff', 64)}" alt="">` : ''}</div><span>${d ? d.name : '…'}</span></div>`;
     }).join('');
     this.el.selReady.disabled = !def;
-    this.el.selReady.innerHTML = me.ready ? 'Esperando… <small>Intro</small>' : 'Listo <small>Intro</small>';
+    this.el.selReady.innerHTML = T(me.ready ? 'Esperando… <small>Intro</small>' : 'Listo <small>Intro</small>');
   }
 
   // ------------------------------------------------------------------ final

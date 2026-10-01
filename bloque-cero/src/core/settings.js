@@ -14,6 +14,9 @@ export const DEFAULT_SETTINGS = {
   leanToggle: true,     // Q/E alternan (como en Siege) o hay que mantener
   crouchToggle: true,
   invertY: false,
+  padSens: 1,           // mando (F10.5): sensibilidad del stick derecho, invertir su eje vertical y vibración
+  padInvertY: false,
+  padRumble: true,
   quality: 'alta',      // 'baja' | 'media' | 'alta'
   showPerf: false,
   allyVoice: false,     // leer en voz alta los avisos de radio de los aliados

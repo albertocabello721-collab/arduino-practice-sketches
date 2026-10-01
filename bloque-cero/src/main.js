@@ -13,6 +13,8 @@ import { PostFX } from './render/postfx.js';
 import { AudioEngine } from './audio/audio.js';
 import { Hearing } from './client/hearing.js';
 import { Input } from './input/input.js';
+import { Gamepad, padText } from './input/gamepad.js';
+import { PadNav } from './input/padnav.js';
 import { HUD } from './ui/hud.js';
 import { loadSettings, saveSettings } from './core/settings.js';
 import { Game, TICK } from './sim/game.js';
@@ -94,6 +96,8 @@ async function boot() {
   audio.setVolume(settings.volume);
   audio.setVolumes({ sfx: settings.sfxVolume, music: settings.musicVolume, voice: settings.voiceVolume });
   const input = new Input(canvas);
+  const gamepad = new Gamepad(input, settings);   // el mando (F10.5)
+  const padNav = new PadNav();                     // y los menús con él
   const hud = new HUD();
   wr.renderShadowIfNeeded(true);
   // precompilar (primer frame fuera de pantalla)
@@ -126,6 +130,7 @@ async function boot() {
   let acc = 0;
   let session = null;
   let lockFailed = false;
+  let padPaused = false;    // pausa con Start (con el mando no hay ratón capturado que soltar)
   let lowLast = 0;          // (poca vida: el último nivel que se pasó al latido)
   const ctx = {
     THREE, renderer, scene, camera, world, map, nav, wr, effects, lasers, ropes, chars, props, vm, post, audio, input, hud, settings, canvas,
@@ -133,6 +138,7 @@ async function boot() {
     // al recibir un balazo (F12.1): la sacudida de la vista (rad, solo en el dibujo) y de dónde vino
     kick: { pitch: 0, yaw: 0, roll: 0 }, dmgDir: { x: 0, y: 1, k: 0 },
     hearing: new Hearing(world, camera.position),   // por dónde llega cada sonido a la cámara (F9)
+    pad: gamepad,                                    // el mando: vibra al disparar y al recibir daño (F10.5)
     voice: new Speech(settings),                     // el locutor y tu operador (F12.2)
     // la cámara salta al operador visto sin interpolar (cambio de vista, reaparición)
     resetView() { view.op = null; },
@@ -155,6 +161,7 @@ async function boot() {
     const s = make ? make() : null;
     session = s;
     acc = 0;
+    padPaused = false;
     view.op = null;
     ctx.damageFlash = 0; ctx.shake = 0;
     ctx.kick.pitch = ctx.kick.yaw = ctx.kick.roll = 0; ctx.dmgDir.k = 0;
@@ -217,6 +224,9 @@ async function boot() {
   bindCheck('set-lean', 'leanToggle');
   bindCheck('set-crouch', 'crouchToggle');
   bindCheck('set-invert', 'invertY');
+  bindRange('set-padsens', 'out-padsens', 'padSens', (v) => v.toFixed(2));
+  bindCheck('set-padinvert', 'padInvertY');
+  bindCheck('set-padrumble', 'padRumble');
   bindCheck('set-perf', 'showPerf');
   bindCheck('set-voice', 'allyVoice', () => { if (!settings.allyVoice) { try { if (window.speechSynthesis) window.speechSynthesis.cancel(); } catch (e) { /* sin voz */ } } });
   bindCheck('set-announcer', 'announcer', () => { if (!settings.announcer) ctx.voice.cancel(); });
@@ -231,15 +241,33 @@ async function boot() {
   $('btn-match').addEventListener('click', () => app.startMatch());
   input.onLockChange = (locked, err) => {
     if (err) lockFailed = true;
-    if (locked) lockFailed = false;
+    if (locked) { lockFailed = false; padPaused = false; }
   };
-  $('pausehint').addEventListener('click', () => { input.requestLock(); });
+  $('pausehint').addEventListener('click', () => { padPaused = false; input.requestLock(); });
   window.addEventListener('keydown', (e) => {
     if (e.code === 'Escape' && state.mode === 'play' && !input.locked && session && session.wantsPointer) {
+      // (jugando con el mando no hay ratón capturado: el primer Esc solo pausa, como con el ratón)
+      if (input.padActive && !padPaused) return;
       // segundo Esc (con el ratón ya liberado): volver al menú
       app.toMenu();
     }
-  });
+  }, true);
+  // el mando: «Mando conectado» al empezar a usarlo (fuera del HUD: también en los menús)
+  let padNoteAt = -1e9, padNoteT = 0;
+  gamepad.onActive = () => {
+    const now = performance.now();
+    if (now - padNoteAt < 8000) return;
+    padNoteAt = now; padNoteT = 2.6;
+    $('padnote').classList.remove('hidden');
+  };
+  // los menús que se pueden mover con el mando: dónde empieza el foco, qué hace B y qué hace Start
+  const uiRoots = [
+    { el: $('kitpanel'), first: '[data-act="kit"]', back: () => { if (session && session.closeKit) session.closeKit(); } },
+    { el: $('select'), first: ['.opc.sel', '.opc'], start: () => { if (session && session.ready) session.ready(); } },
+    { el: $('matchend'), first: '#me-again', back: () => $('me-menu').click() },
+    { el: $('menu'), first: '#btn-match' },
+  ];
+  const uiRoot = () => uiRoots.find((r) => !r.el.classList.contains('hidden')) || null;
 
   $('loading').classList.add('hidden');
   $('menu').classList.remove('hidden');
@@ -304,14 +332,24 @@ async function boot() {
     last = now;
     renderer.info.reset();
     ctx.hearing.frame();
+    // el mando (F10.5): con un menú abierto lo mueve; jugando, cuenta como teclado y ratón; Start
+    // pausa (o, en la selección, «Listo») y, en pausa, B sale al menú
+    const ui = uiRoot(), live = state.mode === 'play' && !!session;
+    if (live && !session.wantsPointer) padPaused = false;
+    const pd = gamepad.poll(dt, live && !ui && !padPaused);
+    if (pd.events.includes('pause')) { if (ui && ui.start) ui.start(); else if (live && !ui && session.wantsPointer) padPaused = !padPaused; }
+    else if (padPaused && pd.nav.includes('back')) app.toMenu();
+    padNav.frame(pd.nav, ui ? ui.el : null, ui || {}, input.padActive);
+    if (padNoteT > 0 && (padNoteT -= dt) <= 0) $('padnote').classList.add('hidden');
     const s = state.mode === 'play' ? session : null;
-    const paused = !!s && s.wantsPointer && !input.locked && !lockFailed;
+    const paused = !!s && s.wantsPointer && ((!input.locked && !lockFailed && !input.padActive) || padPaused);
     ctx.paused = paused;
     // cámara lenta de la última baja (F12.4): el tiempo de juego va más despacio unos instantes (la
     // simulación da los mismos pasos, solo que más espaciados); la interfaz y el post-proceso, no
     const ts = s && s.slowmo ? s.slowmo.step(paused ? 0 : dt) : 1, gdt = dt * ts;
     ctx.timeScale = ts;
-    hud.pause(paused);
+    hud.padMode = input.padActive;
+    hud.pause(paused, padPaused && input.padActive ? 'Pausa · Start para seguir · B: menú principal' : null);
     let mouse = { dx: 0, dy: 0 };
     if (s) {
       mouse = s.input(!paused);
@@ -433,7 +471,7 @@ async function boot() {
     if (v) {
       const loc = map.locationAt(camera.position.x, v.body.pos.y + 0.2, camera.position.z);
       const spreadPx = Math.tan(v.currentSpread() * DEG) / Math.tan(camera.fov * DEG / 2) * (window.innerHeight / 2);
-      hud.update(dt, v, { location: loc, spreadPx, prompt: s.promptText || '' });
+      hud.update(dt, v, { location: loc, spreadPx, prompt: input.padActive ? padText(s.promptText || '') : s.promptText || '' });
     } else hud.tick(dt);
     // rendimiento
     cpuMs = cpuMs * 0.9 + (performance.now() - t0) * 0.1;

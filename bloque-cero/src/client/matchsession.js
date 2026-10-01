@@ -6,6 +6,7 @@ import { bindGameFx } from './fx.js';
 import { FeedController } from './feeds.js';
 import { TeamChat } from './chat.js';
 import { OrderWheel, ORDERS } from '../ui/wheel.js';
+import { padText } from '../input/gamepad.js';
 import { GADGETS } from '../sim/operators.js';
 import { PLACE_LABEL } from '../sim/gadgets.js';
 import { Match } from '../sim/match.js';
@@ -68,7 +69,7 @@ export class MatchSession extends Session {
         // te mató un operador: repetición desde sus ojos y después directo a observar; si no
         // (una caída, tu propia granada), 3 s mirando tu cuerpo, como siempre
         if (this.replay.start(this.player, ev, this.match.time)) { this.deathCamUntil = Infinity; hud.setDeath(false); }
-        else { this.deathCamUntil = this.match.time + DEATH_CAM; hud.setDeath(true, `Observarás a tus compañeros · 5 ${this.mySide() === 'atk' ? 'drones' : 'cámaras'}`); }
+        else { this.deathCamUntil = this.match.time + DEATH_CAM; hud.setDeath(true, `Observarás a tus compañeros · 5 ${this.mySide() === 'atk' ? 'drones' : 'cámaras'}`); }   // (el HUD pone los botones del mando)
       },
     }));
     this._bindMatch();
@@ -165,7 +166,7 @@ export class MatchSession extends Session {
       this.ui.hideBanner();
       this.ui.hideRoundFx();
       this.slowmo.stop();
-      this.ui.setPrepInfo(null);
+      this._prepInfo(null);
       this.deadAt = -1; this.deathCamUntil = -1; this.spectating = null;
       this.replay.reset();
       this.control.reset('stand');
@@ -192,7 +193,7 @@ export class MatchSession extends Session {
       this.endInfo = {};
       this.countShown = 0;
       this.clutchKey = '';
-      this.ui.setPrepInfo(side === 'atk'
+      this._prepInfo(side === 'atk'
         ? '<b>Preparación</b> · Pilota tu dron: <kbd>WASD</kbd> mover, <kbd>Espacio</kbd> saltar, <kbd>Clic</kbd> o <kbd>T</kbd> marcar enemigos. Busca el objetivo: los drones caben por huecos bajos. Llevas el desactivador.'
         : `<b>Preparación</b> · Defendéis <b>${m.site.name}</b>. Mira una pared blanda y mantén <kbd>F</kbd> para reforzarla (2 refuerzos) o un hueco para poner una barricada. <kbd>5</kbd> cámaras · dispara a los drones.`);
     });
@@ -200,9 +201,9 @@ export class MatchSession extends Session {
       audio.cue('action');
       this.announcer.action();
       if (this.feed.mode === 'drone') this.feed.exit();
-      this.ui.setPrepInfo(null);
+      this._prepInfo(null);
       const found = m.objectiveFound;
-      this.ui.showPhase('¡Acción!', this.mySide() === 'atk' ? (found ? `Objetivo: ${m.site.name}` : 'Objetivo sin localizar · 5 para lanzar un dron') : 'Que no planten', 2.4);
+      this.ui.showPhase('¡Acción!', this.mySide() === 'atk' ? (found ? `Objetivo: ${m.site.name}` : this._t('Objetivo sin localizar · 5 para lanzar un dron')) : 'Que no planten', 2.4);
     });
     on('plantStart', (op) => { if (op === this.player) audio.cue('plantStart'); });
     on('planted', (op, site) => {
@@ -211,7 +212,7 @@ export class MatchSession extends Session {
       this.ui.showPhase('Desactivador plantado', `Sitio ${site} · ${this.mySide() === 'atk' ? 'defiéndelo 45 s' : 'inutilízalo antes de 45 s'}`, 3);
     });
     on('disableStart', (op) => { if (op === this.player) audio.cue('plantStart'); });
-    on('defuserDropped', () => { if (this.mySide() === 'atk') this.ui.showPhase('Desactivador en el suelo', 'Pulsa F junto a él para recogerlo', 2.2); });
+    on('defuserDropped', () => { if (this.mySide() === 'atk') this.ui.showPhase('Desactivador en el suelo', this._t('Pulsa F junto a él para recogerlo'), 2.2); });
     on('defuserDestroyed', (by) => { this.endInfo.destroyedBy = by; this.ui.showPhase('Desactivador destruido', by ? `Por ${by.name}` : '', 2.2); });
     on('disabled', (who) => { this.endInfo.disabledBy = who; });
     on('defuserPicked', (op) => { if (op === this.player) this.ui.showPhase('Tienes el desactivador', 'Plántalo en A o B', 2); });
@@ -226,7 +227,7 @@ export class MatchSession extends Session {
       this.announcer.roundEnd(res.winner === 0);
       audio.stopDowned();
       hud.setDeath(false);
-      this.ui.setPrepInfo(null);
+      this._prepInfo(null);
     });
     on('matchEnd', (e) => {
       this.ui.hideBanner();
@@ -293,6 +294,9 @@ export class MatchSession extends Session {
     this.ctx.input.requestLock();   // el clic en «Listo» es el gesto que permite capturar el ratón
   }
   rematch() { this.ctx.app.startMatch(this.opts); }
+  // los avisos con teclas, con los botones del mando si se juega con él (F10.5)
+  _t(s) { return this.ctx.input.padActive ? padText(s) : s; }
+  _prepInfo(html) { this.prepRaw = html; this.ui.setPrepInfo(html ? this._t(html) : null); }
   toMenu() { this.ctx.app.toMenu(); }
 
   // ------------------------------------------------------------------ entrada y simulación
@@ -519,7 +523,7 @@ export class MatchSession extends Session {
     this.ui.setCarry(!!(p && def && def.carrier === p && p.state !== 'dead'));
     this._gear(p, side);
     // observar
-    if (p && p.state === 'dead' && view && view !== p) this.ui.setSpectate(`Observando a <b>${view.name}</b> · clic para cambiar · 5 ${side === 'atk' ? 'drones' : 'cámaras'}`);
+    if (p && p.state === 'dead' && view && view !== p) this.ui.setSpectate(this._t(`Observando a <b>${view.name}</b> · clic para cambiar · 5 ${side === 'atk' ? 'drones' : 'cámaras'}`));
     else this.ui.setSpectate(null);
     if (p && p.state === 'dead' && !this._dying()) hud.setDeath(false);
     // marcadores (en la repetición no: son de ahora y ella es del pasado)
@@ -674,15 +678,19 @@ export class MatchSession extends Session {
     const html = side === 'atk'
       ? `<span>Drones <b>${m.recon.dronesLeft(p)}</b></span><span>5 dron · V golpe</span>${orders}`
       : `<span>5 cámaras · V golpe</span>${orders}`;
-    if (this._gearHtml !== html) { this._gearHtml = html; el.innerHTML = html; el.classList.remove('hidden'); }
+    const gh = this._t(html);
+    if (this._gearHtml !== gh) { this._gearHtml = gh; el.innerHTML = gh; el.classList.remove('hidden'); }
     // abajo a la derecha, junto a la munición: gadget secundario y refuerzos (documento, sección 19)
     const g = p.gadget && GADGETS[p.gadget.id];
     const ab = p.ability && m.abilities.ready(p) && p.opDef ? p.opDef.ability : null;
     const kit = (ab ? `<span class="${p.ability.left ? '' : 'off'}"><kbd>X</kbd>${ab.short || ab.name}${p.ability.left >= 0 ? ` <b>×${p.ability.left}</b>` : ''}</span>` : '')
       + (g ? `<span class="${p.gadget.left ? '' : 'off'}"><kbd>G</kbd>${g.short} <b>×${p.gadget.left}</b></span>` : '')
       + (side === 'def' ? `<span><kbd>F</kbd>Refuerzos <b>${m.fort.remaining(p)}</b></span>` : '');
-    const ke = document.getElementById('kit');
-    if (this._kitHtml !== kit) { this._kitHtml = kit; ke.innerHTML = kit; ke.classList.toggle('hidden', !kit); }
+    const ke = document.getElementById('kit'), kh = this._t(kit);
+    if (this._kitHtml !== kh) { this._kitHtml = kh; ke.innerHTML = kh; ke.classList.toggle('hidden', !kh); }
+    // (si se cambia de teclado a mando o al revés, el aviso de la preparación con los botones de ahora)
+    const pm = this.ctx.input.padActive;
+    if (pm !== this._padMode) { this._padMode = pm; if (this.prepRaw) this.ui.setPrepInfo(this._t(this.prepRaw)); }
   }
 
   _markers(view) {

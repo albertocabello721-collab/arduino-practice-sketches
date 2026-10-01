@@ -71,6 +71,9 @@ export class RangeSession extends Session {
     this.kitOpen = true; this.wantsPointer = false;
     this.ctx.input.exitLock();
     this._renderKit();
+    // (con el mando: B o ▼ para volver)
+    const note = this._kitEl.querySelector('.note');
+    if (note) { if (this._kitNote === undefined) this._kitNote = note.innerHTML; note.innerHTML = this.ctx.input.padActive ? '<kbd>B</kbd> o <kbd>▼</kbd> para volver. Se guarda para la próxima vez.' : this._kitNote; }
     this._kitEl.classList.remove('hidden');
   }
   closeKit() {
@@ -128,14 +131,14 @@ export class RangeSession extends Session {
       else { const d = this.recon.droneOf(this._player) || this.recon.deployDrone(this._player, { thrown: true }); if (d) this.feed.enterDrone(d, true); }
     }
     if (this.feed.active) return;
-    if (take('KeyO')) { if (this.kitOpen) this.closeKit(); else this.openKit(); }
+    if (take('KeyO') || (input.padActive && input.pressed('orders'))) { if (this.kitOpen) this.closeKit(); else this.openKit(); }   // (mando: ▼)
     if (this.kitOpen) return;
     if (take('Digit3')) I.switchTo = 2;
     if (take('Digit4')) I.switchTo = 3;
     if (input.pressed('gadget')) this.testBreach();
     if (take('KeyJ')) { const mate = this.dummies.find((d) => d.team === 0); if (mate && mate.state === 'alive') this._game.damage(mate, mate.hp, { by: null, zone: 'body' }); }
     if (take('KeyK')) this.reset();
-    if (take('KeyL')) this.setLoadout(this.loadoutIdx + 1);
+    if (take('KeyL') || input.padEvent('select')) this.setLoadout(this.loadoutIdx + 1);     // (mando: Select)
     if (this._player.state === 'dead' && input.pressed('reload')) this.respawn();
   }
 

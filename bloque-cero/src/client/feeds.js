@@ -3,6 +3,7 @@
 // pinta el marco de la señal. El cuerpo del jugador se queda quieto mientras tanto.
 import { clamp } from '../core/math.js';
 import { DRONE } from '../sim/recon.js';
+import { padText } from '../input/gamepad.js';
 
 const $ = (id) => document.getElementById(id);
 
@@ -63,9 +64,9 @@ export class FeedController {
     const sens = 0.0022 * settings.sensitivity;
     const inv = settings.invertY ? -1 : 1;
     if (this.mode === 'drone' && this.drone && this.drone.alive && this.piloting && this.lostT <= 0) {
-      const d = this.drone, I = d.intent;
-      I.moveZ = (input.isDown('forward') ? 1 : 0) - (input.isDown('back') ? 1 : 0);
-      I.moveX = (input.isDown('right') ? 1 : 0) - (input.isDown('left') ? 1 : 0);
+      const d = this.drone, I = d.intent, pm = input.pad.move;     // (pm: el stick izquierdo del mando)
+      I.moveZ = clamp((input.isDown('forward') ? 1 : 0) - (input.isDown('back') ? 1 : 0) + pm.z, -1, 1);
+      I.moveX = clamp((input.isDown('right') ? 1 : 0) - (input.isDown('left') ? 1 : 0) + pm.x, -1, 1);
       if (input.pressed('vault')) I.jump = true;
       if (d.shock) {
         // dron de choque: clic (o X) dispara el rayo; clic derecho o T marca
@@ -76,8 +77,8 @@ export class FeedController {
       d.pitch = clamp(d.pitch - m.dy * sens * inv, -0.75, 0.6);
     } else if (this.mode === 'cams' && this.cam && this.lostT <= 0) {
       this.cam.look(-m.dx * sens * 0.8, -m.dy * sens * inv * 0.8);
-      if (input.pressed('left')) this.cycleCam(-1);
-      if (input.pressed('right')) this.cycleCam(1);
+      if (input.pressed('left') || input.padEvent('dirLeft')) this.cycleCam(-1);     // (mando: cruceta o stick)
+      if (input.pressed('right') || input.padEvent('dirRight')) this.cycleCam(1);
       if (input.mouseClicked(0) || input.mouseClicked(1) || input.pressed('mark')) { const r = this.getRecon(); if (r) r.mark(this.cam, myTeam, this.getPlayer()); }
     }
     return m;
@@ -100,6 +101,7 @@ export class FeedController {
   }
 
   frame(dt, info = {}) {
+    const { input } = this.ctx;
     if (this.lostT > 0) {
       this.lostT -= dt;
       if (this.lostT <= 0) { const f = this.onLost; this.onLost = null; this.lostT = 0; if (f) f(); }
@@ -123,6 +125,7 @@ export class FeedController {
       keys = `A/D cambiar de cámara · Clic/T marcar · 5 ${info.dead ? 'observar' : 'volver'}`;
     }
     if (info.objective !== undefined) status = info.objective;
+    if (input.padActive) keys = padText(keys);     // (con el mando, sus botones)
     this._set('t', this.el.title, title, true);
     this._set('s', this.el.sub, sub, true);
     this._set('k', this.el.keys, keys, true);

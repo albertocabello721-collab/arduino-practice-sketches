@@ -48,6 +48,13 @@
   .btn.primary small { color: rgba(20,10,2,.7); }
   .btn.primary:hover, .btn.primary:focus-visible { background: #ff9d43; }
   .btn[disabled] { opacity: .45; cursor: not-allowed; }
+  /* el foco del mando en los menús (F10.5) */
+  .padfocus { outline: 2px solid var(--yellow) !important; outline-offset: 2px; }
+  .btn.padfocus { background: rgba(255,255,255,.08); border-left-color: var(--orange); }
+  .btn.primary.padfocus { background: #ff9d43; }
+  label.padfocus { background: rgba(242,193,78,.08); }
+  #padnote { position: fixed; top: 14px; right: 16px; z-index: 60; display: flex; align-items: center; gap: 10px; padding: 9px 14px; background: rgba(10,13,17,.92); border: 1px solid var(--line); border-left: 3px solid var(--yellow); font-family: var(--display); font-size: 15px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; pointer-events: none; }
+  #padnote i { width: 9px; height: 9px; border-radius: 50%; background: var(--yellow); box-shadow: 0 0 8px var(--yellow); }
   .panel { border: 1px solid var(--line); background: rgba(255,255,255,.03); padding: 16px 18px; }
   .panel h2 { margin: 0 0 12px; font-family: var(--display); font-size: 15px; font-weight: 700; letter-spacing: 0.22em; text-transform: uppercase; color: var(--muted); }
   .setting { display: grid; grid-template-columns: 1fr 150px 44px; align-items: center; gap: 12px; padding: 6px 0; font-size: 14px; }
@@ -443,6 +450,9 @@
       <label class="toggle"><input type="checkbox" id="set-lean"> Asomarse alterna (Q/E), como en Siege</label>
       <label class="toggle"><input type="checkbox" id="set-crouch"> Agacharse alterna (C)</label>
       <label class="toggle"><input type="checkbox" id="set-invert"> Invertir eje vertical</label>
+      <label class="setting">Sensibilidad del mando <input type="range" id="set-padsens" min="0.3" max="2.5" step="0.05"><output id="out-padsens"></output></label>
+      <label class="toggle"><input type="checkbox" id="set-padinvert"> Mando: invertir eje vertical</label>
+      <label class="toggle"><input type="checkbox" id="set-padrumble"> Mando: vibrar al disparar y al recibir daño</label>
       <label class="toggle"><input type="checkbox" id="set-perf"> Mostrar rendimiento (F3)</label>
       <label class="toggle"><input type="checkbox" id="set-announcer"> Locutor (anuncia la preparación, la acción, los últimos 30 s y el final de la ronda)</label>
       <label class="toggle"><input type="checkbox" id="set-opvoice"> Voz de tu operador («¡Recargando!», «¡Granada!»…)</label>
@@ -475,6 +485,24 @@
         <div><kbd>P</kbd> Depuración (rejilla, visión y estado de los bots)</div>
         <div><kbd>Esc</kbd> Pausa</div>
       </div>
+      <h2 style="margin-top:16px">Mando</h2>
+      <div class="keys">
+        <div><kbd>Stick izq.</kbd> Moverse · al pulsarlo, correr</div>
+        <div><kbd>Stick der.</kbd> Mirar · al pulsarlo, cuerpo a cuerpo</div>
+        <div><kbd>RT</kbd> Disparar</div>
+        <div><kbd>LT</kbd> Apuntar</div>
+        <div><kbd>A</kbd> Saltar obstáculo, rappel, ventana</div>
+        <div><kbd>B</kbd> Agacharse · mantener: cuerpo a tierra</div>
+        <div><kbd>X</kbd> Recargar · mantener: interactuar (F)</div>
+        <div><kbd>Y</kbd> Cambiar de arma · mantener: dron / cámaras</div>
+        <div><kbd>LB</kbd> Gadget secundario</div>
+        <div><kbd>RB</kbd> Habilidad del operador</div>
+        <div><kbd>◀</kbd><kbd>▶</kbd> Asomarse</div>
+        <div><kbd>▲</kbd> Marcar · <kbd>▼</kbd> Órdenes (elige con el stick der.)</div>
+        <div><kbd>Start</kbd> Pausa</div>
+        <div><kbd>Select</kbd> Marcador</div>
+      </div>
+      <p class="note" style="margin:10px 0 0">En los menús: cruceta o stick para moverse, <kbd>A</kbd> para pulsar y <kbd>B</kbd> para volver. Con el mando no hace falta capturar el ratón.</p>
     </div>
     <p class="note">Los ajustes se guardan en este navegador si lo permite; si no, el juego usa los valores por defecto.</p>
   </div>
@@ -551,6 +579,7 @@
   <div id="pausehint" class="hidden">Clic para seguir jugando</div>
 </div>
 
+<div id="padnote" class="hidden"><i></i>Mando conectado</div>
 <div id="kitpanel" class="hidden">
   <div class="box">
     <h3>Mira y accesorios</h3>

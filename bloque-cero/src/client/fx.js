@@ -57,6 +57,8 @@ export function bindGameFx(ctx, game, view) {
     const m = muzzleWorld(op);
     if (!quiet) effects.flash(m.x, m.y, m.z, 9, 5.4, 2.4, 5.5, 0.06);
     if (local) { vm.onShot(); ctx.shake = Math.min(1, ctx.shake + (w.def.pellets > 1 ? 0.8 : 0.25)); }
+    // el mando vibra con tus disparos (F10.5): más con la escopeta y el tirador
+    if (op === me() && ctx.pad) { const big = w.def.pellets > 1 || w.def.cls === 'dmr'; ctx.pad.rumble(big ? 0.6 : 0.16, big ? 0.45 : 0.3, big ? 110 : 45); }
     for (const r of results) {
       const end = { x: r.origin.x + r.dir.x * r.end, y: r.origin.y + r.dir.y * r.end, z: r.origin.z + r.dir.z * r.end };
       if (Math.random() < (w.def.pellets > 1 ? 0.35 : 0.5)) effects.addTracer(m, end);
@@ -211,6 +213,7 @@ export function bindGameFx(ctx, game, view) {
     if (ev.point) effects.bloodHit(ev.point, ev.dir, ev.zone === 'head');
     if (ev.point) audio.hitFlesh(ev.point, ev.zone === 'head', target === viewer() ? 0 : heard(ev.point));
     if (ev.by && ev.by === me() && target !== me()) { hud.hitmarker('hit'); audio.hitConfirm('hit'); }
+    if (target === me() && ctx.pad) ctx.pad.rumble(Math.min(1, 0.35 + ev.amount / 60), Math.min(1, 0.25 + ev.amount / 80), 120 + Math.min(200, ev.amount * 3));   // (y con el daño)
     if (target === viewer()) {
       audio.hurt(ev.amount);
       ctx.damageFlash = Math.min(1, ctx.damageFlash + ev.amount / 60);
