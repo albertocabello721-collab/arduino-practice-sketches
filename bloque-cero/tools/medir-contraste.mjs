@@ -9,7 +9,7 @@
 // de pantalla donde cae el operador (de 1,75 m, a `d` m: 650/d píxeles de alto a 540p con 72°).
 // Con `luz` (0…1), una noche más oscura de lo normal (la luna y el cielo escalados): sirve para ver a
 // qué distancia se pierde el operador con menos luz de la que hay en la Villa (0,14 bajo la luna).
-// Uso: node tools/medir-contraste.mjs [hora=noche] [sitio=jardin|calle] [carpeta para capturas] [html] [--luz 0.07]
+// Uso: node tools/medir-contraste.mjs [hora=noche] [sitio=jardin|calle] [carpeta para capturas] [html] [--luz 0.07] [--alto 1080]
 import { createRequire } from 'node:module';
 import path from 'node:path';
 import { readPNG } from './png.mjs';
@@ -17,7 +17,7 @@ const require = createRequire(import.meta.url);
 const { chromium } = require('/opt/node22/lib/node_modules/playwright');
 const argv = process.argv.slice(2), li = argv.indexOf('--luz');
 const LUZ = li >= 0 ? +argv[li + 1] : null;
-const pos = argv.filter((a, i) => !a.startsWith('--') && !(i > 0 && argv[i - 1] === '--luz'));
+const pos = argv.filter((a, i) => !a.startsWith('--') && !(i > 0 && ['--luz', '--alto'].includes(argv[i - 1])));
 const hora = pos[0] || 'noche';
 const sitio = pos[1] || 'jardin';
 const out = pos[2] || '.';
@@ -26,7 +26,8 @@ const html = pos[3] || 'dist/bloque-cero.html';
 const LINE = sitio === 'calle' ? { x: 0, z: -15, dist: [5, 10, 15, 20, 25, 30, 35, 40, 45] } : { x: 6, z: 40, dist: [5, 10, 15, 20, 25, 30] };
 const DIST = LINE.dist;
 const browser = await chromium.launch({ args: ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--autoplay-policy=no-user-gesture-required'] });
-const page = await browser.newPage({ viewport: { width: 960, height: 540 } });
+const ai = argv.indexOf('--alto'), ALTO = ai >= 0 ? +argv[ai + 1] : 540;        // (la resolución: 540p por defecto)
+const page = await browser.newPage({ viewport: { width: Math.round(ALTO * 16 / 9), height: ALTO } });
 page.setDefaultTimeout(300000);
 page.on('pageerror', (e) => console.log('[pageerror]', e.message));
 const frames = (n = 3) => page.evaluate((n) => new Promise((res) => { let k = 0; const f = () => { if (++k >= n) res(); else requestAnimationFrame(f); }; requestAnimationFrame(f); }), n);
@@ -61,10 +62,23 @@ const settle = () => page.evaluate(async () => {
   return +last.toFixed(3);
 });
 const luma = (d, i) => 0.2126 * d[i] + 0.7152 * d[i + 1] + 0.0722 * d[i + 2];
+// una captura (de vez en cuando sale un fotograma uniforme, sin escena: se repite hasta tres veces)
+const shot = async (file) => {
+  let png;
+  for (let k = 0; k < 4; k++) {
+    png = await page.screenshot({ path: file });
+    const a = readPNG(png); let lo = 1e9, hi = -1;
+    for (let i = 0; i < a.w * a.h; i += 97) { const l = luma(a.data, i * a.ch); lo = Math.min(lo, l); hi = Math.max(hi, l); }
+    if (hi - lo > 4) return png;
+    console.log('  (captura uniforme: se repite)');
+    await frames(6);
+  }
+  return png;
+};
 const measure = (A, B, d) => {
   const a = readPNG(A), b = readPNG(B), ch = a.ch;
   // la caja donde cae el operador: centrado en x; su centro (0,9 m) queda 0,7 m bajo el ojo
-  const hpx = 650 / d, cy = a.h / 2 + 260 / d, cx = a.w / 2;
+  const k = a.h / 540, hpx = 650 * k / d, cy = a.h / 2 + 260 * k / d, cx = a.w / 2;
   const bx0 = Math.max(0, Math.round(cx - Math.max(16, hpx * 0.6))), bx1 = Math.min(a.w - 1, Math.round(cx + Math.max(16, hpx * 0.6)));
   const by0 = Math.max(0, Math.round(cy - hpx * 0.8)), by1 = Math.min(a.h - 1, Math.round(cy + hpx * 0.8));
   let count = 0, sa = 0, sb = 0, y0 = 1e9, y1 = -1, strong = 0, fuera = 0; const diffs = [];
@@ -81,7 +95,7 @@ const measure = (A, B, d) => {
   const La = sa / count, Lb = sb / count;
   return { px: count, alto: y1 - y0 + 1, fuera, La: +La.toFixed(1), Lb: +Lb.toFixed(1), weber: +((La - Lb) / Math.max(1, Lb)).toFixed(3), michelson: +(Math.abs(La - Lb) / Math.max(1, La + Lb)).toFixed(3), p90: +diffs[Math.floor(diffs.length * 0.9)].toFixed(1), fuertes: +(strong / count).toFixed(2) };
 };
-console.log(`hora ${hora}${LUZ !== null ? ' (luz ' + LUZ + ')' : ''} · ${sitio}, mirando al este desde (${LINE.x}, ${LINE.z})`);
+console.log(`hora ${hora}${LUZ !== null ? ' (luz ' + LUZ + ')' : ''} · ${sitio}, mirando al este desde (${LINE.x}, ${LINE.z}) · ${ALTO}p`);
 for (const d of DIST) {
   await page.evaluate(([d, LINE]) => {
     const op = window.__op;
@@ -93,10 +107,10 @@ for (const d of DIST) {
     window.__step(1 / 60);
   }, [d, LINE]);
   const exp = await settle();
-  const A = await page.screenshot({ path: path.join(out, `contraste_${hora}${LUZ !== null ? '_luz' + LUZ : ''}_${sitio}_${d}m.png`) });
+  const A = await shot(path.join(out, `contraste_${hora}${LUZ !== null ? '_luz' + LUZ : ''}_${sitio}_${d}m.png`));
   await page.evaluate(() => { window.__op.frozen = true; });
   await frames(4);
-  const B = await page.screenshot({ path: path.join(out, `contraste_${hora}${LUZ !== null ? '_luz' + LUZ : ''}_${sitio}_${d}m_fondo.png`) });
+  const B = await shot(path.join(out, `contraste_${hora}${LUZ !== null ? '_luz' + LUZ : ''}_${sitio}_${d}m_fondo.png`));
   const r = measure(A, B, d);
   const luz = await page.evaluate(([d, LINE]) => { const bc = window.__bc, L = bc.wr.lightVolume.sample(LINE.x + d, 1, LINE.z, {}); return +(L.sky * bc.times[bc.wr.tod].skyLight + L.warm + L.cool).toFixed(3); }, [d, LINE]);
   console.log(`${String(d).padStart(2)} m · luz ${luz} · exposición ${exp} · ${JSON.stringify(r)}`);
