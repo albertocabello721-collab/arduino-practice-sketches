@@ -756,7 +756,7 @@ girar no les costaba nada, y sus primeros disparos eran los más precisos.
 | Reacción | 700 ms | 450 ms | 300 ms | 220 ms |
 | Giro máximo | 250°/s | 350°/s | 450°/s | 550°/s |
 | Se pasa (giros de más de 15°, la mitad de las veces) | 8–12 % | 6–10 % | 4–8 % | 3–6 % |
-| Error de los primeros disparos → asentado | 4° → 1,8° en 1 s | 2,8° → 1° en 0,8 s | 2° → 0,6° en 0,65 s | 1,4° → 0,35° en 0,5 s |
+| Error de los primeros disparos → asentado | 4° → 1,8° en 1 s | 2,8° → 1° en 0,8 s | 2° → 0,6° en 0,65 s | 2° → 0,35° en 0,5 s (antes 1,4°) |
 | Tarda en notar que cambias de dirección | 0,20 s | 0,16 s | 0,13 s | 0,10 s |
 | Espera tras un giro de más de 20° | 0,20 s | 0,15 s | 0,11 s | 0,08 s |
 | Retroceso: compensa / lo ve a los | 20 % / 0,25 s | 35 % / 0,22 s | 50 % / 0,18 s | 65 % / 0,15 s |
@@ -766,22 +766,29 @@ antes y después; cada vez que un bot ve a un enemigo que no veía desde hacía 
 
 | Antes → después | Novato | Normal | Veterano | Élite |
 | --- | --- | --- | --- | --- |
-| Primer acierto (mediana) | 783 → 1.483 ms | 533 → 1.000 ms | 400 → 717 ms | 317 → 517 ms |
-| … teniendo que girar más de 30° | 783 → 1.633 ms | 533 → 1.067 ms | 383 → 800 ms | 300 → 617 ms |
-| … sin tener que girar (menos de 10°) | 783 → 1.400 ms | 550 → 983 ms | 400 → 667 ms | 317 → 467 ms |
+| Primer acierto (mediana) | 783 → 1.483 ms | 533 → 1.000 ms | 400 → 717 ms | 317 → 583 ms |
+| … teniendo que girar más de 30° | 783 → 1.633 ms | 533 → 1.067 ms | 383 → 800 ms | 300 → 667 ms |
+| … sin tener que girar (menos de 10°) | 783 → 1.400 ms | 550 → 983 ms | 400 → 667 ms | 317 → 533 ms |
 | Aciertos antes de 220 ms | 0 → 0 | 0 → 0 | 0 → 0 | 0 → 0 (el más rápido, 267 ms) |
 | Giro más rápido | 516 → 250°/s | 735 → 351°/s | 991 → 450°/s | 1.289 → 549°/s |
-| Aciertan con los 3 primeros disparos | 83 → 44 % | 77 → 41 % | 70 → 44 % | 67 → 53 % |
-| … a más de 12 m | 79 → 20 % | 71 → 19 % | 60 → 27 % | 60 → 35 % |
+| Aciertan con los 3 primeros disparos | 83 → 44 % | 77 → 41 % | 70 → 44 % | 67 → 39 % |
+| … a más de 12 m | 79 → 20 % | 71 → 19 % | 60 → 27 % | 60 → 24 % |
 
 - Antes, girar no les costaba nada (de frente o girando, lo mismo) y sus primeros disparos eran los
   más precisos. Ahora, en Élite, girar más de 30° cuesta 150 ms más, y los primeros disparos fallan
-  más cuanto más lejos: de cerca (a menos de 12 m), 1,4° de error aún da en el torso.
+  más cuanto más lejos.
+- **Ajuste de los primeros disparos de Élite** (la columna de Élite de la tabla ya lo lleva): con
+  1,4° de error todavía acertaba el 51–53 % de los 3 primeros disparos. Con 2°, el mismo error que
+  Veterano, acierta el 39 % en las 12 partidas de la tabla y el 38 % y el 40 % en dos tandas más de
+  16 partidas con otras semillas, por debajo del 45 % prometido. Después de esos 3 disparos acierta
+  lo mismo que antes (35 %): solo cambian los primeros. Su primer acierto pasa de 517 a 583 ms. Sigue
+  siendo el mejor por reacción, giro y lo rápido que se asienta.
 - **Equilibrio** (`tools/equilibrio.mjs`: 160 partidas por dificultad, las mismas semillas que en la
-  F10.1): el ataque gana el 48,4 % de las rondas en Élite (antes, 53,0 %) y el 48,0 % en Normal
-  (antes, 51,7 %), ±1,7 cada uno. Baja unos 4 puntos porque quien espera en un ángulo (casi siempre
-  la defensa) apenas tiene que girar, y a quien entra le cuesta más. Los dos quedan entre el 47 y el
-  53 %.
+  F10.1): el ataque gana el 52,0 % de las rondas en Élite (antes de la F10.6, 53,0 %; con el error
+  de 1,4°, 48,4 %) y el 48,0 % en Normal (antes, 51,7 %), ±1,7 cada uno. En Normal baja unos 4
+  puntos porque quien espera en un ángulo (casi siempre la defensa) apenas tiene que girar, y a quien
+  entra le cuesta más; en Élite, el error de los primeros disparos le pesa más a quien dispara
+  primero (la defensa, desde su ángulo), y lo compensa. Los dos quedan entre el 47 y el 53 %.
 
 - **Con P**, la etiqueta de un bot con un blanco dice qué hace su puntería: «reacciona», «gira» o
   «apunta».
@@ -813,7 +820,7 @@ antes y después; cada vez que un bot ve a un enemigo que no veía desde hacía 
   | Élite | 220 ms | 0,35° | flanquea más y siempre cambia de ángulo tras ser visto |
 
   Desde la F10.6 apuntan como una persona: reaccionan sin girarse, giran con velocidad limitada
-  (a veces se pasan), sus primeros disparos llevan más error (de 4° a 1,4°), que se asienta hasta
+  (a veces se pasan), sus primeros disparos llevan más error (de 4° a 2°), que se asienta hasta
   el de la tabla mientras siguen al blanco, y el retroceso les sube la mira. Ver *Puntería humana
   de los bots (Fase 10.6)*.
 - **Defensa**: en la preparación reparte los 10 refuerzos y las barricadas del sitio y dispara a

@@ -67,7 +67,7 @@ test('la tabla: reacción del documento, giro limitado, error de los primeros di
     novato: { react: 0.70, aimSpeed: 250, firstErr: 4.0, aimErr: 1.8, recoil: 0.20, lag: 0.20, flickWait: 0.20 },
     normal: { react: 0.45, aimSpeed: 350, firstErr: 2.8, aimErr: 1.0, recoil: 0.35, lag: 0.16, flickWait: 0.15 },
     veterano: { react: 0.30, aimSpeed: 450, firstErr: 2.0, aimErr: 0.6, recoil: 0.50, lag: 0.13, flickWait: 0.11 },
-    elite: { react: 0.22, aimSpeed: 550, firstErr: 1.4, aimErr: 0.35, recoil: 0.65, lag: 0.10, flickWait: 0.08 },
+    elite: { react: 0.22, aimSpeed: 550, firstErr: 2.0, aimErr: 0.35, recoil: 0.65, lag: 0.10, flickWait: 0.08 },
   };
   for (const [k, w] of Object.entries(want)) {
     const D = DIFFICULTY[k];

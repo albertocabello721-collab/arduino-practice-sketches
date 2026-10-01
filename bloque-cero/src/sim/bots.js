@@ -67,7 +67,7 @@ const HUMAN_AIM = {
   novato: { firstErr: 4.0 * DEG, settleT: 1.0, aimSpeed: 250, overshoot: [0.08, 0.12], scatter: 0.06, lag: 0.20, aimKp: 6, flickWait: 0.20, recoil: 0.20, recoilLag: 0.25 },
   normal: { firstErr: 2.8 * DEG, settleT: 0.8, aimSpeed: 350, overshoot: [0.06, 0.10], scatter: 0.05, lag: 0.16, aimKp: 8, flickWait: 0.15, recoil: 0.35, recoilLag: 0.22 },
   veterano: { firstErr: 2.0 * DEG, settleT: 0.65, aimSpeed: 450, overshoot: [0.04, 0.08], scatter: 0.04, lag: 0.13, aimKp: 11, flickWait: 0.11, recoil: 0.50, recoilLag: 0.18 },
-  elite: { firstErr: 1.4 * DEG, settleT: 0.5, aimSpeed: 550, overshoot: [0.03, 0.06], scatter: 0.03, lag: 0.10, aimKp: 14, flickWait: 0.08, recoil: 0.65, recoilLag: 0.15 },
+  elite: { firstErr: 2.0 * DEG, settleT: 0.5, aimSpeed: 550, overshoot: [0.03, 0.06], scatter: 0.03, lag: 0.10, aimKp: 14, flickWait: 0.08, recoil: 0.65, recoilLag: 0.15 },
 };
 for (const [k, v] of Object.entries(HUMAN_AIM)) Object.assign(DIFFICULTY[k], v);
 // Merodeadores de la defensa (F10.1): cuántos (`roamers`, si hay al menos 3 bots y siempre con
