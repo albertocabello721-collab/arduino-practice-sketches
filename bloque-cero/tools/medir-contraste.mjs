@@ -9,7 +9,7 @@
 // de pantalla donde cae el operador (de 1,75 m, a `d` m: 650/d píxeles de alto a 540p con 72°).
 // Con `luz` (0…1), una noche más oscura de lo normal (la luna y el cielo escalados): sirve para ver a
 // qué distancia se pierde el operador con menos luz de la que hay en la Villa (0,14 bajo la luna).
-// Uso: node tools/medir-contraste.mjs [hora=noche] [sitio=jardin|calle] [carpeta para capturas] [html] [--luz 0.07] [--alto 1080]
+// Uso: node tools/medir-contraste.mjs [hora=noche] [sitio=jardin|calle|calle-oeste] [carpeta para capturas] [html] [--luz 0.07] [--alto 1080]
 import { createRequire } from 'node:module';
 import path from 'node:path';
 import { readPNG } from './png.mjs';
@@ -23,7 +23,10 @@ const sitio = pos[1] || 'jardin';
 const out = pos[2] || '.';
 const html = pos[3] || 'dist/bloque-cero.html';
 // el jardín trasero (una línea de 30 m despejada hacia el este) o la calle (45 m hacia el este, a oscuras salvo bajo las farolas)
-const LINE = sitio === 'calle' ? { x: 0, z: -15, dist: [5, 10, 15, 20, 25, 30, 35, 40, 45] } : { x: 6, z: 40, dist: [5, 10, 15, 20, 25, 30] };
+// (`calle-oeste`: la misma calle desde su extremo este mirando al oeste, con el fondo sin fachadas iluminadas)
+const LINE = sitio === 'calle' ? { x: 0, z: -15, dir: 1, dist: [5, 10, 15, 20, 25, 30, 35, 40, 45] }
+  : sitio === 'calle-oeste' ? { x: 44, z: -15, dir: -1, dist: [20, 25, 30, 35, 40, 45] }
+  : { x: 6, z: 40, dir: 1, dist: [5, 10, 15, 20, 25, 30] };
 const DIST = LINE.dist;
 const browser = await chromium.launch({ args: ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--autoplay-policy=no-user-gesture-required'] });
 const ai = argv.indexOf('--alto'), ALTO = ai >= 0 ? +argv[ai + 1] : 540;        // (la resolución: 540p por defecto)
@@ -51,7 +54,7 @@ await page.evaluate((LINE) => {
   bc.hud.show(false);                                   // (sin interfaz ni arma ni grano: solo la escena)
   bc.ctx.vm.setShown(false); bc.ctx.vm.setShown = () => {};
   bc.post.grade.uniforms.uGrain.value = 0; bc.post.setAdaptiveLevel = () => {};
-  bc.place(LINE.x, 0, LINE.z, -Math.PI / 2, 0);         // mirando al este
+  bc.place(LINE.x, 0, LINE.z, -LINE.dir * Math.PI / 2, 0);   // mirando al este (o al oeste)
   window.__op = s.lineup[0];
   for (const o of s.lineup) if (o !== window.__op) o.frozen = true;   // (los demás de la fila, fuera)
 }, LINE);
@@ -95,15 +98,15 @@ const measure = (A, B, d) => {
   const La = sa / count, Lb = sb / count;
   return { px: count, alto: y1 - y0 + 1, fuera, La: +La.toFixed(1), Lb: +Lb.toFixed(1), weber: +((La - Lb) / Math.max(1, Lb)).toFixed(3), michelson: +(Math.abs(La - Lb) / Math.max(1, La + Lb)).toFixed(3), p90: +diffs[Math.floor(diffs.length * 0.9)].toFixed(1), fuertes: +(strong / count).toFixed(2) };
 };
-console.log(`hora ${hora}${LUZ !== null ? ' (luz ' + LUZ + ')' : ''} · ${sitio}, mirando al este desde (${LINE.x}, ${LINE.z}) · ${ALTO}p`);
+console.log(`hora ${hora}${LUZ !== null ? ' (luz ' + LUZ + ')' : ''} · ${sitio}, mirando al ${LINE.dir > 0 ? 'este' : 'oeste'} desde (${LINE.x}, ${LINE.z}) · ${ALTO}p`);
 for (const d of DIST) {
   await page.evaluate(([d, LINE]) => {
     const op = window.__op;
     op.frozen = false;
-    op.body.pos.x = LINE.x + d; op.body.pos.y = 0; op.body.pos.z = LINE.z; op.yaw = Math.PI / 2;
+    op.body.pos.x = LINE.x + LINE.dir * d; op.body.pos.y = 0; op.body.pos.z = LINE.z; op.yaw = LINE.dir * Math.PI / 2;
     op.body.vel.x = op.body.vel.y = op.body.vel.z = 0;
     window.__step(1 / 60); window.__step(1 / 60);
-    op.body.pos.x = LINE.x + d; op.body.pos.z = LINE.z; op.yaw = Math.PI / 2;
+    op.body.pos.x = LINE.x + LINE.dir * d; op.body.pos.z = LINE.z; op.yaw = LINE.dir * Math.PI / 2;
     window.__step(1 / 60);
   }, [d, LINE]);
   const exp = await settle();
@@ -112,7 +115,7 @@ for (const d of DIST) {
   await frames(4);
   const B = await shot(path.join(out, `contraste_${hora}${LUZ !== null ? '_luz' + LUZ : ''}_${sitio}_${d}m_fondo.png`));
   const r = measure(A, B, d);
-  const luz = await page.evaluate(([d, LINE]) => { const bc = window.__bc, L = bc.wr.lightVolume.sample(LINE.x + d, 1, LINE.z, {}); return +(L.sky * bc.times[bc.wr.tod].skyLight + L.warm + L.cool).toFixed(3); }, [d, LINE]);
+  const luz = await page.evaluate(([d, LINE]) => { const bc = window.__bc, L = bc.wr.lightVolume.sample(LINE.x + LINE.dir * d, 1, LINE.z, {}); return +(L.sky * bc.times[bc.wr.tod].skyLight + L.warm + L.cool).toFixed(3); }, [d, LINE]);
   console.log(`${String(d).padStart(2)} m · luz ${luz} · exposición ${exp} · ${JSON.stringify(r)}`);
 }
 await browser.close();
