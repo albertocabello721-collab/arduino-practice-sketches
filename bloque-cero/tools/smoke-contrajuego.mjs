@@ -26,7 +26,7 @@ await page.evaluate(() => {
 await page.click('#sel-grid .opc:nth-child(2)');
 await page.click('#sel-choice .ch:nth-child(2)');         // planta baja
 await page.click('#sel-ready');
-await page.waitForFunction(() => window.__bc.match.phase === 'prep', null, { timeout: 60000 });
+await page.waitForFunction(() => window.__bc.match.phase === 'prep', null, { timeout: 150000 });
 const shot = async (name, wait = 800) => { await page.waitForTimeout(wait); await page.screenshot({ path: `${out}/${name}.png` }); };
 const ticks = (n, until = '') => page.evaluate(([n, until]) => {
   const bc = window.__bc, f = until ? new Function('bc', 'return ' + until) : null;

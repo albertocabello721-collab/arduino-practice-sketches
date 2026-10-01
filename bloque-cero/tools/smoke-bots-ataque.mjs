@@ -25,7 +25,7 @@ await page.evaluate(() => {
 });
 await page.click('#sel-grid .opc:nth-child(3)');
 await page.click('#sel-ready');
-await page.waitForFunction(() => window.__bc.match.phase === 'prep', null, { timeout: 60000 });
+await page.waitForFunction(() => window.__bc.match.phase === 'prep', null, { timeout: 150000 });
 const shot = async (name, wait = 800) => { await page.waitForTimeout(wait); await page.screenshot({ path: `${out}/${name}.png` }); };
 // contadores (en la página) y el jugador quieto en su aparición, fuera de juego
 await page.evaluate(() => {

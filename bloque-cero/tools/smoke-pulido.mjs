@@ -61,7 +61,7 @@ check(ld.visible && ld.lado === 'Defensa' && ld.hud, 'defendiendo: la pantalla d
 check(ld.pared > 2000, `el plano tiene paredes (${ld.pared} píxeles)`);
 check(ld.naranja > 300 && /Defendéis/.test(ld.nota), `defendiendo se ven A y B en naranja (${ld.naranja} píxeles · «${ld.nota}»)`);
 check(ld.timer > 2 && ld.timer <= 3 && !ld.paused, 'dura 3 s y no está en pausa');
-await page.waitForFunction(() => window.__bc.match.phase === 'prep', null, { timeout: 60000 });
+await page.waitForFunction(() => window.__bc.match.phase === 'prep', null, { timeout: 150000 });
 const auto = await P((t0) => ({ dt: +(window.__bc.match.time - t0).toFixed(2), hidden: document.getElementById('loadscreen').classList.contains('hidden') }), ld.t0);
 check(auto.dt >= 2.5 && auto.dt < 4.5 && auto.hidden, `sin tocar nada, pasa sola a los 3 s (${auto.dt} s) y se esconde`);
 // ---------------------------------------------------------------- atacando: sin A ni B, y Espacio la salta

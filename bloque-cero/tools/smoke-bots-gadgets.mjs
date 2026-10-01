@@ -18,7 +18,7 @@ await page.waitForFunction(() => window.__bc && window.__bc.state.mode === 'menu
 await page.evaluate(() => { window.__bc.settings.quality = 'baja'; window.__bc.settings.difficulty = 'veterano'; window.__bc.startMatch({ startSide: 'def' }); });
 await page.click('#sel-grid .opc:nth-child(2)');
 await page.click('#sel-ready');
-await page.waitForFunction(() => window.__bc.match.phase === 'prep', null, { timeout: 60000 });
+await page.waitForFunction(() => window.__bc.match.phase === 'prep', null, { timeout: 150000 });
 const shot = async (name, wait = 900) => { await page.waitForTimeout(wait); await page.screenshot({ path: `${out}/${name}.png` }); };
 const ticks = (n) => page.evaluate((n) => {
   const bc = window.__bc;

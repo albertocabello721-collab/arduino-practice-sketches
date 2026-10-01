@@ -37,7 +37,7 @@ const ticks = (n, body = '') => page.evaluate(([n, body]) => {
 await page.evaluate(() => { window.__bc.settings.difficulty = 'normal'; window.__bc.startMatch({ startSide: 'def', seed: 11 }); });
 await page.click('#sel-grid .opc:nth-child(2)');
 await page.click('#sel-ready');
-await page.waitForFunction(() => window.__bc.match.phase === 'prep', null, { timeout: 60000 });
+await page.waitForFunction(() => window.__bc.match.phase === 'prep', null, { timeout: 150000 });
 // voz de los aliados activada y registro de la radio
 await page.evaluate(() => { const bc = window.__bc; bc.settings.allyVoice = true; window.__radio = []; bc.match.game.on('radio', (op, text) => window.__radio.push(`${op.team} ${op.name}: ${text}`)); });
 await ticks(60 * 6);
@@ -217,7 +217,7 @@ console.log('muerto (defensa):', JSON.stringify(deadCams));
 await page.evaluate(() => { window.__bc.startMatch({ startSide: 'atk', seed: 12 }); });
 await page.click('#sel-grid .opc:nth-child(2)');
 await page.click('#sel-ready');
-await page.waitForFunction(() => window.__bc.match.phase === 'prep', null, { timeout: 60000 });
+await page.waitForFunction(() => window.__bc.match.phase === 'prep', null, { timeout: 150000 });
 await ticks(3, "if (bc.match.phase === 'prep') bc.match.timer = Math.min(bc.match.timer, 0.02);");
 await ticks(60 * 2);
 await page.evaluate(() => { const bc = window.__bc; bc.game.kill(bc.player, { by: null }); });

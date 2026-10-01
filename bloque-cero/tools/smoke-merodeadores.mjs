@@ -21,7 +21,7 @@ await page.evaluate(() => Object.defineProperty(document, 'hidden', { get: () =>
 await page.evaluate(() => { const bc = window.__bc; bc.settings.quality = 'media'; bc.post.setQuality('media'); bc.settings.difficulty = 'elite'; bc.startMatch({ startSide: 'atk', seed: 5 }); });
 await page.click('#sel-grid .opc:nth-child(3)');
 await page.click('#sel-ready');
-await page.waitForFunction(() => window.__bc.match.phase === 'prep', null, { timeout: 60000 });
+await page.waitForFunction(() => window.__bc.match.phase === 'prep', null, { timeout: 150000 });
 const frames = (n = 3) => page.evaluate((n) => new Promise((res) => { let k = 0; const f = () => { if (++k >= n) res(); else requestAnimationFrame(f); }; requestAnimationFrame(f); }), n);
 const shot = async (name) => { await frames(4); await page.screenshot({ path: `${out}/${name}.png` }); };
 // la simulación avanza solo cuando lo pide la prueba; el jugador, quieto y sin que nadie le dispare

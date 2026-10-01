@@ -38,7 +38,7 @@ const ticks = (n, body = '') => page.evaluate(([n, body]) => {
 await page.evaluate(() => { window.__bc.settings.difficulty = 'veterano'; window.__bc.startMatch({ startSide: 'atk' }); });
 await page.click('#sel-grid .opc:nth-child(2)');
 await page.click('#sel-ready');
-await page.waitForFunction(() => window.__bc.match.phase === 'prep', null, { timeout: 60000 });
+await page.waitForFunction(() => window.__bc.match.phase === 'prep', null, { timeout: 150000 });
 const bots0 = await page.evaluate(() => ({ dificultad: window.__bc.session.bots.diffKey, cerebros: window.__bc.session.bots.brains.size }));
 console.log('bots:', JSON.stringify(bots0));
 let ms = await ticks(60 * 44);

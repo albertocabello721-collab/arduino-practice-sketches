@@ -136,7 +136,7 @@ await shot('f105_03_seleccion');
 check(s1.op === 'rompe' && s1.sel && s1.sel.v === 'rompe', `→ y A eligen el segundo operador (${s1.op})`);
 check(s1f && s1f.v === 'rompe', 'el foco sigue en él aunque la pantalla se vuelva a pintar');
 await tap(B.START);
-await page.waitForFunction(() => window.__bc.match.phase === 'prep', null, { timeout: 60000 });
+await page.waitForFunction(() => window.__bc.match.phase === 'prep', null, { timeout: 150000 });
 check(true, 'Start: «Listo» y empieza la preparación');
 
 // ------------------------------------------------------------------ preparación: el dron
@@ -374,7 +374,7 @@ const s2 = await focus();
 check(s2 && s2.root === 'select', 'la selección de la ronda 2, con el foco del mando');
 await tap(B.A);
 await tap(B.START);
-await page.waitForFunction(() => window.__bc.match.phase === 'prep', null, { timeout: 60000 });
+await page.waitForFunction(() => window.__bc.match.phase === 'prep', null, { timeout: 150000 });
 // Start pausa y B sale al menú
 await tap(B.START);
 const pb = await P(() => window.__bc.ctx.paused);

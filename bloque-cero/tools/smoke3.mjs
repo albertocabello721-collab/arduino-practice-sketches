@@ -31,7 +31,7 @@ await page.click('#sel-detail .wpn:nth-child(2)');
 await page.click('#sel-choice .ch:nth-child(1)');
 await shot('p3_02_elegido', 600);
 await page.click('#sel-ready');
-await page.waitForFunction(() => window.__bc.match.phase === 'prep', null, { timeout: 60000 });
+await page.waitForFunction(() => window.__bc.match.phase === 'prep', null, { timeout: 150000 });
 const info = await page.evaluate(() => {
   const m = window.__bc.match;
   return { phase: m.phase, loc: m.site.name, me: m.player.opDef.name, side: m.player.side, frozen: m.player.frozen, ops: m.game.operators.length, carrier: m.defuser.carrier === m.player };
@@ -86,7 +86,7 @@ await page.click('#sel-grid .opc:nth-child(6)');
 await page.click('#sel-choice .ch:nth-child(3)');
 await shot('p3_10_seleccion_defensa', 800);
 await page.click('#sel-ready');
-await page.waitForFunction(() => window.__bc.match.phase === 'prep', null, { timeout: 60000 });
+await page.waitForFunction(() => window.__bc.match.phase === 'prep', null, { timeout: 150000 });
 const d = await page.evaluate(() => { const m = window.__bc.match; const p = m.player; return { loc: m.site.name, room: window.__bc.map.locationAt(p.body.pos.x, p.body.pos.y + 0.2, p.body.pos.z), frozen: p.frozen }; });
 console.log('defensa:', JSON.stringify(d));
 await shot('p3_11_defensa_prep', 2500);

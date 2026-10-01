@@ -17,7 +17,7 @@ await page.waitForFunction(() => window.__bc && window.__bc.state.mode === 'menu
 await page.evaluate(() => { window.__bc.settings.quality = 'baja'; window.__bc.startMatch({ startSide: 'atk', seed: 4 }); });
 await page.click('#sel-grid .opc:nth-child(2)');          // ROMPE: humo o cegadora
 await page.click('#sel-ready');
-await page.waitForFunction(() => window.__bc.match.phase === 'prep', null, { timeout: 60000 });
+await page.waitForFunction(() => window.__bc.match.phase === 'prep', null, { timeout: 150000 });
 const ticks = (n, body = '') => page.evaluate(([n, body]) => { const bc = window.__bc; const f = body ? new Function('bc', body) : null; for (let i = 0; i < n; i++) { if (f) f(bc); bc.session.tick(1 / 60); } }, [n, body]);
 await ticks(3, "if (bc.match.phase === 'prep') bc.match.timer = Math.min(bc.match.timer, 0.02);");
 // el ataque, quieto; el jugador en la calle mirando a la casa

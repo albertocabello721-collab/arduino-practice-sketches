@@ -159,6 +159,7 @@ export class MatchSession extends Session {
     const onGame = (t, f) => this.disposers.push(m.game.on(t, f));
     on('roundLoad', () => {
       // la pantalla de carga con el plano (F10.4): 3 s, Espacio o A la saltan; el ratón sigue capturado
+      this.loadWall = performance.now();      // (3 s de reloj de pared como mucho, aunque el juego vaya lento)
       this.ui.hideSelect();
       hud.show(false);
       this.ui.showLoad(m, this.mySide());
@@ -469,7 +470,14 @@ export class MatchSession extends Session {
     this._smokeFx(dt);
     this._burnFx(dt);
     this._electricFx(dt);
-    if (m.phase === 'select') { this.ui.updateSelect(m); return; }
+    if (m.phase === 'select') {
+      this.ui.updateSelect(m);
+      // todos listos: a los 0,6 s de reloj de pared, adelante (aunque el juego vaya lento)
+      if (m.slots.every((sl) => sl.ready)) { this.readyWall = this.readyWall || performance.now(); if (performance.now() - this.readyWall >= 600) m.timer = 0; } else this.readyWall = 0;
+      return;
+    }
+    this.readyWall = 0;
+    if (m.phase === 'load' && this.loadWall && performance.now() - this.loadWall >= m.rules.loadTime * 1000) m.skipLoad();
     this._replayFrame(dt);
     if (!m.running) { this.ui.updateMarkers([]); this.ui.showScoreboard(m, false); this.feed.frame(dt); return; }
     this._feedRules();
