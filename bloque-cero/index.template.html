@@ -296,6 +296,16 @@
   .wpn span { font-size: 11.5px; color: var(--muted); }
   .wpn.sel { border-color: var(--yellow); background: rgba(242,193,78,.1); }
   /* panel de equipo del campo de pruebas (O) */
+  /* la pantalla de carga con el plano (F10.4) */
+  #loadscreen { position: fixed; inset: 0; z-index: 21; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 16px; background: rgba(6,8,10,.94); }
+  #loadscreen .lhead { display: flex; align-items: center; gap: 14px; font-family: var(--display); }
+  #loadscreen .rd { font-size: 26px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; }
+  #loadscreen .sd { padding: 3px 10px; font-weight: 800; letter-spacing: .1em; text-transform: uppercase; background: var(--orange); color: #140a02; }
+  #loadscreen .sd.def { background: var(--blue); color: #061018; }
+  #loadscreen .hint { font-family: var(--ui); font-size: 13px; color: var(--muted); }
+  #ld-plan { width: min(1100px, 92vw); height: auto; background: rgba(255,255,255,.02); border: 1px solid var(--line); }
+  #loadscreen .lfoot { display: flex; align-items: center; gap: 18px; font-size: 13px; color: var(--muted); }
+  #loadscreen .btn { padding: 8px 14px; font-size: 15px; }
   #kitpanel { position: fixed; inset: 0; z-index: 22; display: flex; align-items: center; justify-content: center; background: rgba(4,6,8,.55); overflow-y: auto; }
   #kitpanel .box { width: min(1120px, 96vw); max-height: 92vh; overflow-y: auto; padding: 16px 18px; background: rgba(10,13,17,.95); border: 1px solid var(--line); }
   #kitpanel h3 { margin: 0 0 10px; font-family: var(--display); font-size: 20px; letter-spacing: .14em; text-transform: uppercase; }
@@ -447,6 +457,9 @@
       <label class="setting">Calidad
         <select id="set-quality"><option value="baja">Baja</option><option value="media">Media</option><option value="alta">Alta</option></select><span></span>
       </label>
+      <label class="setting">Sombras
+        <select id="set-shadows"><option value="altas">Altas</option><option value="bajas">Bajas</option><option value="sin">Sin sombras</option></select><span></span>
+      </label>
       <label class="toggle"><input type="checkbox" id="set-lean"> Asomarse alterna (Q/E), como en Siege</label>
       <label class="toggle"><input type="checkbox" id="set-crouch"> Agacharse alterna (C)</label>
       <label class="setting">Apuntar (clic derecho o LT)
@@ -456,7 +469,7 @@
       <label class="setting">Sensibilidad del mando <input type="range" id="set-padsens" min="0.3" max="2.5" step="0.05"><output id="out-padsens"></output></label>
       <label class="toggle"><input type="checkbox" id="set-padinvert"> Mando: invertir eje vertical</label>
       <label class="toggle"><input type="checkbox" id="set-padrumble"> Mando: vibrar al disparar y al recibir daño</label>
-      <label class="toggle"><input type="checkbox" id="set-perf"> Mostrar rendimiento (F3)</label>
+      <label class="toggle"><input type="checkbox" id="set-perf"> Mostrar rendimiento (M)</label>
       <label class="toggle"><input type="checkbox" id="set-announcer"> Locutor (anuncia la preparación, la acción, los últimos 30 s y el final de la ronda)</label>
       <label class="toggle"><input type="checkbox" id="set-opvoice"> Voz de tu operador («¡Recargando!», «¡Granada!»…)</label>
       <label class="toggle"><input type="checkbox" id="set-voice"> Voz de los aliados (lee en voz alta sus avisos de radio)</label>
@@ -484,7 +497,7 @@
         <div><kbd>V</kbd> Cuerpo a cuerpo</div>
         <div><kbd>5</kbd> Dron / cámaras</div>
         <div><kbd>1</kbd><kbd>2</kbd> Armas</div>
-        <div><kbd>F3</kbd> Rendimiento</div>
+        <div><kbd>M</kbd> Rendimiento</div>
         <div><kbd>P</kbd> Depuración (rejilla, visión y estado de los bots)</div>
         <div><kbd>Esc</kbd> Pausa</div>
       </div>
@@ -596,7 +609,7 @@
     <div class="sd" id="sel-side">Ataque</div>
     <div class="sc" id="sel-score"></div>
     <div class="hint" id="sel-hint">Elige operador y arsenal</div>
-    <div class="tm" id="sel-timer">0:25</div>
+    <div class="tm" id="sel-timer">0:20</div>
   </div>
   <div class="sbody">
     <div><h4>Operadores</h4><div id="sel-grid"></div></div>
@@ -607,6 +620,12 @@
     <div><h4>Tu equipo</h4><div class="tm5" id="sel-team"></div></div>
     <button class="btn primary" id="sel-ready" data-act="ready">Listo <small>Intro</small></button>
   </div>
+</div>
+
+<div id="loadscreen" class="hidden">
+  <div class="lhead"><div class="rd" id="ld-round">Ronda 1</div><div class="sd" id="ld-side">Ataque</div><div class="hint">Plano de la villa</div></div>
+  <canvas id="ld-plan" width="1200" height="420"></canvas>
+  <div class="lfoot"><span id="ld-note"></span><button class="btn" id="ld-skip">Continuar <small>Espacio</small></button></div>
 </div>
 
 <div id="matchend" class="hidden">

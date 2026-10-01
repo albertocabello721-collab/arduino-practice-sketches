@@ -50,8 +50,13 @@ export function bindGameFx(ctx, game, view) {
   const nameHtml = (op) => op ? `<span class="${cls(op)}">${op.name}</span>` : '';
   const mine = (...ops) => ops.some((o) => o && o === me());
 
+  const bursts = new Map();     // operador → {n: disparos seguidos, t: el último}
   on('shot', (op, w, eye, fwd, results) => {
     const local = op === viewer();
+    // humo del cañón tras 8 disparos seguidos (menos de 0,3 s entre ellos): 1,5 s, solo se ve (F10.4)
+    const bk = bursts.get(op) || { n: 0, t: -1 };
+    bk.n = game.time - bk.t < 0.3 ? bk.n + 1 : 1; bk.t = game.time; bursts.set(op, bk);
+    if (bk.n >= 8) effects.muzzleSmoke(op, () => (op.state === 'dead' ? null : muzzleWorld(op)), 1.5);
     const quiet = !!w.def.suppressed;            // con supresor: suena bajo y sin fogonazo
     audio.gunshot(w.def.sound, eye, local, local ? 0 : heard(eye), quiet);
     const m = muzzleWorld(op);

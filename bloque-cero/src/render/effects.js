@@ -26,6 +26,7 @@ export class Effects {
     this._initDecals();
     this._initTracers();
     this.lights = []; // {x,y,z,r,g,b,radius,life,max}
+    this.smokers = []; // humo del cañón (F10.4): {key, at(), until, acc}
     this.matColor = MATS.map((m) => {
       if (!m.surf) return [0.5, 0.5, 0.5];
       const avg = worldRenderer.texAvg[m.surf] || [0.5, 0.5, 0.5];
@@ -482,6 +483,27 @@ export class Effects {
 
   // ------------------------------------------------------------ luces
   flash(x, y, z, r, g, b, radius, life) { this.lights.push({ x, y, z, r, g, b, radius, life, max: life }); }
+  /** Humo del cañón (F10.4): desde `at()` (la boca del arma) durante `secs` s (si ya humea, se alarga). */
+  muzzleSmoke(key, at, secs) {
+    let s = this.smokers.find((x) => x.key === key);
+    if (!s) { s = { key, at, until: 0, acc: 0 }; this.smokers.push(s); }
+    s.at = at; s.until = this.time + secs;
+  }
+  _updateSmokers(dt) {
+    for (let i = this.smokers.length - 1; i >= 0; i--) {
+      const s = this.smokers[i];
+      if (this.time > s.until) { this.smokers.splice(i, 1); continue; }
+      s.acc += dt;
+      while (s.acc >= 0.06) {
+        s.acc -= 0.06;
+        const p = s.at();
+        if (!p) break;
+        const light = this.lightAt(p.x, p.y, p.z), g = (0.5 + Math.random() * 0.2) * light + 0.04;
+        this.spawnDust(p.x, p.y, p.z, (Math.random() - 0.5) * 0.25, 0.25 + Math.random() * 0.25, (Math.random() - 0.5) * 0.25,
+          0.05 + Math.random() * 0.06, [g, g, g * 1.03], 0.9 + Math.random() * 0.7, 0.3);
+      }
+    }
+  }
 
   // ------------------------------------------------------------ impacto de bala (desde eventos)
   bulletImpact(res) {
@@ -535,6 +557,7 @@ export class Effects {
 
   update(dt, camPos) {
     this.time += dt;
+    this._updateSmokers(dt);
     this._updateDebris(dt);
     this._updatePoints(dt);
     this._updateTracers(dt, camPos);

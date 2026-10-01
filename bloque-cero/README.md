@@ -19,9 +19,31 @@ Es un único archivo HTML autónomo: no necesita servidor ni conexión.
 | F6 | Operadores 8 + 8 y contrajuego de gadgets | ✅ arsenal · plantilla de 16 · granadas y explosivos · gadgets defensivos · 16 habilidades · la defensa bot coloca gadgets y habilidades · el ataque bot los usa según la dificultad · contrajuego de la defensa bot y gadgets de acción |
 | F7 | Animaciones en primera y tercera persona, con la recarga por partes (antes F8) | ✅ recarga por partes en primera persona · resto de la primera persona · siluetas de los 16 · tercera persona por capas · muerte con física por partes · repetición de muerte |
 | F9 | Audio 3D con oclusión | ✅ paredes, suelos y rodeo por puertas y agujeros · ambiente · música en menús y últimos 30 s |
-| F10 | Miras y accesorios, rappel en Villa (tejado y fachada, también los bots), equilibrio de Élite, puntería humana de los bots, mando, pulido y publicación | en curso: ✅ miras y accesorios · ✅ rappel del jugador · ✅ rappel de los bots · ✅ equilibrio de Élite · ✅ puntería humana de los bots · ✅ mando · ✅ bots de noche · ✅ mando de PlayStation y botones que faltaban · pulido final |
+| F10 | Miras y accesorios, rappel en Villa (tejado y fachada, también los bots), equilibrio de Élite, puntería humana de los bots, mando, pulido y publicación | ✅ miras y accesorios · rappel del jugador · rappel de los bots · equilibrio de Élite · puntería humana de los bots · mando · bots de noche · mando de PlayStation y botones que faltaban · pulido final (F10.4c) |
 | — | Mapa Residencia del Lago | pendiente |
 | F12 | Sensación de juego: impactos, voces, música, inicio y fin de ronda, ambiente | en curso: ✅ impactos · ✅ voces · ✅ música · ✅ inicio y fin de ronda · ✅ ambiente |
+
+## Pulido final (Fase 10.4c)
+
+Lo pequeño que faltaba del documento, con las diferencias a propósito como estaban:
+
+- **Pantalla de carga** (3 s): tras la selección, el plano de la villa (las tres plantas en corte,
+  dibujado del mundo de vóxeles: `src/ui/floorplan.js`) con el nombre de cada sala; defendiendo, las
+  salas A y B en naranja y sus dos puntos (el ataque ve el mismo plano sin el objetivo). Espacio o A
+  la saltan; es una fase de la partida (`load`, solo con jugador: las herramientas de bots no la
+  tienen). La selección de operador dura **20 s** (antes 25).
+- **Humo del cañón**: tras 8 disparos seguidos (menos de 0,3 s entre ellos) la boca del arma humea
+  1,5 s (más si sigues disparando). Solo se ve: ni los bots ni nadie lo nota.
+- **Aliados**: a menos de 40 m, su silueta azul a través de las paredes (el mismo esqueleto, pintado
+  solo donde algo lo tapa) y su nombre encima (antes, el nombre solo a 22 m); los enemigos, no.
+- **Ajustes → Sombras**: altas (mapa de 4096), bajas (2048) o sin sombras (sin la pasada del sol).
+- **Ajustes → Apuntar**: mantener o alternar (clic derecho y LT).
+- **Sin captura del ratón**: si el navegador no deja capturar el puntero, el ratón mueve la vista
+  igualmente mientras está sobre el juego (antes no se podía mirar), con un aviso una vez y sin la
+  flecha; los botones y la rueda funcionan igual.
+- El medidor de rendimiento pasa de F3 a **M** (una tecla que hay en todos los teclados).
+- El cielo sin la franja oscura del horizonte (las «colinas lejanas»).
+- Prueba: `tools/smoke-pulido.mjs`.
 
 ## Bots de noche (Fase 10.4a)
 
@@ -1015,7 +1037,7 @@ o no la fuente:
 | G | (Campo de pruebas) carga de brecha en la pared que miras |
 | J / K / L | (Campo de pruebas) derribar al compañero / reiniciar el campo / cambiar de arsenal |
 | O | (Campo de pruebas) mira y accesorios de las armas |
-| F3 | Medidor de rendimiento |
+| M | Medidor de rendimiento (antes F3) |
 | P | Depuración: rejilla de navegación, rutas y conos de visión de los bots, su estado y los FPS |
 | Esc | Pausa |
 | Mando | Ver *Mando (Fase 10.5)*: sticks, RT/LT, A/B/X/Y, LB/RB, cruceta, Start y Select |
@@ -1064,6 +1086,7 @@ node tools/equilibrio.mjs [dificultad] [partidas] [semilla] [procesos] [--merode
 node tools/smoke-merodeadores.mjs <carpeta> [html]  # los merodeadores de Élite con P: fuera del sitio y cómo vuelven
 node tools/reaccion-bots.mjs [dificultades] [partidas] [semilla] [procesos]  # partidas solo de bots: desde que un bot ve a un enemigo, cuánto tarda en disparar y en acertar, cuánto gira y su % de acierto
 node tools/smoke-punteria.mjs <carpeta> [html]  # un aliado bot en la calle con P: su etiqueta dice «reacciona», «gira» y «apunta», y dispara después
+node tools/smoke-pulido.mjs [carpeta] [html]  # pulido (F10.4c): pantalla de carga con el plano (A y B solo defendiendo, Espacio la salta), 20 s, humo del cañón, silueta y nombre de un aliado tras una pared, sombras, sin captura del ratón, M y el cielo sin colinas
 node tools/smoke-mando.mjs [carpeta] [html] [--ps]  # mando simulado (Xbox o, con --ps, PlayStation): menús, selección, una ronda entera sin ratón, ▲ y A mantenidas, LT alternando, sensibilidad, vibración, Start/B y el campo de pruebas
 node tools/noche-bots.mjs [partidas=24] [semilla=501] [procesos=4] [dificultad=elite]  # bots de noche: a qué distancia detectan (exteriores, dentro con luz, a oscuras) de día y de noche, y el equilibrio
 node tools/perf-partida.mjs [html...]  # llamadas de dibujo, triángulos y CPU con 10 operadores a la vista (con 5 cayendo y lo que cuesta grabar)

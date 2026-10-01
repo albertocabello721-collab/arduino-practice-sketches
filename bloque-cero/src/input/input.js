@@ -11,7 +11,7 @@ export const BINDINGS = {
   leanLeft: 'KeyQ', leanRight: 'KeyE', vault: 'Space',
   reload: 'KeyR', interact: 'KeyF', gadget: 'KeyG', ability: 'KeyX',
   primary: 'Digit1', secondary: 'Digit2', melee: 'KeyV', drone: 'Digit5', mark: 'KeyT', orders: 'KeyH', fireMode: 'KeyB', inspect: 'KeyI',
-  scoreboard: 'Tab', perf: 'F3', debug: 'KeyP',
+  scoreboard: 'Tab', perf: 'KeyM', debug: 'KeyP',
 };
 
 export class Input {
@@ -25,6 +25,7 @@ export class Input {
     const pad = this.pad = { held: new Set(), left: false, right: false, move: { x: 0, z: 0 }, events: [] };
     this.padActive = false;
     this.padKind = 'xbox';    // y cómo se llaman sus botones ('xbox' o 'ps')
+    this.noLock = false;      // sin captura del ratón (no se pudo): el ratón mueve la vista igual (F10.4)
     // los botones del ratón cuentan también los gatillos del mando (RT dispara, LT apunta)
     this.mouse = { dx: 0, dy: 0, middle: false, wheel: 0, _l: false, _r: false };
     Object.defineProperties(this.mouse, {
@@ -45,14 +46,14 @@ export class Input {
     const ku = (e) => { this.down.delete(e.code); };
     const mm = (e) => {
       if (Math.abs(e.movementX) + Math.abs(e.movementY) > 2) this.padActive = false;
-      if (!this.locked) return;
+      if (!this.locked && !this.noLock) return;
       // algunos navegadores disparan saltos gigantes al capturar el puntero
       if (Math.abs(e.movementX) > 400 || Math.abs(e.movementY) > 400) return;
       this.mouse.dx += e.movementX; this.mouse.dy += e.movementY;
     };
     const md = (e) => {
       this.padActive = false;
-      if (!this.locked) return;
+      if (!this.locked && !this.noLock) return;
       if (e.button === 0) this.mouse.left = true;
       if (e.button === 2) this.mouse.right = true;
       if (e.button === 1) { this.mouse.middle = true; e.preventDefault(); }
@@ -63,14 +64,14 @@ export class Input {
       if (e.button === 2) this.mouse.right = false;
       if (e.button === 1) this.mouse.middle = false;
     };
-    const wh = (e) => { if (this.locked) { this.mouse.wheel += Math.sign(e.deltaY); e.preventDefault(); } };
+    const wh = (e) => { if (this.locked || this.noLock) { this.mouse.wheel += Math.sign(e.deltaY); e.preventDefault(); } };
     window.addEventListener('keydown', kd);
     window.addEventListener('keyup', ku);
     window.addEventListener('mousemove', mm);
     window.addEventListener('mousedown', md);
     window.addEventListener('mouseup', mu);
     window.addEventListener('wheel', wh, { passive: false });
-    window.addEventListener('contextmenu', (e) => { if (this.locked) e.preventDefault(); });
+    window.addEventListener('contextmenu', (e) => { if (this.locked || this.noLock) e.preventDefault(); });
     window.addEventListener('blur', () => { this.down.clear(); this.mouse.left = this.mouse.right = false; });
     document.addEventListener('pointerlockchange', () => {
       this.locked = document.pointerLockElement === this.target;

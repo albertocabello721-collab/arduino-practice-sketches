@@ -11,6 +11,7 @@ uniform vec3 uLightInvSize;
 uniform highp sampler2DShadow uShadowMap;
 uniform mat4 uShadowMatrix;
 uniform float uShadowTexel;
+uniform float uShadowOn;      // 0: sin sombras (Ajustes, F10.4)
 uniform vec3 uSunDir;
 uniform vec3 uSunColor;
 uniform vec3 uSkyColor;
@@ -29,6 +30,7 @@ const float PI = 3.14159265;
 float shadowAt(vec3 wp, vec3 n) {
   // las caras que no miran al sol no reciben luz directa: no hace falta consultar la sombra
   if (dot(n, uSunDir) <= 0.0) return 0.0;
+  if (uShadowOn < 0.5) return 1.0;
   vec4 sc = uShadowMatrix * vec4(wp + n * 0.035, 1.0);
   vec3 p = sc.xyz / sc.w;
   if (p.x < 0.0 || p.x > 1.0 || p.y < 0.0 || p.y > 1.0 || p.z > 1.0) return 1.0;
@@ -241,11 +243,7 @@ void main() {
     c = smoothstep(0.55, 0.85, c) * smoothstep(0.02, 0.25, d.y);
     col = mix(col, uHorizon * 1.25 + uSunColor * 0.1, c * 0.55);
   }
-  // colinas lejanas
-  float ang = atan(d.z, d.x);
-  float hill = 0.035 + vn(vec2(ang * 6.0, 1.0)) * 0.05 + vn(vec2(ang * 17.0, 3.0)) * 0.02;
-  // (de noche, las colinas y el suelo lejano no pueden ser más claros que el cielo)
-  if (d.y < hill) col = mix(min(vec3(0.05, 0.07, 0.06), uHorizon * 0.6), uHorizon * 0.55, smoothstep(-0.02, hill, d.y) * 0.6);
+  // (sin colinas lejanas: F10.4; bajo el horizonte, el suelo lejano, nunca más claro que el cielo)
   if (d.y < 0.0) col = min(vec3(0.04, 0.05, 0.04), uHorizon * 0.5);
   gl_FragColor = vec4(col, 1.0);
 }

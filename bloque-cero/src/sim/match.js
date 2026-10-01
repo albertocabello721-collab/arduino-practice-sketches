@@ -33,7 +33,8 @@ import { Rappel } from './rappel.js';
 import { Abilities } from './abilities.js';
 
 export const RULES = {
-  selectTime: 25,     // selección de operador
+  selectTime: 20,     // selección de operador (F10.4: antes 25)
+  loadTime: 3,        // pantalla de carga con el plano (solo con jugador; Espacio o A la saltan)
   prepTime: 45,       // fase de preparación
   actionTime: 180,    // fase de acción
   plantTime: 7,       // plantar el desactivador
@@ -191,7 +192,7 @@ export class Match extends Emitter {
     const defTeam = this.teamOfSide('def');
     if (!this.slotsOf(defTeam).some((s) => s.human)) this.location = this.rng.int(0, this.map.sites.length - 1);
     this.emit('roundSelect', this.round);
-    if (this.rules.selectTime <= 0) this._beginPrep();
+    if (this.rules.selectTime <= 0) this._beginLoad();
   }
 
   _botPick(slot) {
@@ -247,6 +248,17 @@ export class Match extends Emitter {
     slot.ready = v;
     if (this.slots.every((s) => s.ready)) this.timer = Math.min(this.timer, 0.6);
   }
+
+  // La pantalla de carga (F10.4): 3 s con el plano (la defensa ya sabe dónde defiende); sin jugador, nada.
+  _beginLoad() {
+    if (!this.slots.some((x) => x.human) || this.rules.loadTime <= 0) { this._beginPrep(); return; }
+    if (this.location === null) this.location = this.rng.int(0, this.map.sites.length - 1);
+    this.phase = 'load';
+    this.timer = this.rules.loadTime;
+    this.emit('roundLoad', this.round);
+  }
+  /** Espacio o A en la pantalla de carga: a la preparación ya. */
+  skipLoad() { if (this.phase === 'load') this.timer = 0; }
 
   _beginPrep() {
     // completar lo que falte
@@ -329,6 +341,11 @@ export class Match extends Emitter {
     this.time += dt;
     if (this.phase === 'idle' || this.phase === 'matchEnd') return;
     if (this.phase === 'select') {
+      this.timer -= dt;
+      if (this.timer <= 0) this._beginLoad();
+      return;
+    }
+    if (this.phase === 'load') {
       this.timer -= dt;
       if (this.timer <= 0) this._beginPrep();
       return;

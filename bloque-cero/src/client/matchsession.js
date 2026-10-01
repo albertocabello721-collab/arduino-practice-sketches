@@ -157,7 +157,14 @@ export class MatchSession extends Session {
     const m = this.match, { audio, hud, chars, effects, input, props } = this.ctx;
     const on = (t, f) => this.disposers.push(m.on(t, f));
     const onGame = (t, f) => this.disposers.push(m.game.on(t, f));
+    on('roundLoad', () => {
+      // la pantalla de carga con el plano (F10.4): 3 s, Espacio o A la saltan; el ratón sigue capturado
+      this.ui.hideSelect();
+      hud.show(false);
+      this.ui.showLoad(m, this.mySide());
+    });
     on('roundSelect', () => {
+      this.ui.hideLoad();
       effects.clearAll();
       chars.clear();
       props.clear();
@@ -181,6 +188,7 @@ export class MatchSession extends Session {
     on('selectChanged', () => this.ui.updateSelect(m, true));
     on('roundStart', () => {
       this.ui.hideSelect();
+      this.ui.hideLoad();
       hud.show(true);
       for (const op of m.game.operators) chars.add(op, operatorLook(op.opDef, op.team));
       this.bots.reset();
@@ -297,6 +305,9 @@ export class MatchSession extends Session {
     this.ctx.input.requestLock();   // el clic en «Listo» es el gesto que permite capturar el ratón
   }
   rematch() { this.ctx.app.startMatch(this.opts); }
+  skipLoad() { this.match.skipLoad(); }
+  // los aliados con silueta y nombre (F10.4): los míos; en la repetición de muerte, ninguno
+  get allyTeam() { return this.replay.active ? -1 : this.myTeam; }
   // los avisos con teclas, con los botones del mando si se juega con él (F10.5)
   _t(s) { const I = this.ctx.input; return I.padActive ? padText(s, I.padKind) : s; }
   _prepInfo(html) { this.prepRaw = html; this.ui.setPrepInfo(html ? this._t(html) : null); }
@@ -363,6 +374,8 @@ export class MatchSession extends Session {
   onKey() {
     const { input, audio, hud } = this.ctx;
     const m = this.match, p = this.player;
+    // la pantalla de carga: Espacio (o A) la salta
+    if (m.phase === 'load') { if (input.pressed('vault')) m.skipLoad(); return; }
     // repetición de muerte: Espacio la salta (y no cuenta para nada más)
     if (this.replay.active && input.pressed('vault')) { this._endReplay(); return; }
     // observar: clic o espacio para cambiar de compañero (o de dron en la preparación)
@@ -716,7 +729,7 @@ export class MatchSession extends Session {
       const h = op.rig[BONE.head] ? op.rig[BONE.head].p : op.body.pos;
       if (op.team === 0) {
         if (op === view) continue;
-        const far = Math.hypot(h.x - cam.x, h.z - cam.z) > 22;
+        const far = Math.hypot(h.x - cam.x, h.z - cam.z) > 40;     // (su nombre, a menos de 40 m: F10.4)
         list.push({ x: h.x, y: h.y + 0.45, z: h.z, cls: 'mate' + (op.state === 'downed' ? ' down' : ''), icon: '', label: far && op.state !== 'downed' ? '' : op.name });
       } else if (m.recon.isSpottedFor(op, 0)) {
         list.push({ x: h.x, y: h.y + 0.5, z: h.z, cls: 'spot', icon: '', label: op.name });

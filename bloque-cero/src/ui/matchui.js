@@ -5,6 +5,7 @@ import { OP_BY_ID, opsForSide, GADGETS, ARMOR_SPEED } from '../sim/operators.js'
 import { WEAPONS, SIGHTS, BARRELS, GRIPS, KIT_RULES, normalizeKit, kitDef } from '../sim/weapons.js';
 import { emblemURL } from './emblems.js';
 import { padText } from '../input/gamepad.js';
+import { drawPlan } from './floorplan.js';
 import { INTRO_SECS, CLUTCH_SECS, mvpLine } from '../client/roundflow.js';
 
 const $ = (id) => document.getElementById(id);
@@ -50,6 +51,7 @@ export class MatchUI {
       count: $('countdown'), clutch: $('clutch'), clT: $('cl-t'), clS: $('cl-s'),
       select: $('select'), selRound: $('sel-round'), selSide: $('sel-side'), selScore: $('sel-score'), selTimer: $('sel-timer'), selHint: $('sel-hint'),
       selGrid: $('sel-grid'), selDetail: $('sel-detail'), selChoiceH: $('sel-choice-h'), selChoice: $('sel-choice'), selTeam: $('sel-team'), selReady: $('sel-ready'),
+      load: $('loadscreen'), ldRound: $('ld-round'), ldSide: $('ld-side'), ldPlan: $('ld-plan'), ldNote: $('ld-note'), ldSkip: $('ld-skip'),
       end: $('matchend'), endRes: $('me-res'), endScore: $('me-score'), endMvp: $('me-mvp'), endTable: $('me-table'), endAgain: $('me-again'), endMenu: $('me-menu'),
     };
     // delegación de clics en la selección
@@ -75,13 +77,14 @@ export class MatchUI {
     };
     window.addEventListener('keydown', this._onKey);
     this.el.endAgain.onclick = () => { this.ctx.audio.ui('confirm'); this.s.rematch(); };
+    this.el.ldSkip.onclick = () => { if (this.s.skipLoad) this.s.skipLoad(); };
     this.el.endMenu.onclick = () => { this.ctx.audio.ui('click'); this.s.toMenu(); };
   }
 
   dispose() {
     this.el.select.removeEventListener('click', this._onSelectClick);
     window.removeEventListener('keydown', this._onKey);
-    this.hideSelect(); this.hideBanner(); this.hideMatchEnd(); this.hideRoundFx();
+    this.hideSelect(); this.hideLoad(); this.hideBanner(); this.hideMatchEnd(); this.hideRoundFx();
     this.el.board.classList.add('hidden');
     this.el.markers.innerHTML = '';
     this.markerEls = [];
@@ -373,6 +376,20 @@ export class MatchUI {
     this.el.selReady.disabled = !def;
     this.el.selReady.innerHTML = T(me.ready ? 'Esperando… <small>Intro</small>' : 'Listo <small>Intro</small>');
   }
+
+  // ------------------------------------------------------------------ pantalla de carga (F10.4)
+  showLoad(match, side) {
+    const I = this.ctx.input, T = (s) => (I.padActive ? padText(s, I.padKind) : s);
+    this.el.load.classList.remove('hidden');
+    this.el.ldRound.textContent = `Ronda ${match.round}`;
+    this.el.ldSide.textContent = SIDE_NAME[side];
+    this.el.ldSide.className = `sd ${side}`;
+    const site = side === 'def' && match.location !== null && match.location !== undefined ? this.ctx.map.sites[match.location] : null;
+    drawPlan(this.el.ldPlan, this.ctx.world, this.ctx.map, { side, site });
+    this.el.ldNote.textContent = site ? `Defendéis ${site.name}: las salas A y B, en naranja` : side === 'def' ? '' : 'Localizad el objetivo con los drones';
+    this.el.ldSkip.innerHTML = T('Continuar <small>Espacio</small>');
+  }
+  hideLoad() { this.el.load.classList.add('hidden'); }
 
   // ------------------------------------------------------------------ final
   showMatchEnd(match, e) {

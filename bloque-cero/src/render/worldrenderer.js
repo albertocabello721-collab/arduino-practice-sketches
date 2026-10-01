@@ -169,6 +169,7 @@ export class WorldRenderer {
       uShadowMap: { value: this.shadowTarget.depthTexture },
       uShadowMatrix: { value: this.shadowMatrix },
       uShadowTexel: { value: 1 / this.opts.shadowSize },
+      uShadowOn: { value: 1 },
       uSunDir: { value: this.sunDir },
       uSunColor: { value: new THREE.Vector3(1.95, 1.76, 1.52) },
       uSkyColor: { value: new THREE.Vector3(0.33, 0.41, 0.56) },
@@ -402,7 +403,29 @@ export class WorldRenderer {
     this.shadowTimer -= dt;
   }
 
+  /** Ajustes → Sombras (F10.4): 'altas' (4096), 'bajas' (2048) o 'sin'. */
+  setShadows(mode) {
+    const size = mode === 'bajas' ? 2048 : 4096, on = mode !== 'sin';
+    this.uniforms.uShadowOn.value = on ? 1 : 0;
+    if (size !== this.opts.shadowSize) {
+      this.opts.shadowSize = size;
+      const old = this.shadowTarget;
+      const rt = new THREE.WebGLRenderTarget(size, size, { depthBuffer: true, stencilBuffer: false });
+      const dt = new THREE.DepthTexture(size, size);
+      dt.type = THREE.UnsignedIntType; dt.compareFunction = THREE.LessEqualCompare;
+      dt.minFilter = THREE.LinearFilter; dt.magFilter = THREE.LinearFilter;
+      rt.depthTexture = dt;
+      this.shadowTarget = rt;
+      this.uniforms.uShadowMap.value = dt;
+      this.uniforms.uShadowTexel.value = 1 / size;
+      if (old) old.dispose();
+    }
+    this.shadowDirty = true;
+    this.shadowTimer = 0;
+    return { size, on };
+  }
   renderShadowIfNeeded(force = false) {
+    if (!this.uniforms.uShadowOn.value) return;      // (sin sombras: no hace falta la pasada)
     if (!force && (!this.shadowDirty || this.shadowTimer > 0)) return;
     this.shadowDirty = false;
     this.shadowTimer = 0.2;

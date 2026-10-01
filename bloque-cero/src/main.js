@@ -76,7 +76,8 @@ async function boot() {
   const nav = navFor(world, map);
   await setStep('Calculando la luz…', 0.52);
   const scene = new THREE.Scene();
-  const wr = new WorldRenderer(renderer, scene, world, map, tex, { shadowSize: settings.quality === 'baja' ? 2048 : 4096 });
+  const wr = new WorldRenderer(renderer, scene, world, map, tex, { shadowSize: settings.shadows === 'bajas' ? 2048 : 4096 });
+  if (settings.shadows === 'sin') wr.setShadows('sin');
   await setStep('Mallando la geometría…', 0.66);
   wr.buildAll();
   await setStep('Compilando sombreadores…', 0.86);
@@ -131,7 +132,8 @@ async function boot() {
   let session = null;
   let lockFailed = false;
   let padPaused = false;    // pausa con Start (con el mando no hay ratón capturado que soltar)
-  let padCursor = false;    // (con el mando, sin la flecha del ratón encima del juego)
+  let padCursor = false;    // (con el mando o sin captura, sin la flecha del ratón encima del juego)
+  let noLockNoted = false;  // el aviso del modo sin captura, una vez
   let lowLast = 0;          // (poca vida: el último nivel que se pasó al latido)
   const ctx = {
     THREE, renderer, scene, camera, world, map, nav, wr, effects, lasers, ropes, chars, props, vm, post, audio, input, hud, settings, canvas,
@@ -246,6 +248,7 @@ async function boot() {
   };
   bindSelect('set-quality', 'quality', () => { post.setQuality(settings.quality); renderer.setPixelRatio(pixelRatio()); resize(); });
   bindSelect('set-ads', 'adsMode');
+  bindSelect('set-shadows', 'shadows', () => wr.setShadows(settings.shadows));
   bindSelect('qm-side', 'startSide');
   bindSelect('qm-diff', 'difficulty');
   bindSelect('qm-time', 'timeOfDay', () => wr.setTimeOfDay(settings.timeOfDay));
@@ -276,6 +279,7 @@ async function boot() {
   };
   // los menús que se pueden mover con el mando: dónde empieza el foco, qué hace B y qué hace Start
   const uiRoots = [
+    { el: $('loadscreen'), first: '#ld-skip', start: () => { if (session && session.skipLoad) session.skipLoad(); } },
     { el: $('kitpanel'), first: '[data-act="kit"]', back: () => { if (session && session.closeKit) session.closeKit(); } },
     { el: $('select'), first: ['.opc.sel', '.opc'], start: () => { if (session && session.ready) session.ready(); } },
     { el: $('matchend'), first: '#me-again', back: () => $('me-menu').click() },
@@ -364,7 +368,11 @@ async function boot() {
     const ts = s && s.slowmo ? s.slowmo.step(paused ? 0 : dt) : 1, gdt = dt * ts;
     ctx.timeScale = ts;
     hud.padMode = input.padActive; hud.padKind = input.padKind;
-    if (padCursor !== input.padActive) { padCursor = input.padActive; document.body.style.cursor = padCursor ? 'none' : ''; }
+    // sin captura del ratón (F10.4): el ratón mueve la vista sobre el juego igualmente (se avisa una vez)
+    input.noLock = lockFailed && !!s && s.wantsPointer && !input.padActive;
+    if (input.noLock && !noLockNoted) { noLockNoted = true; hud.toast('Sin captura del ratón: mueve el ratón sobre el juego para mirar', 4); }
+    const hideCursor = input.padActive || input.noLock;
+    if (padCursor !== hideCursor) { padCursor = hideCursor; document.body.style.cursor = padCursor ? 'none' : ''; }
     const PN = PAD_NAMES[input.padKind] || PAD_NAMES.xbox;
     hud.pause(paused, padPaused && input.padActive ? `Pausa · ${PN.Start} para seguir · ${PN.B}: menú principal` : null);
     let mouse = { dx: 0, dy: 0 };
@@ -455,7 +463,7 @@ async function boot() {
     const thermal = !!v && thermalOn(v);
     chars.setHeat(thermal, v ? v.team : 0, THERMAL_SCOPE.range, camera.position);
     effects.setThermal(thermal);
-    chars.update(paused ? 0 : gdt, v, camera.position);      // (en pausa, los que caen se quedan quietos)
+    chars.update(paused ? 0 : gdt, v, camera.position, s && s.allyTeam !== undefined ? s.allyTeam : -1);      // (en pausa, los que caen se quedan quietos)
     // los láseres encendidos (en la repetición de muerte, ninguno: serían los de ahora)
     const LG = s && s.game;
     lasers.update(LG ? LG.operators : [], world, LG ? LG.time : 0, v, camera, !!(s && s.replay && s.replay.active));

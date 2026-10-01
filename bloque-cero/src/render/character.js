@@ -390,6 +390,13 @@ void main() {
   gl_Position = projectionMatrix * viewMatrix * wp;
 }
 `;
+// la silueta de un aliado tras una pared (F10.4): el mismo esqueleto, plano, solo donde algo lo tapa
+const SIL_FRAG = /* glsl */ `
+precision highp float;
+out vec4 fragColor;
+void main() { fragColor = vec4(0.30, 0.62, 1.0, 0.55); }
+`;
+
 const CHAR_FRAG = /* glsl */ `
 precision highp float;
 precision highp sampler3D;
@@ -518,7 +525,7 @@ export class CharacterRenderer {
         uBones: { value: new Float32Array(BONE_COUNT * 16) },
         uCamo: { value: this.camo }, uHit: { value: 0 }, uDim: { value: 1 }, uHeat: { value: 0 },
         uLight: U.uLight, uLightMin: U.uLightMin, uLightInvSize: U.uLightInvSize,
-        uShadowMap: U.uShadowMap, uShadowMatrix: U.uShadowMatrix, uShadowTexel: U.uShadowTexel,
+        uShadowMap: U.uShadowMap, uShadowMatrix: U.uShadowMatrix, uShadowTexel: U.uShadowTexel, uShadowOn: U.uShadowOn,
         uSunDir: U.uSunDir, uSunColor: U.uSunColor, uSkyColor: U.uSkyColor, uGroundColor: U.uGroundColor,
         uWarmColor: U.uWarmColor, uCoolColor: U.uCoolColor, uFogColor: U.uFogColor, uFogDensity: U.uFogDensity,
         uDynPos: U.uDynPos, uDynCol: U.uDynCol, uDynCount: U.uDynCount, uAmbientMin: U.uAmbientMin,
@@ -532,15 +539,22 @@ export class CharacterRenderer {
     const mesh = new THREE.Mesh(geo, this._material());
     mesh.frustumCulled = false;
     this.scene.add(mesh);
+    const sil = new THREE.Mesh(geo, new THREE.RawShaderMaterial({
+      glslVersion: THREE.GLSL3, vertexShader: CHAR_VERT, fragmentShader: SIL_FRAG,
+      uniforms: { uBones: mesh.material.uniforms.uBones },      // (los mismos huesos)
+      transparent: true, depthWrite: false, depthFunc: THREE.GreaterDepth,
+    }));
+    sil.frustumCulled = false; sil.renderOrder = 12; sil.visible = false;
+    this.scene.add(sil);
     const M = MAG_3P[magKind(models[0])];
-    const view = { op, mesh, look, hit: 0, prim: 0, sling: geo.userData.sling, magAt: M ? M.at : null, backZ: geo.userData.backZ, gunBox: geo.userData.gunBox, rag: null, impulse: null };
+    const view = { op, mesh, sil, look, hit: 0, prim: 0, sling: geo.userData.sling, magAt: M ? M.at : null, backZ: geo.userData.backZ, gunBox: geo.userData.gunBox, rag: null, impulse: null };
     this.views.set(op.id, view);
     return view;
   }
   remove(op) {
     const v = this.views.get(op.id);
     if (!v) return;
-    this.scene.remove(v.mesh); v.mesh.geometry.dispose(); v.mesh.material.dispose();
+    this.scene.remove(v.mesh); this.scene.remove(v.sil); v.mesh.geometry.dispose(); v.mesh.material.dispose(); v.sil.material.dispose();
     this.views.delete(op.id);
   }
   clear() { for (const v of [...this.views.values()]) this.remove(v.op); }
@@ -605,13 +619,16 @@ export class CharacterRenderer {
     if (state === 2) for (const i of [0, 1, 2, 4, 5, 6, 8, 9, 10]) bones[m + i] = 0;   // fuera: sin tamaño
   }
 
-  update(dt, localOp, camPos) {
+  /** `allyTeam` (F10.4): los aliados de ese equipo a menos de 40 m llevan su silueta azul tras las paredes. */
+  update(dt, localOp, camPos, allyTeam = -1) {
     let nb = 0;
     for (const v of this.views.values()) {
       const op = v.op;
       // el operador propio no se dibuja; los atacantes en preparación aún no están en el mapa
       const hidden = op === localOp || op.frozen;
       v.mesh.visible = !hidden;
+      v.sil.visible = !hidden && allyTeam >= 0 && op.team === allyTeam && op.state !== 'dead' && !!camPos &&
+        Math.hypot(op.body.pos.x - camPos.x, op.body.pos.y + 0.9 - camPos.y, op.body.pos.z - camPos.z) <= 40;
       const bones = v.mesh.material.uniforms.uBones.value;
       // muerto: cae con física por partes (ragdoll.js) y, quieto, sus huesos ya no cambian
       if (op.state !== 'dead') v.rag = null;
@@ -621,7 +638,7 @@ export class CharacterRenderer {
           v.rag.write(bones);
           this._slots(v, bones);
           v.ragDrawn = true;
-          v.mesh.material.uniformsNeedUpdate = true;
+          v.mesh.material.uniformsNeedUpdate = true; v.sil.material.uniformsNeedUpdate = true;
         }
       } else {
         // reutiliza la pose que la simulación ya calculó este tick (misma que las zonas de impacto)
@@ -633,7 +650,7 @@ export class CharacterRenderer {
           if (k > 0) for (const [b, w] of JOLT_BONES) { const o = b * 16; bones[o + 12] += J.x * k * w; bones[o + 14] += J.z * k * w; }
         }
         this._slots(v, bones);
-        v.mesh.material.uniformsNeedUpdate = true;
+        v.mesh.material.uniformsNeedUpdate = true; v.sil.material.uniformsNeedUpdate = true;
       }
       v.hit = Math.max(0, v.hit - dt * 5);
       v.mesh.material.uniforms.uHit.value = v.hit;
