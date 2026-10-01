@@ -131,6 +131,7 @@ async function boot() {
   let session = null;
   let lockFailed = false;
   let padPaused = false;    // pausa con Start (con el mando no hay ratón capturado que soltar)
+  let padCursor = false;    // (con el mando, sin la flecha del ratón encima del juego)
   let lowLast = 0;          // (poca vida: el último nivel que se pasó al latido)
   const ctx = {
     THREE, renderer, scene, camera, world, map, nav, wr, effects, lasers, ropes, chars, props, vm, post, audio, input, hud, settings, canvas,
@@ -349,6 +350,7 @@ async function boot() {
     const ts = s && s.slowmo ? s.slowmo.step(paused ? 0 : dt) : 1, gdt = dt * ts;
     ctx.timeScale = ts;
     hud.padMode = input.padActive;
+    if (padCursor !== input.padActive) { padCursor = input.padActive; document.body.style.cursor = padCursor ? 'none' : ''; }
     hud.pause(paused, padPaused && input.padActive ? 'Pausa · Start para seguir · B: menú principal' : null);
     let mouse = { dx: 0, dy: 0 };
     if (s) {

@@ -28,7 +28,7 @@ Es un único archivo HTML autónomo: no necesita servidor ni conexión.
 Se juega entero con un mando Xbox, PlayStation o compatible (el mapeo estándar del navegador):
 menús, selección de operador, partida y campo de pruebas. Al tocarlo aparece «Mando conectado» y
 desde entonces manda él; al tocar el teclado o el ratón, vuelven ellos. Con el mando no hace falta
-capturar el ratón. Botones, como Siege en consola:
+capturar el ratón (y no se ve la flecha). Botones, como Siege en consola:
 
 | Mando | Acción |
 | --- | --- |
@@ -61,6 +61,9 @@ capturar el ratón. Botones, como Siege en consola:
   y el ratón (teclas virtuales, clics y píxeles de ratón), así que las sesiones, la rueda de órdenes,
   el dron y las cámaras no cambian; el stick izquierdo se suma analógico al WASD. Sin mando, la
   entrada es la de siempre.
+- Rendimiento: lo mismo que antes (`tools/perf-partida.mjs`, esta versión frente a la F12.5: 375
+  llamadas de dibujo y 169k triángulos las dos, y el mismo coste de CPU de personajes, arma, poses y
+  tick); leer el mando y mover el foco de los menús no se nota.
 - Probado con un mando simulado en el navegador (`tools/smoke-mando.mjs`): una ronda entera sin
   tocar el ratón (menú → selección → dron → mover, correr, mirar, disparar, apuntar, recargar,
   posturas, arma, gadget, habilidad, rappel, marcar, órdenes, marcador, dron → fin de ronda),
