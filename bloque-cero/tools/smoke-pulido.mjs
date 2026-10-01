@@ -192,7 +192,8 @@ await frames(2);
 check(m1.perf === true && m1.check === true && m2 === true && (await P(() => window.__bc.settings.showPerf)) === false, 'M enseña y esconde el medidor (F3 ya no)');
 const sky = await P(() => ({ hill: /hill/.test(window.__bc.wr.sky.material.fragmentShader), shadowOn: window.__bc.wr.uniforms.uShadowOn.value }));
 check(!sky.hill, 'el cielo sin la franja de colinas');
-await P(() => { window.__bc.place(20, 0, -14, 0, 0.06); window.__step(1 / 60); });
+// (desde la calle, mirando al este a lo largo de ella, un poco hacia arriba: el horizonte al fondo)
+await P(() => { window.__bc.place(2, 0, -12, -Math.PI / 2, 0.12); window.__step(1 / 60); });
 await frames(4);
 await shot('f104_06_horizonte');
 

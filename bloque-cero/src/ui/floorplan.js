@@ -16,16 +16,19 @@ export function drawPlan(canvas, world, map, { side = 'atk', site = null } = {})
   const colW = (W - pad * (keys.length + 1)) / keys.length;
   const c = canvas.getContext('2d');
   c.clearRect(0, 0, W, H);
-  // la caja de la casa: todas las salas, con un metro de margen
-  let x0 = Infinity, x1 = -Infinity, z0 = Infinity, z1 = -Infinity;
-  for (const r of map.rooms) { x0 = Math.min(x0, r.x0); x1 = Math.max(x1, r.x1); z0 = Math.min(z0, r.z0); z1 = Math.max(z1, r.z1); }
-  x0 -= 1; x1 += 1; z0 -= 1; z1 += 1;
-  const scale = Math.min(colW / (x1 - x0), (H - pad * 2 - titleH) / (z1 - z0));
-  const planW = (x1 - x0) * scale, planH = (z1 - z0) * scale, cell = STEP * scale;
+  // la caja de la casa (todas las salas, con un metro de margen) da la escala; cada planta se dibuja
+  // solo alrededor de sus salas (el sótano es más pequeño y lo de alrededor es tierra)
+  const box = (rooms) => { let x0 = Infinity, x1 = -Infinity, z0 = Infinity, z1 = -Infinity; for (const r of rooms) { x0 = Math.min(x0, r.x0); x1 = Math.max(x1, r.x1); z0 = Math.min(z0, r.z0); z1 = Math.max(z1, r.z1); } return { x0: x0 - 1, x1: x1 + 1, z0: z0 - 1, z1: z1 + 1 }; };
+  const all = box(map.rooms);
+  const scale = Math.min(colW / (all.x1 - all.x0), (H - pad * 2 - titleH) / (all.z1 - all.z0));
+  const cell = STEP * scale;
   const showSite = side === 'def' && !!site;
   keys.forEach((k, i) => {
     const L = levels[k];
-    const ox = pad + i * (colW + pad) + (colW - planW) / 2, oy = pad + titleH;
+    const rooms = map.rooms.filter((r) => r.level === k);
+    const { x0, x1, z0, z1 } = rooms.length ? box(rooms) : all;
+    const planW = (x1 - x0) * scale, planH = (z1 - z0) * scale;
+    const ox = pad + i * (colW + pad) + (colW - planW) / 2, oy = pad + titleH + ((all.z1 - all.z0) * scale - planH) / 2;
     const px = (x) => ox + (x - x0) * scale, pz = (z) => oy + (z - z0) * scale;
     // el título de la planta
     c.fillStyle = showSite && site.level === k ? '#f0892b' : '#cfd6dd';
