@@ -47,7 +47,8 @@ check(sel.rules === 20 && /^0:(20|19)$/.test(sel.timer), `la selección dura 20 
 await page.click('#sel-grid .opc:nth-child(1)');
 await page.click('#sel-ready');
 await page.waitForFunction(() => window.__bc.match.phase === 'load', null, { timeout: 30000 });
-await frames(3);
+const loadWall = Date.now();
+// (el plano se dibuja en el mismo tick en que empieza la fase: se lee ya, sin esperar fotogramas)
 const ld = await P(() => {
   const bc = window.__bc, m = bc.match, cv = document.getElementById('ld-plan'), c = cv.getContext('2d');
   const d = c.getImageData(0, 0, cv.width, cv.height).data;
@@ -60,10 +61,12 @@ console.log('  defensa:', JSON.stringify(ld));
 check(ld.visible && ld.lado === 'Defensa' && ld.hud, 'defendiendo: la pantalla de carga con el plano (y el HUD escondido)');
 check(ld.pared > 2000, `el plano tiene paredes (${ld.pared} píxeles)`);
 check(ld.naranja > 300 && /Defendéis/.test(ld.nota), `defendiendo se ven A y B en naranja (${ld.naranja} píxeles · «${ld.nota}»)`);
-check(ld.timer > 2 && ld.timer <= 3 && !ld.paused, 'dura 3 s y no está en pausa');
+check(ld.timer > 0 && ld.timer <= 3 && !ld.paused, `dura 3 s (quedan ${ld.timer}) y no está en pausa`);
 await page.waitForFunction(() => window.__bc.match.phase === 'prep', null, { timeout: 150000 });
+// (dura 3 s de juego o 3 s de reloj, lo que antes llegue: en esta máquina lenta, los de reloj)
 const auto = await P((t0) => ({ dt: +(window.__bc.match.time - t0).toFixed(2), hidden: document.getElementById('loadscreen').classList.contains('hidden') }), ld.t0);
-check(auto.dt >= 2.5 && auto.dt < 4.5 && auto.hidden, `sin tocar nada, pasa sola a los 3 s (${auto.dt} s) y se esconde`);
+auto.wall = +((Date.now() - loadWall) / 1000).toFixed(1);
+check(auto.dt <= 3.3 && auto.wall >= 2.5 && auto.hidden, `sin tocar nada, pasa sola a los 3 s (${auto.dt} s de juego, ${auto.wall} s de reloj) y se esconde`);
 // ---------------------------------------------------------------- atacando: sin A ni B, y Espacio la salta
 await P(() => window.__bc.toMenu());
 await page.waitForFunction(() => window.__bc.state.mode === 'menu');

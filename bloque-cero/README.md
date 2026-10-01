@@ -31,7 +31,8 @@ Lo pequeño que faltaba del documento, con las diferencias a propósito como est
   dibujado del mundo de vóxeles: `src/ui/floorplan.js`) con el nombre de cada sala; defendiendo, las
   salas A y B en naranja y sus dos puntos (el ataque ve el mismo plano sin el objetivo). Espacio o A
   la saltan; es una fase de la partida (`load`, solo con jugador: las herramientas de bots no la
-  tienen). La selección de operador dura **20 s** (antes 25).
+  tienen) y, como los 0,6 s tras «Listo», cuenta también en tiempo real: en una máquina lenta no
+  dura más de lo que dice. La selección de operador dura **20 s** (antes 25).
 - **Humo del cañón**: tras 8 disparos seguidos (menos de 0,3 s entre ellos) la boca del arma humea
   1,5 s (más si sigues disparando). Solo se ve: ni los bots ni nadie lo nota.
 - **Aliados**: a menos de 40 m, su silueta azul a través de las paredes (el mismo esqueleto, pintado
