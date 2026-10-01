@@ -44,6 +44,10 @@ Lo pequeño que faltaba del documento, con las diferencias a propósito como est
   flecha; los botones y la rueda funcionan igual.
 - El medidor de rendimiento pasa de F3 a **M** (una tecla que hay en todos los teclados).
 - El cielo sin la franja oscura del horizonte (las «colinas lejanas»).
+- Rendimiento: lo mismo que la F12.5 (`tools/perf-partida.mjs`: 375 llamadas de dibujo y 169k
+  triángulos las dos versiones; el coste de CPU de personajes, arma, poses y tick, dentro del ruido).
+  Las siluetas de los aliados son una malla más por aliado (solo donde algo lo tapa) y el humo del
+  cañón, partículas de polvo de las de siempre.
 - Prueba: `tools/smoke-pulido.mjs`.
 
 ## Bots de noche (Fase 10.4a)
