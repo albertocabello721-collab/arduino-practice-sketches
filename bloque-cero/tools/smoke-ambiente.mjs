@@ -28,7 +28,8 @@ const SCENE = [0.34, 0.14, 0.97, 0.62];
 // una captura justo después de pintar (si la escena sale negra, que en esta máquina pasa a veces, otra)
 const shotOf = async (name) => {
   let b = null;
-  for (let i = 0; i < 4; i++) { await frames(3); b = await page.screenshot({ path: path.join(out, name) }); if (meanLuma(b, SCENE) > 12) break; }
+  // (de noche la calle mide ~90; una captura negra, menos de 40)
+  for (let i = 0; i < 5; i++) { await frames(3); b = await page.screenshot({ path: path.join(out, name) }); if (meanLuma(b, SCENE) > 40) break; }
   return b;
 };
 // esperar `sec` s del reloj del audio (que aquí, sin tarjeta de sonido, va más lento que el de pared)

@@ -33,30 +33,35 @@ const now = () => page.evaluate(() => {
   if (!M) return null;
   return { modo: M.mode, k: +M.k.toFixed(3), capa: M.mode ? +M.layers[M.mode].gain.value.toFixed(2) : 0, pasos: M.step, pulsos: M.beats };
 });
-// lo que sale de verdad por el bus de la música (dB, el trozo más fuerte en `ms`): un analizador
-// colgado de él (la ganancia de una capa sin notas no se recalcula, así que no sirve para el silencio)
-// (se mide durante \`sec\` s del reloj del audio, que en esta máquina sin sonido va más lento que el de pared)
-const level = (sec = 1.5) => page.evaluate(async (sec) => {
-  const a = window.__bc.audio;
-  if (!window.__an) { const an = a.ctx.createAnalyser(); an.fftSize = 2048; a.musicOut.connect(an); window.__an = an; }
-  const buf = new Float32Array(2048);
+// Lo que suena de verdad en cada modo (dB, el trozo de 43 ms más fuerte a partir de 0,5 s): el mismo
+// motor de audio del juego renderizado en un OfflineAudioContext, llamado como lo llama el juego (un
+// «fotograma» cada 50 ms), sin depender de los FPS ni del reloj del audio de esta máquina (F10.4).
+// `o.stinger`: además, ese remate al principio.
+const level = (mode, k = 0, o = {}) => page.evaluate(async ({ mode, k, o }) => {
+  const Engine = window.__bc.audio.constructor, RATE = 48000, LEN = o.secs || 4;
+  const AC = window.AudioContext;
+  window.AudioContext = function () { return new OfflineAudioContext(2, Math.round(RATE * LEN), RATE); };
+  let a;
+  try { a = new Engine(); a.init(); } finally { window.AudioContext = AC; }
+  a.setVolume(0.8); a.setVolumes({ sfx: 1, music: 1, voice: 1 });
+  a.setListener({ x: 0, y: 1.6, z: 0 }, { x: 0, y: 0, z: -1 }, { x: 0, y: 1, z: 0 });
+  const ctx = a.ctx;
+  let first = true;
+  const frame = () => { if (first) { first = false; if (o.stinger) a.stinger(o.stinger); } a.music(mode, k); };
+  for (let t = 0.05; t < LEN - 0.05; t += 0.05) ctx.suspend(t).then(() => { frame(); ctx.resume(); });
+  frame();
+  const buf = await ctx.startRendering();
+  const L = buf.getChannelData(0), R = buf.getChannelData(1), W = 2048, from = Math.round(RATE * (o.from ?? 0.5));
   let best = 0;
-  const t0 = a.ctx.currentTime, w0 = performance.now();
-  while (a.ctx.currentTime - t0 < sec && performance.now() - w0 < 20000) {
-    window.__an.getFloatTimeDomainData(buf);
-    let e = 0;
-    for (const v of buf) e += v * v;
-    best = Math.max(best, e / buf.length);
-    await new Promise((r) => setTimeout(r, 30));
-  }
+  for (let s = from; s + W <= L.length; s += W / 2) { let e = 0; for (let i = 0; i < W; i++) { const v = (L[s + i] + R[s + i]) * 0.5; e += v * v; } best = Math.max(best, e / W); }
   return +(10 * Math.log10(best + 1e-20)).toFixed(1);
-}, sec);
+}, { mode, k, o });
 
 // ---------------- menú: el primer clic arranca el audio y suena la música del menú
 await page.mouse.click(5, 5);
 await frames(4); await wait(2500);
 const menu = await now();
-menu.nivel = await level();
+menu.nivel = await level('menu', 0);
 console.log('menú:', JSON.stringify(menu));
 check(menu && menu.modo === 'menu' && menu.capa > 0.1 && menu.pasos > 0 && menu.nivel > -50, 'no suena la música del menú');
 
@@ -112,7 +117,7 @@ await page.evaluate(() => {
 });
 await frames(4); await wait(1500);
 const prep = await now();
-prep.nivel = await level();
+prep.nivel = await level('prep', 0);
 console.log('selección:', JSON.stringify(sel), '· preparación:', JSON.stringify(prep));
 check(sel && sel.modo === 'menu', 'en la selección no suena la del menú');
 check(prep.modo === 'prep' && prep.capa > 0.1 && prep.pasos > 0 && prep.nivel > -55, 'en la preparación no suena la percusión');
@@ -121,7 +126,7 @@ check(prep.modo === 'prep' && prep.capa > 0.1 && prep.pasos > 0 && prep.nivel > 
 await page.evaluate(() => window.__run(60, () => window.__bc.match.phase === 'action'));
 await frames(4); await wait(2000);
 const accion = await now();
-accion.nivel = await level();
+accion.nivel = await level('', 0);
 const golpe = await page.evaluate(() => {
   const bc = window.__bc, g = bc.match.game, p = bc.player;
   const foes = bc.match.opsOfSide('def').filter((o) => o.state === 'alive');
@@ -131,7 +136,7 @@ const golpe = await page.evaluate(() => {
   window.__run(0.5);
   return window.__stings.slice();
 });
-const golpeNivel = await level(0.5);
+const golpeNivel = await level('', 0, { stinger: 'contact', from: 0, secs: 2 });
 console.log('acción:', JSON.stringify(accion), '· remates al herir a dos:', JSON.stringify(golpe), golpeNivel, 'dB');
 check(golpeNivel > -45, 'el golpe del contacto no se oye');
 check(accion.modo === '' && accion.nivel < -90, 'la acción no está en silencio');
@@ -141,7 +146,7 @@ check(golpe.join() === 'contact', 'el primer contacto no da un golpe (y solo uno
 await page.evaluate(() => { window.__bc.match.timer = 25; window.__run(0.1); });
 await frames(4); await wait(1500);
 const tension = await now();
-tension.nivel = await level();
+tension.nivel = await level('tension', +(1 - 24.9 / 30).toFixed(3));
 console.log('últimos 30 s:', JSON.stringify(tension));
 check(tension.modo === 'tension' && tension.capa > 0.1 && tension.nivel > -55 && Math.abs(tension.k - (1 - 24.9 / 30)) < 0.02, 'los últimos 30 s no suenan a tensión');
 
@@ -183,7 +188,7 @@ const fin = await page.evaluate(() => {
 });
 await frames(4); await wait(4500);
 const tras = await now();
-tras.nivel = await level();
+tras.nivel = await level('', 0);
 console.log('fin de ronda:', JSON.stringify(fin), JSON.stringify(tras));
 check(fin.fase === 'roundEnd' && fin.remates.length === 1 && (fin.remates[0] === 'win' || fin.remates[0] === 'lose'), 'al acabar la ronda no suena la victoria o la derrota');
 check(tras.modo === '' && tras.nivel < -80, 'tras la ronda no se calla la música');

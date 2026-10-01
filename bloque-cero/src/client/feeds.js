@@ -125,7 +125,7 @@ export class FeedController {
       keys = `A/D cambiar de cámara · Clic/T marcar · 5 ${info.dead ? 'observar' : 'volver'}`;
     }
     if (info.objective !== undefined) status = info.objective;
-    if (input.padActive) keys = padText(keys);     // (con el mando, sus botones)
+    if (input.padActive) keys = padText(keys, input.padKind);     // (con el mando, sus botones)
     this._set('t', this.el.title, title, true);
     this._set('s', this.el.sub, sub, true);
     this._set('k', this.el.keys, keys, true);

@@ -22,8 +22,9 @@ export class HUD {
     this.toastT = 0;
     this.hitT = 0;
     this.padMode = false;     // jugando con el mando: los avisos nombran sus botones (F10.5)
+    this.padKind = 'xbox';    // ('xbox' o 'ps': cómo se llaman)
   }
-  _t(s) { return this.padMode ? padText(s) : s; }
+  _t(s) { return this.padMode ? padText(s, this.padKind) : s; }
   // Modo de la barra superior y de la ayuda: 'range' (campo de pruebas) o 'match'.
   setMode(mode) {
     this.mode = mode;
@@ -33,7 +34,7 @@ export class HUD {
     this.el.feed.innerHTML = '';
   }
   _hintsHtml() {
-    const h = document.getElementById('hints'), key = `${this.mode}${this.padMode ? '/mando' : ''}`;
+    const h = document.getElementById('hints'), key = `${this.mode}${this.padMode ? '/' + this.padKind : ''}`;
     if (h.dataset.mode !== key) { h.dataset.mode = key; h.innerHTML = this._t(this.mode === 'range' ? RANGE_HINTS : MATCH_HINTS); }
   }
   hints(v) {

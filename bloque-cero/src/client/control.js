@@ -1,6 +1,8 @@
 // Teclado y ratón → intenciones del operador del jugador (común a todas las sesiones). El mando
 // (F10.5) llega por la misma entrada; aquí solo se añade lo suyo: el stick izquierdo (analógico) y
-// B (agacharse; mantener: tumbarse) e Y (cambiar de arma), que no son teclas.
+// B (agacharse; mantener: tumbarse) e Y (cambiar de arma), que no son teclas; y A mantenida inspecciona
+// solo si al pulsarla no hizo nada (ni salto, ni rappel, ni ventana: la simulación cuenta sus acciones).
+// Apuntar (clic derecho o LT) se mantiene o alterna, según Ajustes (F10.4).
 import { clamp } from '../core/math.js';
 import { scopeZoom } from '../sim/abilities.js';
 
@@ -10,8 +12,11 @@ export class PlayerControl {
     this.stance = 'stand';
     this.lean = 0;
     this.padCrouch = false;    // agachado con el mando (con C «mantener», que no lo levante soltar C)
+    this.vaultSeq = -1;        // las acciones del operador cuando se pulsó saltar (A mantenida: inspeccionar si no hubo ninguna)
+    this.adsLatch = false;     // apuntando, con «apuntar: alternar»
+    this.rWas = false; this.wIdx = -1;
   }
-  reset(stance = 'stand') { this.stance = stance; this.lean = 0; this.padCrouch = false; }
+  reset(stance = 'stand') { this.stance = stance; this.lean = 0; this.padCrouch = false; this.adsLatch = false; this.rWas = false; }
 
   /**
    * Lee la entrada y escribe las intenciones de `op`. Si `active` es falso, deja el
@@ -47,7 +52,15 @@ export class PlayerControl {
     } else this.lean = (input.isDown('leanRight') ? 1 : 0) - (input.isDown('leanLeft') ? 1 : 0);
     I.lean = this.lean;
     I.fire = input.mouse.left;
-    I.ads = input.mouse.right;
+    // apuntar: mantener (lo de siempre) o alternar (cada pulsación cambia; correr o cambiar de arma lo quita)
+    const r = input.mouse.right;
+    if (settings.adsMode === 'toggle') {
+      if (r && !this.rWas) this.adsLatch = !this.adsLatch;
+      if (this.wIdx !== op.weaponIndex) { if (this.wIdx >= 0) this.adsLatch = false; this.wIdx = op.weaponIndex; }
+      if (I.sprint && I.moveZ > 0) this.adsLatch = false;
+      I.ads = this.adsLatch;
+    } else { I.ads = r; this.adsLatch = false; }
+    this.rWas = r;
     if (input.pressed('reload')) I.reload = true;
     if (input.pressed('melee')) I.melee = true;
     if (input.pressed('fireMode')) I.fireMode = true;
@@ -56,7 +69,8 @@ export class PlayerControl {
     // habilidad del operador (X); la de PULGA (ir a su dron de choque) la lleva la vista de la partida
     if (op.ability && op.ability.id !== 'shockdrone' && input.pressed('ability')) I.ability = true;
     I.abilityHeld = input.isDown('ability');     // (mantener X: activar el gas de TIZÓN)
-    if (input.pressed('vault')) I.vault = true;
+    if (input.pressed('vault')) { I.vault = true; this.vaultSeq = op.actionSeq || 0; }
+    if (input.padEvent('inspect') && (op.actionSeq || 0) === this.vaultSeq) I.inspect = true;   // (A mantenida sin nada que hacer)
     if (input.pressed('primary')) I.switchTo = 0;
     if (input.pressed('secondary')) I.switchTo = 1;
     const m = input.consumeMouse();

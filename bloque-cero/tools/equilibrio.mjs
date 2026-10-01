@@ -6,6 +6,7 @@
 //   --brecha           vuelven también al oír una brecha del ataque en el sitio
 //   --cerca            no se alejan más de una sala del sitio (ni para cazar)
 //   --semillas         además, el resultado de cada partida (para comparar dos versiones)
+//   --hora H           dia (la de siempre), atardecer o noche: los bots ven menos a oscuras (F10.4)
 // Ejemplo: node tools/equilibrio.mjs elite 160 101 4 --merodeadores 2 --cerca
 import { fork } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
@@ -13,7 +14,7 @@ import { fileURLToPath } from 'node:url';
 const args = process.argv.slice(2);
 const flag = (k) => args.includes(k);
 const opt = (k) => { const i = args.indexOf(k); return i >= 0 ? args[i + 1] : undefined; };
-const pos = args.filter((a, i) => !a.startsWith('--') && !(i > 0 && ['--merodeadores', '--vuelta', '--hijo'].includes(args[i - 1])));
+const pos = args.filter((a, i) => !a.startsWith('--') && !(i > 0 && ['--merodeadores', '--vuelta', '--hijo', '--hora'].includes(args[i - 1])));
 const diff = pos[0] || 'elite', total = +(pos[1] || 160), first = +(pos[2] || 101), procs = Math.max(1, +(pos[3] || 4));
 
 // ---------------------------------------------------------------- hijo: juega sus semillas
@@ -23,6 +24,7 @@ if (flag('--hijo')) {
   const { Match } = await import('../src/sim/match.js');
   const { BotSquad, navFor, DIFFICULTY } = await import('../src/sim/bots.js');
   const { TICK } = await import('../src/sim/game.js');
+  const { BotLight } = await import('../src/sim/light.js');
   const D = DIFFICULTY[diff];
   if (opt('--merodeadores') !== undefined) D.roamers = +opt('--merodeadores');
   if (opt('--vuelta') !== undefined) D.roamBack = +opt('--vuelta');
@@ -31,9 +33,10 @@ if (flag('--hijo')) {
   const world = createVillaWorld();
   const map = buildVilla(world);
   const nav = navFor(world, map);
+  const hora = opt('--hora') || 'dia', light = hora === 'dia' ? null : BotLight.build(world, map, hora);
   const out = { rounds: 0, atk: 0, reasons: {}, seeds: [] };
   for (let seed = a; seed <= b; seed++) {
-    const m = new Match({ world, map, seed, rules: { selectTime: 0, roundEndTime: 0.2 }, human: false });
+    const m = new Match({ world, map, seed, rules: { selectTime: 0, roundEndTime: 0.2 }, human: false, timeOfDay: hora, light });
     const bots = new BotSquad(m, diff, { nav });
     m.on('roundStart', () => bots.reset());
     const res = [];

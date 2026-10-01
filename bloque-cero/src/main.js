@@ -13,7 +13,7 @@ import { PostFX } from './render/postfx.js';
 import { AudioEngine } from './audio/audio.js';
 import { Hearing } from './client/hearing.js';
 import { Input } from './input/input.js';
-import { Gamepad, padText } from './input/gamepad.js';
+import { Gamepad, padText, padWords, PAD_NAMES } from './input/gamepad.js';
 import { PadNav } from './input/padnav.js';
 import { HUD } from './ui/hud.js';
 import { loadSettings, saveSettings } from './core/settings.js';
@@ -193,7 +193,7 @@ async function boot() {
       wr.setTimeOfDay(opts.timeOfDay || settings.timeOfDay);
       setSession(null);
       enterPlay();
-      setSession(() => new MatchSession(ctx, { startSide, difficulty: opts.difficulty || settings.difficulty, seed: opts.seed, rules: opts.rules }));
+      setSession(() => new MatchSession(ctx, { startSide, difficulty: opts.difficulty || settings.difficulty, seed: opts.seed, rules: opts.rules, timeOfDay: opts.timeOfDay || settings.timeOfDay }));
     },
     toMenu() {
       setSession(null);
@@ -233,7 +233,19 @@ async function boot() {
   bindCheck('set-announcer', 'announcer', () => { if (!settings.announcer) ctx.voice.cancel(); });
   bindCheck('set-opvoice', 'opVoice', () => { if (!settings.opVoice) ctx.voice.cancel(); });
   const bindSelect = (id, key, apply) => { const el = $(id); el.value = settings[key]; el.addEventListener('change', () => { settings[key] = el.value; apply && apply(); saveSettings(settings); }); };
+  // el panel de controles del mando, con los nombres de sus botones (Xbox o PlayStation)
+  let padKindShown = 'xbox';
+  const setPadNames = (kind) => {
+    padKindShown = kind;
+    for (const k of $('padkeys').querySelectorAll('kbd')) {
+      if (k.dataset.xbox === undefined) k.dataset.xbox = k.textContent;
+      k.textContent = padWords(k.dataset.xbox, kind);
+    }
+    $('padtitle').textContent = kind === 'ps' ? 'Mando (PlayStation)' : 'Mando';
+    $('padnote').lastChild.textContent = kind === 'ps' ? 'Mando PlayStation conectado' : 'Mando conectado';
+  };
   bindSelect('set-quality', 'quality', () => { post.setQuality(settings.quality); renderer.setPixelRatio(pixelRatio()); resize(); });
+  bindSelect('set-ads', 'adsMode');
   bindSelect('qm-side', 'startSide');
   bindSelect('qm-diff', 'difficulty');
   bindSelect('qm-time', 'timeOfDay', () => wr.setTimeOfDay(settings.timeOfDay));
@@ -256,6 +268,7 @@ async function boot() {
   // el mando: «Mando conectado» al empezar a usarlo (fuera del HUD: también en los menús)
   let padNoteAt = -1e9, padNoteT = 0;
   gamepad.onActive = () => {
+    if (gamepad.kind !== padKindShown) setPadNames(gamepad.kind);
     const now = performance.now();
     if (now - padNoteAt < 8000) return;
     padNoteAt = now; padNoteT = 2.6;
@@ -338,6 +351,7 @@ async function boot() {
     const ui = uiRoot(), live = state.mode === 'play' && !!session;
     if (live && !session.wantsPointer) padPaused = false;
     const pd = gamepad.poll(dt, live && !ui && !padPaused);
+    if (gamepad.kind !== padKindShown) setPadNames(gamepad.kind);
     if (pd.events.includes('pause')) { if (ui && ui.start) ui.start(); else if (live && !ui && session.wantsPointer) padPaused = !padPaused; }
     else if (padPaused && pd.nav.includes('back')) app.toMenu();
     padNav.frame(pd.nav, ui ? ui.el : null, ui || {}, input.padActive);
@@ -349,9 +363,10 @@ async function boot() {
     // simulación da los mismos pasos, solo que más espaciados); la interfaz y el post-proceso, no
     const ts = s && s.slowmo ? s.slowmo.step(paused ? 0 : dt) : 1, gdt = dt * ts;
     ctx.timeScale = ts;
-    hud.padMode = input.padActive;
+    hud.padMode = input.padActive; hud.padKind = input.padKind;
     if (padCursor !== input.padActive) { padCursor = input.padActive; document.body.style.cursor = padCursor ? 'none' : ''; }
-    hud.pause(paused, padPaused && input.padActive ? 'Pausa · Start para seguir · B: menú principal' : null);
+    const PN = PAD_NAMES[input.padKind] || PAD_NAMES.xbox;
+    hud.pause(paused, padPaused && input.padActive ? `Pausa · ${PN.Start} para seguir · ${PN.B}: menú principal` : null);
     let mouse = { dx: 0, dy: 0 };
     if (s) {
       mouse = s.input(!paused);
@@ -473,7 +488,7 @@ async function boot() {
     if (v) {
       const loc = map.locationAt(camera.position.x, v.body.pos.y + 0.2, camera.position.z);
       const spreadPx = Math.tan(v.currentSpread() * DEG) / Math.tan(camera.fov * DEG / 2) * (window.innerHeight / 2);
-      hud.update(dt, v, { location: loc, spreadPx, prompt: input.padActive ? padText(s.promptText || '') : s.promptText || '' });
+      hud.update(dt, v, { location: loc, spreadPx, prompt: input.padActive ? padText(s.promptText || '', input.padKind) : s.promptText || '' });
     } else hud.tick(dt);
     // rendimiento
     cpuMs = cpuMs * 0.9 + (performance.now() - t0) * 0.1;

@@ -68,13 +68,15 @@ export class Match extends Emitter {
    * @param {boolean} [o.human=true]  ¿hay jugador humano? (ocupa la ranura 0 del equipo 0)
    * @param {'atk'|'def'} [o.startSide='atk']  bando del equipo 0 en la ronda 1
    */
-  constructor({ world, map, seed = 1, rules = {}, human = true, startSide = 'atk', humanName = 'Tú' }) {
+  constructor({ world, map, seed = 1, rules = {}, human = true, startSide = 'atk', humanName = 'Tú', timeOfDay = 'dia', light = null }) {
     super();
     this.world = world;
     this.map = map;
     this.rules = { ...RULES, ...rules };
     this.rng = new RNG((seed * 2654435761) >>> 0);
-    this.game = new Game({ world, map, seed });
+    this.timeOfDay = timeOfDay;     // la hora (F12.5); con `light`, los bots ven menos a oscuras (F10.4)
+    this.light = light;
+    this.game = new Game({ world, map, seed, light });
     this.startSide = startSide;
     this.teams = [{ id: 0, score: 0 }, { id: 1, score: 0 }];
     this.slots = [];

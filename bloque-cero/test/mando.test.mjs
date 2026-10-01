@@ -7,7 +7,7 @@ import assert from 'node:assert/strict';
 // la entrada registra sus eventos en la ventana: aquí basta con que existan
 globalThis.window = globalThis.window || { addEventListener() {} };
 globalThis.document = globalThis.document || { addEventListener() {}, pointerLockElement: null };
-const { PadLogic, PAD, BTN, stick } = await import('../src/input/gamepad.js');
+const { PadLogic, PAD, BTN, stick, padKindOf, padText, padWords, padNames } = await import('../src/input/gamepad.js');
 const { Input } = await import('../src/input/input.js');
 const { PlayerControl } = await import('../src/client/control.js');
 const { pickDir } = await import('../src/input/padnav.js');
@@ -51,7 +51,7 @@ test('los botones del mapeo', () => {
   assert.ok(!o.mouse.left, 'RT cuenta por debajo del umbral');
   o = L.update(DT, pad([BTN.LT]));
   assert.ok(o.mouse.right && o.clicks.includes(2), 'LT no apunta');
-  const keys = { [BTN.A]: 'Space', [BTN.LB]: 'KeyG', [BTN.RB]: 'KeyX', [BTN.R3]: 'KeyV', [BTN.UP]: 'KeyT', [BTN.DOWN]: 'KeyH', [BTN.LEFT]: 'KeyQ', [BTN.RIGHT]: 'KeyE', [BTN.SELECT]: 'Tab' };
+  const keys = { [BTN.LB]: 'KeyG', [BTN.RB]: 'KeyX', [BTN.R3]: 'KeyV', [BTN.DOWN]: 'KeyH', [BTN.LEFT]: 'KeyQ', [BTN.RIGHT]: 'KeyE', [BTN.SELECT]: 'Tab' };
   for (const [b, code] of Object.entries(keys)) {
     const M = new PadLogic();
     o = M.update(DT, pad([+b]));
@@ -152,7 +152,7 @@ test('la entrada: el mando suma teclas, gatillos, stick y ratón; el teclado y e
   const L = new PadLogic();
   const o = L.update(DT, pad([BTN.RT, BTN.A, BTN.LB], [0.5, -1, 0, 0]));
   I.setPad(o, 12, -3);
-  assert.ok(I.mouse.left && I.isDown('vault') && I.pressed('vault') && I.pressed('gadget'));
+  assert.ok(I.mouse.left && I.isDown('gadget') && I.pressed('vault') && I.pressed('gadget'));
   assert.ok(I.mouseClicked(0));
   assert.ok(I.pad.move.z > 0.85 && I.pad.move.x > 0.4, JSON.stringify(I.pad.move));   // (en diagonal, normalizado)
   const m = I.consumeMouse();
@@ -161,7 +161,7 @@ test('la entrada: el mando suma teclas, gatillos, stick y ratón; el teclado y e
   assert.ok(!I.pressed('vault') && !I.mouseClicked(0), 'lo pulsado dura un fotograma');
   // sin mando otra vez: se suelta todo
   I.setPad(null);
-  assert.ok(!I.mouse.left && !I.isDown('vault') && I.pad.move.z === 0);
+  assert.ok(!I.mouse.left && !I.isDown('gadget') && I.pad.move.z === 0);
   // con el mando, no se pide capturar el ratón
   let asked = 0;
   const J = new Input({ requestPointerLock() { asked++; } });
@@ -260,4 +260,96 @@ test('los avisos con teclas, con los botones del mando (una sola pasada)', async
   // lo que no es una tecla no cambia
   assert.equal(padText('Reforzando la pared · 5 refuerzos · RADAR'), 'Reforzando la pared · 5 refuerzos · RADAR');
   assert.equal(padText(''), '');
+});
+
+test('▲: marca al soltar antes de 0,3 s; mantenida 0,5 s cambia el modo de disparo y no marca', () => {
+  let L = new PadLogic();
+  let a = hold(L, pad([BTN.UP]), 0.1); a.press.push(...hold(L, pad(), DT).press);
+  assert.deepEqual(a.press, ['KeyT']);
+  L = new PadLogic();
+  a = hold(L, pad([BTN.UP]), 0.4); a.press.push(...hold(L, pad(), DT).press);
+  assert.deepEqual(a.press, [], 'entre 0,3 y 0,5 s hace algo');
+  L = new PadLogic();
+  a = hold(L, pad([BTN.UP]), 0.6); a.press.push(...hold(L, pad(), DT).press);
+  assert.deepEqual(a.press, ['KeyB'], 'mantenida no cambia el modo, o además marca');
+  assert.ok(PAD.tapUp === 0.3 && PAD.holdUp === 0.5);
+});
+
+test('A: salta al pulsar; mantenida 0,5 s pide inspeccionar (y tocada, no)', () => {
+  const L = new PadLogic();
+  const a = hold(L, pad([BTN.A]), 0.6);
+  assert.deepEqual(a.press, ['Space']);
+  assert.deepEqual(a.events, ['inspect']);
+  assert.deepEqual(hold(L, pad(), DT).events, []);
+  const M = new PadLogic();
+  const c = hold(M, pad([BTN.A]), 0.1); c.events.push(...hold(M, pad(), DT).events);
+  assert.deepEqual(c.press, ['Space']);
+  assert.deepEqual(c.events, []);
+  assert.equal(PAD.holdA, 0.5);
+});
+
+test('el control: A mantenida inspecciona solo si al pulsarla no hubo acción (salto, rappel, ventana)', () => {
+  const settings = { sensitivity: 1, adsSensitivity: 0.8, invertY: false, crouchToggle: true, leanToggle: true, adsMode: 'hold' };
+  const mkOp = () => ({ intent: {}, state: 'alive', ads: 0, yaw: 0, pitch: 0, weapons: [{}, {}], weaponIndex: 0, weapon: { def: { adsZoom: 1 } }, gadget: null, ability: null, actionSeq: 0 });
+  // en campo abierto: a los 0,5 s inspecciona
+  let I = new Input({}), C = new PlayerControl({ input: I, settings }), op = mkOp(), L = new PadLogic(), inspected = false;
+  for (let t = 0; t < 0.7; t += DT) { I.setPad(L.update(DT, pad([BTN.A]))); op.intent.inspect = false; C.apply(op, true); inspected = inspected || !!op.intent.inspect; I.endFrame(); }
+  assert.ok(inspected, 'sin nada delante, no inspecciona');
+  // junto a una fachada: la simulación hace el rappel al pulsar (una acción) y ya no inspecciona
+  I = new Input({}); C = new PlayerControl({ input: I, settings }); op = mkOp(); L = new PadLogic(); inspected = false;
+  let hooked = false;
+  for (let t = 0; t < 0.7; t += DT) {
+    I.setPad(L.update(DT, pad([BTN.A])));
+    op.intent.inspect = false; C.apply(op, true);
+    if (op.intent.vault && !hooked) { hooked = true; op.intent.vault = false; op.actionSeq++; }   // (el rappel engancha en el siguiente tick)
+    inspected = inspected || !!op.intent.inspect; I.endFrame();
+  }
+  assert.ok(hooked && !inspected, 'con acción, inspecciona');
+});
+
+test('apuntar: mantener (lo de siempre) o alternar, con el clic derecho o LT', () => {
+  const settings = { sensitivity: 1, adsSensitivity: 0.8, invertY: false, crouchToggle: true, leanToggle: true, adsMode: 'toggle' };
+  const I = new Input({}), C = new PlayerControl({ input: I, settings });
+  const op = { intent: {}, state: 'alive', ads: 0, yaw: 0, pitch: 0, weapons: [{}, {}], weaponIndex: 0, weapon: { def: { adsZoom: 1 } }, gadget: null, ability: null, actionSeq: 0 };
+  const L = new PadLogic();
+  const step = (buttons = [], axes = [0, 0, 0, 0]) => { I.setPad(L.update(DT, pad(buttons, axes))); C.apply(op, true); I.endFrame(); return op.intent.ads; };
+  assert.equal(step(), false);
+  step([BTN.LT]); step([BTN.LT]);
+  assert.equal(step(), true, 'LT tocado no deja apuntando');
+  step(); step();
+  assert.equal(step(), true, 'al soltar LT deja de apuntar');
+  step([BTN.LT]);
+  assert.equal(step(), false, 'LT otra vez no quita el apuntado');
+  step([BTN.LT]); step();
+  assert.equal(op.intent.ads, true);
+  // correr lo quita; cambiar de arma, también
+  step([BTN.L3], [0, -1, 0, 0]); step([], [0, -1, 0, 0]);
+  assert.equal(op.intent.ads, false, 'correr no quita el apuntado');
+  step([BTN.LT]); step();
+  assert.equal(op.intent.ads, true);
+  op.weaponIndex = 1; step();
+  assert.equal(op.intent.ads, false, 'cambiar de arma no quita el apuntado');
+  // y con «mantener», como siempre: solo mientras se aprieta
+  settings.adsMode = 'hold';
+  assert.equal(step([BTN.LT]), true); assert.equal(step(), false);
+  I.mouse.right = true; assert.equal(step(), true); I.mouse.right = false; assert.equal(step(), false);
+});
+
+test('PlayStation: el tipo de mando por su nombre y los nombres de sus botones en los avisos', () => {
+  assert.equal(padKindOf('Xbox Wireless Controller (STANDARD GAMEPAD Vendor: 045e Product: 0b12)'), 'xbox');
+  assert.equal(padKindOf('Wireless Controller (STANDARD GAMEPAD Vendor: 054c Product: 0ce6)'), 'ps');
+  assert.equal(padKindOf('DualSense Wireless Controller'), 'ps');
+  assert.equal(padKindOf('054c-0ce6-Wireless Controller'), 'ps');
+  assert.equal(padKindOf('PLAYSTATION(R)3 Controller'), 'ps');
+  assert.equal(padKindOf(''), 'xbox');
+  assert.equal(padNames('ps').brand, 'PlayStation');
+  assert.equal(padText('Pulsa Espacio para hacer rappel', 'ps'), 'Pulsa ✕ para hacer rappel');
+  assert.equal(padText('Mantén F para plantar el desactivador · sitio A', 'ps'), 'Mantén □ para plantar el desactivador · sitio A');   // (el sitio A no es un botón)
+  assert.equal(padText('WASD mover · Espacio saltar · Clic/T marcar · 5 volver', 'ps'), 'Stick izq. mover · ✕ saltar · R2/▲ marcar · mantén △: volver');
+  assert.equal(padText('<kbd>X</kbd>Humo <kbd>G</kbd>Granada <kbd>F</kbd>Refuerzos', 'ps'), '<kbd>R1</kbd>Humo <kbd>L1</kbd>Granada <kbd>□</kbd>Refuerzos');
+  assert.equal(padText('Listo <small>Intro</small> · <kbd>Tab</kbd> marcador · 5 dron · V golpe', 'ps'), 'Listo <small>Options</small> · <kbd>Share</kbd> marcador · mantén △: dron · R3 golpe');
+  assert.equal(padText('Pulsa Espacio para hacer rappel', 'xbox'), 'Pulsa A para hacer rappel');
+  assert.equal(padText('Pulsa Espacio para hacer rappel'), 'Pulsa A para hacer rappel');
+  assert.equal(padWords('A Saltar obstáculo · RB Habilidad · Start Pausa · Stick izq. Moverse', 'ps'), '✕ Saltar obstáculo · R1 Habilidad · Options Pausa · Stick izq. Moverse');
+  assert.equal(padWords('A Saltar', 'xbox'), 'A Saltar');
 });

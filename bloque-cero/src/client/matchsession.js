@@ -7,6 +7,7 @@ import { FeedController } from './feeds.js';
 import { TeamChat } from './chat.js';
 import { OrderWheel, ORDERS } from '../ui/wheel.js';
 import { padText } from '../input/gamepad.js';
+import { BotLight } from '../sim/light.js';
 import { GADGETS } from '../sim/operators.js';
 import { PLACE_LABEL } from '../sim/gadgets.js';
 import { Match } from '../sim/match.js';
@@ -28,7 +29,9 @@ export class MatchSession extends Session {
     super(ctx);
     this.opts = { startSide: opts.startSide || 'atk', difficulty: opts.difficulty || 'normal' };
     const { world, map, hud } = ctx;
-    this.match = new Match({ world, map, seed: opts.seed ?? ((Date.now() ^ 0x5eed) & 0x7fffffff), human: true, startSide: this.opts.startSide, rules: opts.rules || {} });
+    // la hora (F12.5) y, con ella, lo que ven los bots a oscuras (F10.4): el mismo volumen de luz del render
+    const timeOfDay = opts.timeOfDay || 'dia';
+    this.match = new Match({ world, map, seed: opts.seed ?? ((Date.now() ^ 0x5eed) & 0x7fffffff), human: true, startSide: this.opts.startSide, rules: opts.rules || {}, timeOfDay, light: new BotLight(ctx.wr.lightVolume, timeOfDay) });
     this.bots = new BotSquad(this.match, this.opts.difficulty, { nav: ctx.nav });
     this.disposers.push(() => this.bots.dispose());
     this.ui = new MatchUI(ctx, this);
@@ -295,7 +298,7 @@ export class MatchSession extends Session {
   }
   rematch() { this.ctx.app.startMatch(this.opts); }
   // los avisos con teclas, con los botones del mando si se juega con él (F10.5)
-  _t(s) { return this.ctx.input.padActive ? padText(s) : s; }
+  _t(s) { const I = this.ctx.input; return I.padActive ? padText(s, I.padKind) : s; }
   _prepInfo(html) { this.prepRaw = html; this.ui.setPrepInfo(html ? this._t(html) : null); }
   toMenu() { this.ctx.app.toMenu(); }
 
@@ -689,7 +692,7 @@ export class MatchSession extends Session {
     const ke = document.getElementById('kit'), kh = this._t(kit);
     if (this._kitHtml !== kh) { this._kitHtml = kh; ke.innerHTML = kh; ke.classList.toggle('hidden', !kh); }
     // (si se cambia de teclado a mando o al revés, el aviso de la preparación con los botones de ahora)
-    const pm = this.ctx.input.padActive;
+    const pm = this.ctx.input.padActive ? this.ctx.input.padKind : '';
     if (pm !== this._padMode) { this._padMode = pm; if (this.prepRaw) this.ui.setPrepInfo(this._t(this.prepRaw)); }
   }
 

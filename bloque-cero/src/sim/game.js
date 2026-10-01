@@ -15,10 +15,11 @@ export const MELEE_RANGE = 1.6;
 const DOWN_OVERKILL = 30;   // si el golpe sobrepasa la vida en más de esto, muerte directa
 
 export class Game extends Emitter {
-  constructor({ world, map, seed = 1 }) {
+  constructor({ world, map, seed = 1, light = null }) {
     super();
     this.world = world;
     this.map = map;
+    this.light = light;       // la luz que ven los bots (F10.4; null: de día, la de siempre)
     this.bounds = map.bounds;
     this.seed = seed;
     this.rng = new RNG(seed);

@@ -19,9 +19,37 @@ Es un único archivo HTML autónomo: no necesita servidor ni conexión.
 | F6 | Operadores 8 + 8 y contrajuego de gadgets | ✅ arsenal · plantilla de 16 · granadas y explosivos · gadgets defensivos · 16 habilidades · la defensa bot coloca gadgets y habilidades · el ataque bot los usa según la dificultad · contrajuego de la defensa bot y gadgets de acción |
 | F7 | Animaciones en primera y tercera persona, con la recarga por partes (antes F8) | ✅ recarga por partes en primera persona · resto de la primera persona · siluetas de los 16 · tercera persona por capas · muerte con física por partes · repetición de muerte |
 | F9 | Audio 3D con oclusión | ✅ paredes, suelos y rodeo por puertas y agujeros · ambiente · música en menús y últimos 30 s |
-| F10 | Miras y accesorios, rappel en Villa (tejado y fachada, también los bots), equilibrio de Élite, puntería humana de los bots, mando, pulido y publicación | en curso: ✅ miras y accesorios · ✅ rappel del jugador · ✅ rappel de los bots · ✅ equilibrio de Élite · ✅ puntería humana de los bots · ✅ mando |
+| F10 | Miras y accesorios, rappel en Villa (tejado y fachada, también los bots), equilibrio de Élite, puntería humana de los bots, mando, pulido y publicación | en curso: ✅ miras y accesorios · ✅ rappel del jugador · ✅ rappel de los bots · ✅ equilibrio de Élite · ✅ puntería humana de los bots · ✅ mando · ✅ bots de noche · ✅ mando de PlayStation y botones que faltaban · pulido final |
 | — | Mapa Residencia del Lago | pendiente |
 | F12 | Sensación de juego: impactos, voces, música, inicio y fin de ronda, ambiente | en curso: ✅ impactos · ✅ voces · ✅ música · ✅ inicio y fin de ronda · ✅ ambiente |
+
+## Bots de noche (Fase 10.4a)
+
+Si de noche el jugador ve menos, los bots también. Usan la misma luz que pinta el render (el volumen
+de luz: cielo según la hora más lámparas), muestreada en el pecho del objetivo (`src/sim/light.js`):
+
+- **A oscuras** (menos de 0,2 de luz): el bot lo detecta a la **mitad** de distancia (Élite 48 → 24 m)
+  y reacciona **100 ms** más tarde. Lo mismo con sus drones y sus cámaras (22 → 11 m).
+- Solo al atardecer y de noche: de día nada cambia en ningún sitio. Todas las salas de la Villa tienen
+  lámparas y en ellas la luz es de 0,27 a 0,87, así que dentro de la casa nada cambia; a oscuras están
+  la calle y el jardín (0,14 bajo la luna) salvo bajo las tres farolas (0,25–0,96) y, al atardecer,
+  nada (la calle aún tiene 0,6).
+- Un láser encendido o un fogonazo (un disparo sin supresor en los últimos 0,3 s) te delatan como de día.
+- Cómo entra: la partida recibe la hora y una `BotLight` con el volumen de luz del render (en Node, las
+  herramientas y las pruebas construyen el suyo: 0,5 s); la percepción, la pizarra de cámaras y el
+  dron de los bots preguntan `hides(objetivo)`.
+- **Medido** (`tools/noche-bots.mjs`: Élite, las mismas semillas de día y de noche, cada vez que un bot
+  ve a alguien que no veía desde hacía 1 s): de día solo el 1 % de los avistamientos en exteriores
+  pasa de 24 m (el más lejano, 28 m): en la Villa los bots se ven casi siempre a 8–15 m, en puertas,
+  ventanas y esquinas. Por eso la distancia media de detección en exteriores apenas cambia (12,0 →
+  10,9 m en 12 partidas; 11,6 → 12,0 m en otras 24: dentro del ruido), aunque de noche ningún
+  avistamiento a oscuras pasa de 24 m (el más lejano, 20 m) y dentro con luz no cambia nada (11,0 →
+  10,8 m). **No se cumple la bajada del 40 % prometida**: la regla es la pedida, pero la media la
+  dominan los encuentros cortos.
+- **Equilibrio** (`tools/equilibrio.mjs elite 160 101 4 --hora noche`): de noche el ataque gana el
+  50,5 % ± 1,7 de las rondas en Élite (de día, 52,0 %): dentro del 47–53 %, sin tocar nada.
+- Pruebas: `test/noche.test.mjs` (la calle a oscuras y las salas y farolas no; 48 → 24 m; láser y
+  fogonazo; con supresor no; drones y cámaras 22 → 11 m).
 
 ## Mando (Fase 10.5)
 
@@ -35,13 +63,13 @@ capturar el ratón (y no se ve la flecha). Botones, como Siege en consola:
 | Stick izquierdo / L3 | Moverse (analógico) / correr (hasta soltar el stick o ir hacia atrás) |
 | Stick derecho / R3 | Mirar (zona muerta del 15 %, respuesta suave: a media palanca gira menos de la mitad) / cuerpo a cuerpo |
 | RT / LT | Disparar / apuntar |
-| A | Saltar obstáculo, rappel, ventana (Espacio) |
+| A | Saltar obstáculo, rappel, ventana (Espacio); mantener 0,5 s, si al pulsarla no había nada que hacer: inspeccionar el arma |
 | B | Agacharse; mantener 0,35 s: cuerpo a tierra |
 | X | Recargar; mantener 0,3 s: interactuar (F: reforzar, plantar, inutilizar, reanimar…) |
 | Y | Cambiar de arma; mantener 0,45 s: dron o cámaras (5) |
 | LB / RB | Gadget secundario (G) / habilidad del operador (X) |
 | ◀ / ▶ | Asomarse (Q / E); en las cámaras, cambiar de cámara; muerto, otro dron |
-| ▲ / ▼ | Marcar (T) / órdenes (H: mantener, elegir con el stick derecho, soltar) |
+| ▲ / ▼ | Marcar al soltar antes de 0,3 s (T); mantener 0,5 s: modo de disparo (B), sin marcar / órdenes (H: mantener, elegir con el stick derecho, soltar) |
 | Start | Pausa (la simulación se para); en pausa, B sale al menú; en la selección, «Listo» |
 | Select | Marcador (Tab); en el campo de pruebas, cambiar de arsenal (L) |
 | ▼ (campo de pruebas) | Mira y accesorios (O); B vuelve |
@@ -56,7 +84,17 @@ capturar el ratón (y no se ve la flecha). Botones, como Siege en consola:
   con el teclado.
 - Ajustes: **Sensibilidad del mando** (0,3–2,5; a 1, el stick a tope gira a 195°/s), **invertir su
   eje vertical** (aparte del del ratón) y **vibrar** al disparar (más con la escopeta y el tirador) y
-  al recibir daño (según el daño). Sin asistencia de apuntado, como Siege.
+  al recibir daño (según el daño). Sin asistencia de apuntado, como Siege. **Apuntar: mantener o
+  alternar** (F10.4) vale para el clic derecho y para LT: alternando, cada pulsación cambia, y correr o
+  cambiar de arma lo quita.
+- **PlayStation** (F10.4): si el mando es de Sony (su nombre lleva `054c`, DualSense, DualShock o
+  PlayStation), todos los avisos, el panel de controles, la pausa y «Mando PlayStation conectado»
+  dicen ✕ ○ □ △, L1/R1, L2/R2, Options y Share; con Xbox, A B X Y, LB/RB, LT/RT, Start y Select.
+- **Los botones que faltaban** (F10.4): mantener ▲ 0,5 s cambia el modo de disparo (y entonces no
+  marca: la marca se pone al soltar ▲ antes de 0,3 s, que sigue sintiéndose inmediata); mantener A
+  0,5 s inspecciona el arma solo si al pulsarla no había nada que hacer (la simulación cuenta sus
+  acciones: salto, rappel, ventana, tejado); si la había, A la hace y nunca inspecciona. Son los dos
+  únicos botones con la pulsación larga libre en todos los modos de Ajustes.
 - Cómo entra (`src/input/gamepad.js`): cada fotograma el mando se traduce a lo mismo que el teclado
   y el ratón (teclas virtuales, clics y píxeles de ratón), así que las sesiones, la rueda de órdenes,
   el dron y las cámaras no cambian; el stick izquierdo se suma analógico al WASD. Sin mando, la
@@ -64,7 +102,8 @@ capturar el ratón (y no se ve la flecha). Botones, como Siege en consola:
 - Rendimiento: lo mismo que antes (`tools/perf-partida.mjs`, esta versión frente a la F12.5: 375
   llamadas de dibujo y 169k triángulos las dos, y el mismo coste de CPU de personajes, arma, poses y
   tick); leer el mando y mover el foco de los menús no se nota.
-- Probado con un mando simulado en el navegador (`tools/smoke-mando.mjs`): una ronda entera sin
+- Probado con un mando simulado en el navegador (`tools/smoke-mando.mjs`, y con `--ps` el mismo
+  recorrido con un DualSense: ✕ ○ □ △ en todos los avisos): una ronda entera sin
   tocar el ratón (menú → selección → dron → mover, correr, mirar, disparar, apuntar, recargar,
   posturas, arma, gadget, habilidad, rappel, marcar, órdenes, marcador, dron → fin de ronda),
   sensibilidad ×4 de 0,5 a 2, invertir, vibración (y sin ella en Ajustes), Start/B y el campo de
@@ -1013,7 +1052,7 @@ node tools/smoke-impactos.mjs <carpeta> [html]  # impactos en el campo de prueba
 node tools/medir-voces.mjs [motor]  # los gemidos (sin gráficos): de qué lado suenan, cuánto duran, el tono de cada operador y tras una pared
 node tools/smoke-voces.mjs [html]  # una ronda con la voz del navegador sustituida: el locutor en cada momento, tu operador al recargar y los gemidos
 node tools/medir-musica.mjs  # la música (sin gráficos): cada fase distinta, el tema en todas, victoria y derrota de 3 s en mayor y menor, y los tres volúmenes independientes
-node tools/smoke-musica.mjs [html]  # una ronda: la música de cada fase, un golpe al primer contacto, un pulso por pitido, victoria o derrota y los deslizadores de volumen
+node tools/smoke-musica.mjs [html]  # una ronda: la música de cada fase (su sonido, renderizado offline con el mismo motor: sin depender de los FPS), un golpe al primer contacto, un pulso por pitido, victoria o derrota y los deslizadores de volumen
 node tools/smoke-ronda.mjs [carpeta] [html]  # una ronda: el rótulo con los 10 retratos, la cuenta atrás, «1 contra N», la cámara lenta de la última baja y el cartel con el motivo y el mejor
 node tools/medir-ambiente.mjs  # el ambiente (sin gráficos): pájaros de día, grillos de noche, el reloj en el salón, la nevera en la cocina y crujidos solo en la planta baja
 node tools/smoke-ambiente.mjs [carpeta] [html]  # día, atardecer y noche: cada hora más oscura, estrellas y farolas de noche, polvo en el salón, sus sonidos, y que los bots no oyen nada del ambiente
@@ -1021,11 +1060,12 @@ node tools/smoke-accesorios.mjs <carpeta> [html]  # miras y accesorios: selecci�
 node tools/smoke-rappel.mjs <carpeta> [html]  # rappel: engancharse en la calle, subir, ventana con barricada, pretil, tejado y otro colgado en tercera persona
 node tools/smoke-rappel-bots.mjs <carpeta> [html]  # rappel de un aliado bot en Élite: con P, su ruta por la fachada en cian; sube y entra en el Estudio
 node tools/rappel-bots.mjs [rondas] [dificultad] [semilla]  # rondas solo de bots con el sitio arriba: cuántas con rappel, cuántas entran, tiempo colgados
-node tools/equilibrio.mjs [dificultad] [partidas] [semilla] [procesos] [--merodeadores N --vuelta S --brecha --cerca --semillas]  # % de rondas que gana el ataque, con las mismas semillas
+node tools/equilibrio.mjs [dificultad] [partidas] [semilla] [procesos] [--merodeadores N --vuelta S --brecha --cerca --semillas --hora noche]  # % de rondas que gana el ataque, con las mismas semillas (y a esa hora: los bots ven menos a oscuras)
 node tools/smoke-merodeadores.mjs <carpeta> [html]  # los merodeadores de Élite con P: fuera del sitio y cómo vuelven
 node tools/reaccion-bots.mjs [dificultades] [partidas] [semilla] [procesos]  # partidas solo de bots: desde que un bot ve a un enemigo, cuánto tarda en disparar y en acertar, cuánto gira y su % de acierto
 node tools/smoke-punteria.mjs <carpeta> [html]  # un aliado bot en la calle con P: su etiqueta dice «reacciona», «gira» y «apunta», y dispara después
-node tools/smoke-mando.mjs [carpeta] [html]  # mando simulado: menús, selección, una ronda entera sin ratón, sensibilidad, vibración, Start/B y el campo de pruebas
+node tools/smoke-mando.mjs [carpeta] [html] [--ps]  # mando simulado (Xbox o, con --ps, PlayStation): menús, selección, una ronda entera sin ratón, ▲ y A mantenidas, LT alternando, sensibilidad, vibración, Start/B y el campo de pruebas
+node tools/noche-bots.mjs [partidas=24] [semilla=501] [procesos=4] [dificultad=elite]  # bots de noche: a qué distancia detectan (exteriores, dentro con luz, a oscuras) de día y de noche, y el equilibrio
 node tools/perf-partida.mjs [html...]  # llamadas de dibujo, triángulos y CPU con 10 operadores a la vista (con 5 cayendo y lo que cuesta grabar)
 node tools/mapslice.mjs <carpeta> # cortes cenitales del mapa por planta
 ```

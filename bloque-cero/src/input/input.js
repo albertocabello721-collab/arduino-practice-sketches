@@ -24,6 +24,7 @@ export class Input {
     // (desde que se toca hasta que se usa el teclado o el ratón)
     const pad = this.pad = { held: new Set(), left: false, right: false, move: { x: 0, z: 0 }, events: [] };
     this.padActive = false;
+    this.padKind = 'xbox';    // y cómo se llaman sus botones ('xbox' o 'ps')
     // los botones del ratón cuentan también los gatillos del mando (RT dispara, LT apunta)
     this.mouse = { dx: 0, dy: 0, middle: false, wheel: 0, _l: false, _r: false };
     Object.defineProperties(this.mouse, {

@@ -449,6 +449,9 @@
       </label>
       <label class="toggle"><input type="checkbox" id="set-lean"> Asomarse alterna (Q/E), como en Siege</label>
       <label class="toggle"><input type="checkbox" id="set-crouch"> Agacharse alterna (C)</label>
+      <label class="setting">Apuntar (clic derecho o LT)
+        <select id="set-ads"><option value="hold">Mantener</option><option value="toggle">Alternar</option></select><span></span>
+      </label>
       <label class="toggle"><input type="checkbox" id="set-invert"> Invertir eje vertical</label>
       <label class="setting">Sensibilidad del mando <input type="range" id="set-padsens" min="0.3" max="2.5" step="0.05"><output id="out-padsens"></output></label>
       <label class="toggle"><input type="checkbox" id="set-padinvert"> Mando: invertir eje vertical</label>
@@ -485,20 +488,20 @@
         <div><kbd>P</kbd> Depuración (rejilla, visión y estado de los bots)</div>
         <div><kbd>Esc</kbd> Pausa</div>
       </div>
-      <h2 style="margin-top:16px">Mando</h2>
-      <div class="keys">
+      <h2 style="margin-top:16px" id="padtitle">Mando</h2>
+      <div class="keys" id="padkeys">
         <div><kbd>Stick izq.</kbd> Moverse · al pulsarlo, correr</div>
         <div><kbd>Stick der.</kbd> Mirar · al pulsarlo, cuerpo a cuerpo</div>
         <div><kbd>RT</kbd> Disparar</div>
         <div><kbd>LT</kbd> Apuntar</div>
-        <div><kbd>A</kbd> Saltar obstáculo, rappel, ventana</div>
+        <div><kbd>A</kbd> Saltar obstáculo, rappel, ventana · mantener sin nada delante: inspeccionar</div>
         <div><kbd>B</kbd> Agacharse · mantener: cuerpo a tierra</div>
         <div><kbd>X</kbd> Recargar · mantener: interactuar (F)</div>
         <div><kbd>Y</kbd> Cambiar de arma · mantener: dron / cámaras</div>
         <div><kbd>LB</kbd> Gadget secundario</div>
         <div><kbd>RB</kbd> Habilidad del operador</div>
         <div><kbd>◀</kbd><kbd>▶</kbd> Asomarse</div>
-        <div><kbd>▲</kbd> Marcar · <kbd>▼</kbd> Órdenes (elige con el stick der.)</div>
+        <div><kbd>▲</kbd> Marcar · mantener: modo de disparo · <kbd>▼</kbd> Órdenes (elige con el stick der.)</div>
         <div><kbd>Start</kbd> Pausa</div>
         <div><kbd>Select</kbd> Marcador</div>
       </div>

@@ -36,6 +36,7 @@ import { BONE } from './skeleton.js';
 import { shieldFaces } from './abilities.js';
 import { KIT } from './weapons.js';
 import { Aim, Trails, sightAge, peripheralDelay, AIM } from './ai/aim.js';
+import { DARK, rangeFor } from './light.js';
 
 // Dificultad (tabla de IA del documento): reacción, error de puntería (grados) una vez asentado
 // (el de los primeros disparos es mayor: ver HUMAN_AIM), y lo que sabe hacer cada nivel.
@@ -549,7 +550,7 @@ export class BotSquad {
         const c = t.center();
         const dx = c.x - e.x, dy = c.y - e.y, dz = c.z - e.z;
         const d = Math.hypot(dx, dy, dz);
-        if (d > 22 || (dx * v.x + dy * v.y + dz * v.z) / d < 0.62) continue;
+        if (d > rangeFor(g.light, t, now, 22) || (dx * v.x + dy * v.y + dz * v.z) / d < 0.62) continue;   // (a oscuras, la mitad: F10.4)
         if (!lineOfSight(g.world, e.x, e.y, e.z, c.x, c.y, c.z)) continue;
         board.report(t, t.body.pos, now, true, 1.2);
       }
@@ -760,7 +761,7 @@ class Brain {
       // blanco en pleno combate cuesta al menos la mitad
       const now = this.game.time, D = this.diff, prev = this.target;
       const v = this.vis.get(best), seenFor = v ? now - v.since : 0;
-      const base = D.react * (0.8 + 0.4 * this.rng.next()) + peripheralDelay(this.op, best);
+      const base = D.react * (0.8 + 0.4 * this.rng.next()) + peripheralDelay(this.op, best) + (this.per.darkSeen.has(best) ? DARK.reactExtra : 0);   // (a oscuras: F10.4)
       const switching = !!prev || now - this.fightAt < 1.5;
       this.target = best;
       this.aim.acquire(best, switching ? Math.max(AIM.switchK * base, base - seenFor) : Math.max(0, base - seenFor));
@@ -1712,7 +1713,7 @@ class Brain {
         if (t.team === this.team || t.state === 'dead' || t.frozen || recon.isSpottedFor(t, this.team)) continue;
         const c = t.center();
         const dist = Math.hypot(c.x - e.x, c.y - e.y, c.z - e.z);
-        if (dist > bd || !lineOfSight(this.game.world, e.x, e.y, e.z, c.x, c.y, c.z)) continue;
+        if (dist > bd || dist > rangeFor(this.game.light, t, this.game.time, 22) || !lineOfSight(this.game.world, e.x, e.y, e.z, c.x, c.y, c.z)) continue;   // (a oscuras, la mitad: F10.4)
         bd = dist; tgt = t;
       }
       S.mark = tgt;

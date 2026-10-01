@@ -13,6 +13,7 @@ export const DEFAULT_SETTINGS = {
   voiceVolume: 1,
   leanToggle: true,     // Q/E alternan (como en Siege) o hay que mantener
   crouchToggle: true,
+  adsMode: 'hold',      // apuntar (clic derecho o LT): 'hold' mantener o 'toggle' alternar (F10.4)
   invertY: false,
   padSens: 1,           // mando (F10.5): sensibilidad del stick derecho, invertir su eje vertical y vibración
   padInvertY: false,

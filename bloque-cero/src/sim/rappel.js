@@ -132,6 +132,7 @@ export class Rappel {
     op.stance = 'stand'; b.height = STANCES.stand.height;
     op.sprinting = false; op.lean = 0; op.leanAllowed = 0;
     b.vel.x = b.vel.y = b.vel.z = 0;
+    op.actionSeq = (op.actionSeq || 0) + 1;
     this.game.emit('rappelHook', op, g);
     return true;
   }
@@ -234,11 +235,13 @@ export class Rappel {
     if (!boxFree(this.world, to.x, to.y, to.z, R_BODY - 0.02, STANCES.stand.height)) { this.game.emit('rappelBlocked', op, 'Sin sitio arriba'); return; }
     const b = op.body.pos;
     Object.assign(R, { phase: 'climbTop', t: 0, dur: RAPPEL.climbTop, from: { x: b.x, y: b.y, z: b.z }, to, over: g.top + 0.05 });
+    op.actionSeq = (op.actionSeq || 0) + 1;
     this.game.emit('vault', op);
   }
 
   _startEnter(op, w) {
     const R = op.rappel, g = R.seg, world = this.world;
+    op.actionSeq = (op.actionSeq || 0) + 1;
     const floor = this.map.builder && this.map.builder.levels[w.level] ? this.map.builder.levels[w.level].floor : w.y0 - w.sill;
     const half = w.width / 2;
     const s = Math.max(w.center - half + 0.3, Math.min(w.center + half - 0.3, R.s));

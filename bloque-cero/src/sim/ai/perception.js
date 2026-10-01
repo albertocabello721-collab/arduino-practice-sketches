@@ -7,6 +7,7 @@ import { lineOfSight } from '../../world/raycast.js';
 import { BONE } from '../skeleton.js';
 import { thermalOn, THERMAL_SCOPE } from '../abilities.js';
 import { KIT } from '../weapons.js';
+import { DARK } from '../light.js';
 
 export const MEMORY = 10;       // segundos que dura el recuerdo de dónde estaba un enemigo
 
@@ -16,6 +17,7 @@ export class Perception {
     this.game = game;
     this.diff = diff;
     this.visible = [];            // enemigos a la vista en el último barrido
+    this.darkSeen = new Set();    // de ellos, a quién ve a oscuras (F10.4: reacciona 100 ms más tarde)
     this.memory = new Map();      // enemigo → {x, y, z, t, seen, precise}
     this.noises = [];             // [{x, y, z, t, loud, kind, src}]
     this.scanT = game.rng.next() * 0.12;
@@ -29,14 +31,17 @@ export class Perception {
     const op = this.op, D = this.diff, w = this.game.world, now = this.game.time;
     const e = op.eyePos();
     const vx = -Math.sin(op.yaw), vz = -Math.cos(op.yaw);
-    const cosFov = Math.cos(D.fov);
+    const cosFov = Math.cos(D.fov), L = this.game.light;
     this.visible.length = 0;
+    this.darkSeen.clear();
     if (op.blindT > 0) return true;              // cegado: no ve nada
     for (const t of enemies) {
       const c = t.center();
       const dx = c.x - e.x, dy = c.y - e.y, dz = c.z - e.z;
       const dist = Math.hypot(dx, dy, dz);
-      if (dist > D.range) continue;
+      // a oscuras (atardecer y noche, sin láser ni fogonazo): a la mitad de distancia (F10.4)
+      const dark = !!L && L.hides(t, now);
+      if (dist > (dark ? D.range * DARK.rangeK : D.range)) continue;
       const hd = Math.hypot(dx, dz) || 1;
       const cos = (dx * vx + dz * vz) / hd;
       const known = this.memory.get(t);
@@ -53,6 +58,7 @@ export class Perception {
       // de lejos, alguien agachado o tumbado quieto cuesta más de ver
       if (dist > 18 && (t.stance === 'prone' || t.state === 'downed') && t.moveSpeed < 0.2 && !recentlySeen && this.game.rng.next() < 0.5) continue;
       this.visible.push(t);
+      if (dark) this.darkSeen.add(t);
       this.memory.set(t, { x: t.body.pos.x, y: t.body.pos.y, z: t.body.pos.z, t: now, seen: true, precise: true });
     }
     // el haz de un láser a la vista, a 20 m o menos: sabe dónde está quien lo lleva (sin verlo)

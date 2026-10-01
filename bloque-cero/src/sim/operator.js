@@ -57,6 +57,9 @@ export class Operator {
     this.sprinting = false;
     this.vault = null;       // {t, dur, from, to}
     this.rappel = null;      // colgado de una cuerda (sim/rappel.js): {seg, s, y, phase, ...}
+    this.lastShotT = -1e9;   // el último disparo y si tuvo fogonazo (sin supresor): a oscuras delata (F10.4)
+    this.lastShotFlash = false;
+    this.actionSeq = 0;      // cuántas acciones de Espacio ha hecho (saltar, rappel, ventana, tejado): el mando lo mira
     this.intent = makeIntent();
     const loadout = opts.loadout || ['ar', 'pistol'];
     // (opts.kits: mira y accesorios de cada arma, por su id; sin ellos, los de serie)
@@ -257,6 +260,7 @@ export class Operator {
       }
       if (t) {
         this.vault = { t: 0, dur: 0.42 + (t.top - b.pos.y) * 0.25, from: { x: b.pos.x, y: b.pos.y, z: b.pos.z }, to: t };
+        this.actionSeq++;
         this.stance = 'crouch'; b.height = STANCES.crouch.height;
         game.emit('vault', this);
         I.vault = false;
@@ -568,6 +572,7 @@ export class Operator {
     this.recoilPending.pitch += kickUp * DEG * adsK * stanceK * (1 - ctrl);
     this.recoilPending.yaw -= kickSide * DEG * adsK * stanceK * (1 - ctrl * 0.6);   // lado > 0: hacia la derecha
     this.sinceShot = 0;
+    this.lastShotT = game.time; this.lastShotFlash = !d.suppressed;
     w.bloom = Math.min(4, w.bloom + d.bloom);
     game.emit('shot', this, w, eye, fwd, results);
   }

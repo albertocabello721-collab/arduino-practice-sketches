@@ -13,6 +13,7 @@ import { WeaponState, WEAPONS } from '../sim/weapons.js';
 import { spawnRangeDummies, spawnLineup, driveDummies, resetDummies } from '../sim/dummies.js';
 import { OPERATORS } from '../sim/operators.js';
 import { rayHitRig } from '../sim/skeleton.js';
+import { padNames } from '../input/gamepad.js';
 import { defaultLook, operatorLook } from '../render/character.js';
 import { raycastFirst } from '../world/raycast.js';
 import { breachRect, explodeSphere } from '../world/destruction.js';
@@ -73,7 +74,7 @@ export class RangeSession extends Session {
     this._renderKit();
     // (con el mando: B o ▼ para volver)
     const note = this._kitEl.querySelector('.note');
-    if (note) { if (this._kitNote === undefined) this._kitNote = note.innerHTML; note.innerHTML = this.ctx.input.padActive ? '<kbd>B</kbd> o <kbd>▼</kbd> para volver. Se guarda para la próxima vez.' : this._kitNote; }
+    if (note) { if (this._kitNote === undefined) this._kitNote = note.innerHTML; const I = this.ctx.input; note.innerHTML = I.padActive ? `<kbd>${padNames(I.padKind).B}</kbd> o <kbd>▼</kbd> para volver. Se guarda para la próxima vez.` : this._kitNote; }
     this._kitEl.classList.remove('hidden');
   }
   closeKit() {

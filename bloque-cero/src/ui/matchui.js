@@ -307,9 +307,9 @@ export class MatchUI {
     const side = match.sideOf(my);
     this._set('selT', this.el.selTimer, fmtTime(match.timeLeft));
     // (al pasar del teclado al mando, o al revés, lo que dice cómo elegir y cómo confirmar)
-    const pad = this.ctx.input.padActive;
+    const pad = this.ctx.input.padActive ? this.ctx.input.padKind : '';
     if (pad !== this._selPad) { this._selPad = pad; full = true; }
-    const T = (s) => (pad ? padText(s) : s);
+    const T = (s) => (pad ? padText(s, pad) : s);
     if (!full) return;
     this.el.selRound.textContent = `Ronda ${match.round}`;
     this.el.selSide.textContent = SIDE_NAME[side];

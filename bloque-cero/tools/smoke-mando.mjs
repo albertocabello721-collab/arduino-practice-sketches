@@ -10,15 +10,24 @@
 //  · la sensibilidad del mando se nota (de 0,5 a 2: el giro ×4) y el invertir; vibra al disparar y al
 //    recibir daño (y no si se quita en Ajustes);
 //  · Start pausa (la simulación se para) y B sale al menú;
+//  · ▲ tocada marca; mantenida cambia el modo de disparo y no marca; A mantenida junto a la fachada
+//    engancha el rappel y no inspecciona, y en campo abierto inspecciona; con «apuntar: alternar», LT
+//    tocado deja apuntando (F10.4);
 //  · el campo de pruebas con el mando (Select cambia de equipo); al tocar el teclado vuelven el teclado
 //    y el ratón («Clic para seguir jugando»); sin errores.
-// Uso: node tools/smoke-mando.mjs [carpeta para capturas] [html]
+// Con --ps, un mando de PlayStation (id de Sony): los mismos avisos con ✕ ○ □ △, L1/R1, L2/R2, Options y Share.
+// Uso: node tools/smoke-mando.mjs [carpeta para capturas] [html] [--ps]
 import { createRequire } from 'node:module';
 import path from 'node:path';
 const require = createRequire(import.meta.url);
 const { chromium } = require('/opt/node22/lib/node_modules/playwright');
-const out = process.argv[2] || '.';
-const html = process.argv[3] || 'dist/bloque-cero.html';
+import { padNames } from '../src/input/gamepad.js';
+const PS = process.argv.includes('--ps');
+const posArgs = process.argv.slice(2).filter((a) => !a.startsWith('--'));
+const out = posArgs[0] || '.';
+const html = posArgs[1] || 'dist/bloque-cero.html';
+const KIND = PS ? 'ps' : 'xbox', N = padNames(KIND);
+const PAD_ID = PS ? 'Wireless Controller (STANDARD GAMEPAD Vendor: 054c Product: 0ce6)' : 'Xbox Wireless Controller (STANDARD GAMEPAD Vendor: 045e Product: 0b12)';
 const browser = await chromium.launch({ args: ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--autoplay-policy=no-user-gesture-required'] });
 const page = await browser.newPage({ viewport: { width: 960, height: 540 } });
 page.setDefaultTimeout(300000);
@@ -29,11 +38,11 @@ const check = (ok, what) => { if (!ok) errors.push(what); console.log((ok ? '  o
 const shot = (name) => page.screenshot({ path: path.join(out, `${name}.png`) });
 
 // el mando simulado (antes de cargar la página): botones y ejes que la prueba mueve, y la vibración
-await page.addInitScript(() => {
+await page.addInitScript((PAD_ID) => {
   const st = { buttons: Array.from({ length: 17 }, () => ({ pressed: false, touched: false, value: 0 })), axes: [0, 0, 0, 0] };
   const rumbles = [];
   const pad = {
-    id: 'Mando simulado (STANDARD GAMEPAD)', index: 0, connected: true, mapping: 'standard', timestamp: 0,
+    id: PAD_ID, index: 0, connected: true, mapping: 'standard', timestamp: 0,
     get buttons() { return st.buttons; }, get axes() { return st.axes; },
     vibrationActuator: { type: 'dual-rumble', playEffect(type, p) { rumbles.push(Object.assign({ type }, p)); return Promise.resolve('complete'); } },
   };
@@ -57,7 +66,7 @@ await page.addInitScript(() => {
       return t;
     },
   };
-});
+}, PAD_ID);
 const B = { A: 0, B: 1, X: 2, Y: 3, LB: 4, RB: 5, LT: 6, RT: 7, SELECT: 8, START: 9, L3: 10, R3: 11, UP: 12, DOWN: 13, LEFT: 14, RIGHT: 15 };
 const tap = (b) => page.evaluate((b) => window.__pad.tap(b), b);
 const P = (expr) => page.evaluate(expr);
@@ -80,10 +89,12 @@ await page.evaluate(() => { const bc = window.__bc; bc.settings.quality = 'baja'
 console.log('menú');
 check(await page.evaluate(() => !window.__bc.ctx.input.padActive && !document.querySelector('.padfocus')), 'sin tocar el mando, nada cambia (ni foco ni aviso)');
 await tap(B.A);
-const m0 = await page.evaluate(() => ({ note: !document.getElementById('padnote').classList.contains('hidden'), mode: window.__bc.state.mode, active: window.__bc.ctx.input.padActive }));
+const m0 = await page.evaluate(() => ({ note: !document.getElementById('padnote').classList.contains('hidden'), noteText: document.getElementById('padnote').textContent, mode: window.__bc.state.mode, active: window.__bc.ctx.input.padActive, kind: window.__bc.ctx.input.padKind, keys: [...document.querySelectorAll('#padkeys kbd')].map((k) => k.textContent) }));
 const f0 = await focus();
 await shot('f105_01_menu');
 check(m0.active && m0.note, 'al tocar el mando: «Mando conectado»');
+check(m0.kind === KIND && (PS ? /PlayStation/.test(m0.noteText) : !/PlayStation/.test(m0.noteText)), `el tipo de mando por su nombre (${m0.kind}: «${m0.noteText}»)`);
+check(m0.keys.includes(N.RT) && m0.keys.includes(N.A) && m0.keys.includes(N.Start) && (PS ? !m0.keys.includes('RT') : true), `el panel de controles con los nombres del mando (${m0.keys.slice(0, 6).join(', ')})`);
 check(f0 && f0.id === 'btn-match' && m0.mode === 'menu', 'el primer toque enseña el foco en «Partida rápida» (y no la empieza)');
 await tap(B.DOWN);
 check((await focus()).id === 'btn-play', 'la cruceta baja a «Campo de pruebas»');
@@ -116,7 +127,7 @@ console.log('selección');
 await frames(4);
 const s0 = await focus();
 check(s0 && s0.root === 'select' && s0.act === 'op', 'en la selección, el foco en los operadores');
-check(await P(() => document.getElementById('sel-ready').innerHTML.includes('Start')), 'el botón «Listo» dice Start (no Intro)');
+check(await page.evaluate((n) => document.getElementById('sel-ready').innerHTML.includes(n) && !document.getElementById('sel-ready').innerHTML.includes('Intro'), N.Start), `el botón «Listo» dice ${N.Start} (no Intro)`);
 await tap(B.RIGHT);
 await tap(B.A);
 const s1 = await page.evaluate(() => ({ op: window.__bc.session.meSlot.opId, sel: (document.querySelector('#sel-grid .opc.sel') || {}).dataset }));
@@ -138,8 +149,8 @@ const dr = await page.evaluate(async () => {
 });
 check(dr.moved > 0.5 && dr.turned > 0.3, `el dron se mueve y gira con los sticks (${dr.moved.toFixed(2)} m, ${dr.turned.toFixed(2)} rad)`);
 const fk = await P(() => ({ keys: document.getElementById('fd-keys').textContent, prep: document.getElementById('prepinfo').textContent }));
-check(/Stick izq\. mover · A saltar · RT\/▲ marcar/.test(fk.keys) && !/WASD|Espacio/.test(fk.keys), `los avisos del dron con los botones del mando («${fk.keys}»)`);
-check(/<?Stick izq\.|A saltar/.test(fk.prep) && !/WASD|Espacio/.test(fk.prep), 'el aviso de la preparación con los botones del mando');
+check(fk.keys.includes(`Stick izq. mover · ${N.A} saltar · ${N.RT}/▲ marcar`) && !/WASD|Espacio/.test(fk.keys), `los avisos del dron con los botones del mando («${fk.keys}»)`);
+check((fk.prep.includes('Stick izq.') || fk.prep.includes(`${N.A} saltar`)) && !/WASD|Espacio/.test(fk.prep), 'el aviso de la preparación con los botones del mando');
 check(!dr.paused && !dr.locked, 'sin capturar el ratón y sin pausa');
 
 // a la acción; los bots, quietos (la prueba es del mando, no de sobrevivir)
@@ -236,27 +247,60 @@ check(gd.ability[1] === gd.ability[0] - 1, 'RB: habilidad del operador');
 await P(() => window.__bc.place(6, 0, -1.2, Math.PI, 0.15));
 await frames(4);
 const rp = await P(async () => {
-  const p = window.__bc.player;
+  const p = window.__bc.player, vm = window.__bc.ctx.vm;
   await window.__pad.frames(3);
   const prompt = document.getElementById('prompt').textContent;
-  await window.__pad.tap(0); await window.__pad.hold(() => {}, 0.7);
+  // A mantenida junto a la fachada: engancha el rappel (la acción) y no inspecciona
+  let inspected = false;
+  await window.__pad.hold(() => window.__pad.btn(0, 1), 0.8, () => { inspected = inspected || vm.hands.kind === 'inspect' || !!p.intent.inspect; });
   const hooked = !!p.rappel, y0 = p.body.pos.y;
   await window.__pad.hold(() => window.__pad.stick(0, -1), 1.2);
   const y1 = p.body.pos.y;
   await window.__pad.tap(1); await window.__pad.hold(() => {}, 1.2);
-  return { hooked, climbed: y1 - y0, released: !p.rappel, prompt, gear: document.getElementById('gear').textContent, kit: document.getElementById('kit').textContent };
+  return { hooked, climbed: y1 - y0, released: !p.rappel, inspected, prompt, gear: document.getElementById('gear').textContent, kit: document.getElementById('kit').textContent };
 });
 console.log('  rappel:', JSON.stringify(rp));
-check(rp.prompt === 'Pulsa A para hacer rappel', `el aviso del rappel dice A («${rp.prompt}»)`);
-check(/▼ órdenes/.test(rp.gear) && /mantén Y: dron · R3 golpe/.test(rp.gear) && /RB|LB/.test(rp.kit) && !/H órdenes|5 dron/.test(rp.gear), `el HUD con los botones del mando («${rp.gear}» · «${rp.kit}»)`);
-check(rp.hooked && rp.climbed > 0.5, 'A: rappel, y el stick sube');
+check(!rp.inspected, 'A mantenida junto a la fachada inspecciona');
+check(rp.prompt === `Pulsa ${N.A} para hacer rappel`, `el aviso del rappel dice ${N.A} («${rp.prompt}»)`);
+check(/▼ órdenes/.test(rp.gear) && rp.gear.includes(`mantén ${N.Y}: dron · R3 golpe`) && (rp.kit.includes(N.RB) || rp.kit.includes(N.LB)) && !/H órdenes|5 dron/.test(rp.gear), `el HUD con los botones del mando («${rp.gear}» · «${rp.kit}»)`);
+check(rp.hooked && rp.climbed > 0.5, 'A (mantenida junto a la fachada): rappel, y el stick sube');
 check(rp.released, 'B suelta la cuerda');
 await P(() => { window.__bc.place(10, 0, -12, Math.PI, 0); });
 await frames(4);
+// en campo abierto (nada delante): A mantenida inspecciona; ▲ mantenida cambia el modo de disparo sin marcar;
+// con «apuntar: alternar», LT tocado deja apuntando
+const ex = await P(async () => {
+  const bc = window.__bc, p = bc.player, m = bc.match, vm = bc.ctx.vm;
+  let inspected = false;
+  await window.__pad.hold(() => window.__pad.btn(0, 1), 0.8, () => { inspected = inspected || vm.hands.kind === 'inspect'; });
+  await window.__pad.hold(() => {}, 0.3);
+  const vaulted = !!p.vault || !!p.rappel;
+  m.recon.pings.delete(p);
+  const mode0 = p.weapon.mode;
+  await window.__pad.hold(() => window.__pad.btn(12, 1), 0.7);
+  await window.__pad.frames(3);
+  const modeHold = p.weapon.mode, pingHold = m.recon.pings.has(p);
+  await window.__pad.tap(12); await window.__pad.frames(3);
+  const pingTap = m.recon.pings.has(p), modeTap = p.weapon.mode;
+  bc.settings.adsMode = 'toggle';
+  await window.__pad.tap(6); await window.__pad.hold(() => {}, 0.5);
+  const adsOn = p.ads;
+  await window.__pad.tap(6); await window.__pad.hold(() => {}, 0.5);
+  const adsOff = p.ads;
+  bc.settings.adsMode = 'hold';
+  await window.__pad.hold(() => {}, 0.3);
+  return { inspected, vaulted, mode0, modeHold, pingHold, pingTap, modeTap, adsOn, adsOff, adsHold: p.ads };
+});
+console.log('  A y ▲ mantenidas, LT alternando:', JSON.stringify(ex));
+check(ex.inspected && !ex.vaulted, 'A mantenida sin nada delante no inspecciona');
+check(ex.modeHold !== ex.mode0 && !ex.pingHold, `▲ mantenida: el modo de disparo (${ex.mode0} → ${ex.modeHold}) sin marcar`);
+check(ex.pingTap && ex.modeTap === ex.modeHold, '▲ tocada: marca (y no cambia el modo)');
+check(ex.adsOn > 0.8 && ex.adsOff < 0.2 && ex.adsHold < 0.2, `con «apuntar: alternar», LT tocado deja apuntando y otra vez lo quita (${ex.adsOn.toFixed(2)} → ${ex.adsOff.toFixed(2)})`);
 // marcar, órdenes, marcador
 const ui = await P(async () => {
   const bc = window.__bc, s = bc.session, p = bc.player, m = bc.match;
   p.pitch = -0.2;
+  m.recon.pings.delete(p);
   await window.__pad.tap(12); await window.__pad.frames(3);
   const ping = m.recon.pings.has(p);
   let open = false, sel = -1;
@@ -318,7 +362,7 @@ const pz = await P(async () => {
 });
 await shot('f105_04_ronda');
 console.log('  pausa:', JSON.stringify(pz));
-check(pz.paused && pz.shown && pz.still && /Start/.test(pz.text), 'Start pausa (y lo dice: «Start para seguir · B: menú principal»)');
+check(pz.paused && pz.shown && pz.still && pz.text.includes(`${N.Start} para seguir`) && pz.text.includes(`${N.B}: menú`), `Start pausa (y lo dice: «${pz.text}»)`);
 check(pz.resumed, 'Start otra vez: sigue');
 // fin de la ronda (caen los defensores) y la selección de la siguiente, con el foco del mando
 await P(() => { const bc = window.__bc, g = bc.game, p = bc.player; for (const o of g.operators) if (o.team !== p.team && o.state !== 'dead') g.kill(o, { by: p }); });
@@ -368,7 +412,7 @@ const kpo = await P(() => ({ open: !document.getElementById('kitpanel').classLis
 await tap(B.B);
 await frames(3);
 const kpc = await P(() => ({ open: !document.getElementById('kitpanel').classList.contains('hidden'), paused: window.__bc.ctx.paused }));
-check(kpo.open && kp && kp.act === 'kit' && /B/.test(kpo.note), `▼ abre el panel de miras y accesorios con el foco en una opción («${kpo.note}»)`);
+check(kpo.open && kp && kp.act === 'kit' && kpo.note.includes(N.B), `▼ abre el panel de miras y accesorios con el foco en una opción («${kpo.note}»)`);
 check(!kpc.open && !kpc.paused, 'B lo cierra y se sigue jugando');
 // el teclado: al tocarlo, vuelve el teclado y el ratón (pausa hasta un clic, como siempre)
 await page.keyboard.press('KeyW');
