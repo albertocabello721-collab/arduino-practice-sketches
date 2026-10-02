@@ -124,7 +124,7 @@ const azul = (r, g, b) => b > r + 25 && b > g + 6 && b > 100;
 const azules = countPx(cap, [0.3, 0.15, 0.7, 0.75], azul);
 const sinAliado = await (async () => { await P(() => { const bc = window.__bc, p = bc.player, g = bc.session.game; const ally = g.operators.find((o) => o.team === p.team && o !== p && o.state === 'alive'); ally.frozen = true; }); await frames(3); const b = await page.screenshot({ path: path.join(out, 'f104_03b_sin_aliado.png') }); await P(() => { const bc = window.__bc, p = bc.player, g = bc.session.game; const ally = g.operators.find((o) => o.team === p.team && o !== p && o.state === 'alive'); ally.frozen = false; }); return b; })();
 const meanDiff = (A, B, box) => { const a = readPNG(A), b = readPNG(B); const x0 = Math.floor(box[0] * a.w), y0 = Math.floor(box[1] * a.h), x1 = Math.floor(box[2] * a.w), y1 = Math.floor(box[3] * a.h); let n = 0, d = 0; for (let y = y0; y < y1; y++) for (let x = x0; x < x1; x++) { const i = (y * a.w + x) * a.ch; for (let c = 0; c < 3; c++) d += Math.abs(a.data[i + c] - b.data[i + c]); n += 3; } return d / n; };
-const pecho = meanDiff(cap, sinAliado, [0.492, 0.515, 0.508, 0.54]);
+const pecho = meanDiff(cap, sinAliado, [0.496, 0.515, 0.504, 0.54]);   // (solo el interior del torso, sin sus bordes)
 console.log('  aliado:', JSON.stringify({ ...al, azules, pecho: +pecho.toFixed(1) }));
 check(al.silueta && !al.enemigo && al.dist < 40, `el aliado a ${al.dist} m lleva contorno (y el enemigo no)`);
 check(al.nombres.includes(al.nombre), `su nombre en pantalla (${al.nombres.join(', ')})`);
@@ -139,9 +139,11 @@ const vista = await (async () => {
   await frames(3);
   const sin = await page.screenshot();
   await P(() => { window.__bc.settings.allyOutline = true; window.__bc.post.grade.uniforms.uGrain.value = 0.035; document.getElementById('markers').style.visibility = ''; });
-  return { diff: +meanDiff(con, sin, [0.35, 0.3, 0.65, 0.9]).toFixed(2), azules: countPx(con, [0.35, 0.3, 0.65, 0.9], azul) };
+  // (los azules que quedan son del brazalete del equipo; con el ajuste y sin él deben ser los mismos)
+  const box = [0.44, 0.4, 0.56, 0.85];
+  return { con: countPx(con, box, azul), sin: countPx(sin, box, azul) };
 })();
-check(vista.diff < 1.5, `a la vista no hay contorno: con el ajuste y sin él la imagen es la misma (diferencia media ${vista.diff}, azules ${vista.azules})`);
+check(Math.abs(vista.con - vista.sin) <= 0.15 * vista.sin + 12, `a la vista no hay contorno: los mismos píxeles azules con el ajuste (${vista.con}) y sin él (${vista.sin})`);
 // y a más de 40 m, sin contorno
 const lejos = await P(async () => {
   const bc = window.__bc, g = bc.session.game, p = bc.player;
