@@ -104,6 +104,7 @@ const al = await P(async () => {
   const ally = g.operators.find((o) => o.team === p.team && o !== p && o.state === 'alive');
   const foe = g.operators.find((o) => o.team !== p.team && o.state === 'alive');
   const ax = 6.5, az = 6.5;
+  bc.place(ax, 0.01, az, Math.PI, 0); for (let i = 0; i < 4; i++) window.__step(1 / 60);   // (la altura del suelo en su sitio)
   ally.body.pos.x = ax; ally.body.pos.y = p.body.pos.y; ally.body.pos.z = az; ally.yaw = Math.PI;
   bc.place(ax, 0, -7, Math.PI, 0.02);
   for (let i = 0; i < 3; i++) window.__step(1 / 60);
