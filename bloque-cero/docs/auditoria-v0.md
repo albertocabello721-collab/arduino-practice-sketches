@@ -1,6 +1,6 @@
 # Auditoría V0: qué separa a Bloque Cero (v37) de Rainbow Six Siege
 
-Capturas en `docs/auditoria-v0/` (1600×900, escala 1,0, calidad alta con MSAA 4, Villa de día, HUD tal cual; hoja de contacto en `hoja.png`). Herramienta: `node tools/capturas-v0.mjs docs/auditoria-v0`.
+Capturas a 1600×900, escala 1,0, calidad alta con MSAA 4, Villa de día y HUD tal cual. En el repositorio solo queda la hoja de contacto (`docs/auditoria-v0/hoja.png`); las seis capturas sueltas se regeneran con `node tools/capturas-v0.mjs docs/auditoria-v0` y la hoja con `node tools/hoja-capturas.mjs docs/auditoria-v0 docs/auditoria-v0/hoja.png`.
 
 Datos del render en estas escenas: 334 llamadas de dibujo, 155 000 triángulos, exposición 0,81 en la calle (dentro de la casa llega al tope de 1,9). En la captura del jugador (Hall, defensa): escala 0,75 sin suavizado, CPU 2,3 ms. Explicación: en calidad alta el juego pide hasta 1,5 píxeles por píxel de pantalla (en un MacBook Air con Retina, 2,25 veces los píxeles de la ventana); la GPU no llega a 55 fps, el ajuste automático baja la escala a 0,72 y en ese escalón apaga el MSAA. Por eso se ven bordes de sierra.
 
