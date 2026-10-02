@@ -56,8 +56,8 @@ for (;;) {
 }
 await page.evaluate(() => { const bc = window.__bc; bc.session.bots.update = () => {}; for (const o of bc.game.operators) if (o !== bc.player) Object.assign(o.intent, { fire: false, ads: false, moveX: 0, moveZ: 0, sprint: false }); });
 console.log('fase', await page.evaluate(() => window.__bc.match.phase));
-// que pasen el rótulo de inicio de ronda y el aviso del ratón antes de capturar nada
-await ticks(60 * 6); await page.waitForTimeout(5000);
+// sin el rótulo de inicio de ronda ni el aviso del ratón (del navegador sin cabeza) en las capturas
+await page.addStyleTag({ content: '#intro, #toast { display: none !important; }' });
 // ---------------------------------------------------------------- 6) pared recién destruida (carga de brecha en la fachada del recibidor)
 await page.evaluate(() => { const bc = window.__bc; bc.player.hp = bc.player.maxHp; bc.player.gadget = { id: 'breach', left: 2 }; bc.player.gadgetCd = 0; bc.place(11.0, 0.01, 2.0, -Math.PI / 2, 0); });
 await ticks(2); await frames(3);
