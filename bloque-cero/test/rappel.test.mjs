@@ -226,6 +226,7 @@ test('solo quien puede: la defensa no, el ataque en la preparación no, en la ac
   world.resetToPristine();
   const m = new Match({ world, map, seed: 2, rules: { selectTime: 0, prepTime: 1, roundEndTime: 0.2 }, human: true, startSide: 'atk' });
   m.start();
+  while (m.phase === 'load') m.tick(TICK);   // (la pantalla de carga, F10.4: los operadores se crean al empezar la preparación)
   const me = m.slots.find((s) => s.human).op;
   const def = m.game.operators.find((o) => o.side === 'def');
   const check = (op) => { place(op, 6, 0, -1.0, FACE_S); op.body.onGround = true; return !!m.rappel.hookSpot(op); };

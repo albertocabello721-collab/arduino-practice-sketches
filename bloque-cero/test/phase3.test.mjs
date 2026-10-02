@@ -248,6 +248,7 @@ test('el jugador manda: si elige el operador de un bot, el bot cambia; la defens
   assert.ok(m.choose(me, { location: 2 }));
   m.setReady(me);
   run(m, 1);
+  while (m.phase === 'load') m.tick(TICK);   // (la pantalla de carga, F10.4)
   assert.equal(m.phase, 'prep');
   assert.equal(m.location, 2);
   assert.equal(m.player.side, 'def');
