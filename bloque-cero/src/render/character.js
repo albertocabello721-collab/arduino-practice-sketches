@@ -398,10 +398,25 @@ void main() {
 }
 `;
 // El contorno de un aliado tras una pared (V1, como en Siege): 1 px a media opacidad solo en la parte
-// tapada, sin relleno. Dos pasadas al final del fotograma, las dos con la prueba de profundidad «más
-// lejos que lo dibujado»: 1) el cuerpo escribe su profundidad (la más lejana) donde algo lo tapa, sin
-// color, y también sobre sí mismo; 2) el cuerpo inflado 1 px solo pasa donde lo dibujado es más cercano
-// que él: la pared que lo tapa. Queda el anillo; el interior y la parte a la vista, no.
+// tapada, sin relleno. Dos pasadas al final del fotograma: 1) la huella del cuerpo (sin inflar) sella
+// la profundidad a «lejísimos» en cada píxel que ocupa, sin color (así ni su propio cuerpo ni sus
+// aristas interiores cuentan); 2) el cuerpo inflado 1 px, con la prueba «más lejos que lo dibujado»,
+// solo pasa en el anillo de fuera y donde lo dibujado es más cercano que él: la pared que lo tapa. A la
+// vista, el fondo del anillo está más lejos y no pasa nada.
+const SIL_DEPTH_VERT = /* glsl */ `
+precision highp float;
+uniform mat4 viewMatrix;
+uniform mat4 projectionMatrix;
+uniform mat4 uBones[${BONE_COUNT}];
+in vec3 position;
+in float aBone;
+void main() {
+  mat4 B = uBones[int(aBone + 0.5)];
+  vec4 c = projectionMatrix * viewMatrix * (B * vec4(position, 1.0));
+  c.z = c.w * 0.99999;      // (profundidad casi al fondo: la huella sella el píxel)
+  gl_Position = c;
+}
+`;
 const SIL_DEPTH_FRAG = /* glsl */ `
 precision highp float;
 out vec4 fragColor;
@@ -422,7 +437,9 @@ void main() {
   vec4 c0 = projectionMatrix * viewMatrix * (B * vec4(position, 1.0));
   // cuánto hay que apartar el vértice en el mundo para que en pantalla sean uPx píxeles a esa distancia
   float e = uPx * 2.0 * max(c0.w, 0.05) / (projectionMatrix[1][1] * uViewH);
-  gl_Position = projectionMatrix * viewMatrix * (B * vec4(position + aOut * e, 1.0));
+  vec4 c1 = projectionMatrix * viewMatrix * (B * vec4(position + aOut * e, 1.0));
+  // en pantalla, el vértice inflado; en profundidad, el de verdad (inflar no acerca ni aleja)
+  gl_Position = vec4(c1.xy, c0.z * (c1.w / c0.w), c1.w);
 }
 `;
 const SIL_FRAG = /* glsl */ `
@@ -576,9 +593,9 @@ export class CharacterRenderer {
     mesh.frustumCulled = false;
     this.scene.add(mesh);
     const silDepth = new THREE.Mesh(geo, new THREE.RawShaderMaterial({
-      glslVersion: THREE.GLSL3, vertexShader: CHAR_VERT, fragmentShader: SIL_DEPTH_FRAG,
+      glslVersion: THREE.GLSL3, vertexShader: SIL_DEPTH_VERT, fragmentShader: SIL_DEPTH_FRAG,
       uniforms: { uBones: mesh.material.uniforms.uBones },      // (los mismos huesos)
-      transparent: true, colorWrite: false, depthWrite: true, depthFunc: THREE.GreaterDepth, side: THREE.DoubleSide,
+      transparent: true, colorWrite: false, depthWrite: true, depthFunc: THREE.AlwaysDepth, side: THREE.DoubleSide,
     }));
     silDepth.frustumCulled = false; silDepth.renderOrder = 998; silDepth.visible = false;
     const sil = new THREE.Mesh(geo, new THREE.RawShaderMaterial({

@@ -107,9 +107,8 @@ await shot('05_operador_5m');
 await page.evaluate(() => {
   const bc = window.__bc, g = bc.game, p = bc.player, map = bc.map;
   const ally = g.operators.find((o) => o.team === p.team && o !== p && o.state === 'alive');
-  const r = map.rooms.find((q) => q.id === 'F_recibidor');
-  const ax = (r.x0 + r.x1) / 2, az = (r.z0 + r.z1) / 2;
-  ally.body.pos.x = ax; ally.body.pos.y = 0; ally.body.pos.z = az; ally.yaw = Math.PI; ally.body.vel.x = ally.body.vel.y = ally.body.vel.z = 0;
+  const ax = 6.5, az = 6.5;      // (el salón, entre las dos ventanas de la fachada: tras la pared de ladrillo)
+  ally.body.pos.x = ax; ally.body.pos.y = p.body.pos.y; ally.body.pos.z = az; ally.yaw = Math.PI; ally.body.vel.x = ally.body.vel.y = ally.body.vel.z = 0;
   bc.place(ax, 0.01, -7, Math.PI, 0.02);
   for (let i = 0; i < 3; i++) window.__step(1 / 60);
   ally.body.pos.x = ax; ally.body.pos.z = az; ally.yaw = Math.PI;
@@ -120,8 +119,7 @@ await shot('07_aliado_tras_pared');
 await page.evaluate(() => {
   const bc = window.__bc, g = bc.game, p = bc.player, map = bc.map;
   const ally = g.operators.find((o) => o.team === p.team && o !== p && o.state === 'alive');
-  const r = map.rooms.find((q) => q.id === 'F_recibidor');
-  const ax = (r.x0 + r.x1) / 2, az = (r.z0 + r.z1) / 2;
+  const ax = 6.5, az = 6.5;
   bc.place(ax, 0.01, az - 3, Math.PI, 0.0);
   for (let i = 0; i < 3; i++) window.__step(1 / 60);
   ally.body.pos.x = ax; ally.body.pos.z = az; ally.yaw = Math.PI;

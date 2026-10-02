@@ -98,47 +98,49 @@ const al = await P(async () => {
   s.bots.update = () => {};
   window.__step = s.tick.bind(s); s.tick = () => {};
   for (const o of g.operators) if (o !== p) Object.assign(o.intent, { fire: false, ads: false, moveX: 0, moveZ: 0, sprint: false });
-  // el jugador en la calle mirando a la fachada; un aliado dentro, en el recibidor (tras la pared)
+  // el jugador en la calle mirando a la fachada; un aliado dentro, en el salón, entre las dos ventanas
+  // de la fachada sur (x = 4 y 9): tras la pared de ladrillo, sin puerta ni ventana por medio
   const ally = g.operators.find((o) => o.team === p.team && o !== p && o.state === 'alive');
   const foe = g.operators.find((o) => o.team !== p.team && o.state === 'alive');
-  const r = map.rooms.find((q) => q.id === 'F_recibidor');
-  const ax = (r.x0 + r.x1) / 2, az = (r.z0 + r.z1) / 2;
-  ally.body.pos.x = ax; ally.body.pos.y = 0; ally.body.pos.z = az; ally.yaw = Math.PI;
+  const ax = 6.5, az = 6.5;
+  ally.body.pos.x = ax; ally.body.pos.y = p.body.pos.y; ally.body.pos.z = az; ally.yaw = Math.PI;
   bc.place(ax, 0, -7, Math.PI, 0.02);
   for (let i = 0; i < 3; i++) window.__step(1 / 60);
   await new Promise((res) => { let k = 0; const f = () => (++k >= 6 ? res() : requestAnimationFrame(f)); requestAnimationFrame(f); });
   const v = bc.ctx.chars.views.get(ally.id), vf = bc.ctx.chars.views.get(foe.id);
   const names = [...document.querySelectorAll('#markers .mk.mate')].filter((e) => e.style.display !== 'none').map((e) => e.textContent);
   const dist = Math.hypot(ally.body.pos.x - p.body.pos.x, ally.body.pos.z - p.body.pos.z);
+  // (sin marcadores ni grano: los píxeles azules deben ser solo del contorno)
+  document.getElementById('markers').style.visibility = 'hidden';
+  bc.post.grade.uniforms.uGrain.value = 0;
   return { nombre: ally.name, dist: +dist.toFixed(1), silueta: v.sil.visible, enemigo: vf.sil.visible, nombres: names, sala: map.roomAt(ally.body.pos.x, 1, ally.body.pos.z) && map.roomAt(ally.body.pos.x, 1, ally.body.pos.z).name };
 });
 await frames(3);
 // el contorno (V1): un anillo azul en el borde del aliado tapado; el interior conserva la pared
-await page.evaluate(() => { window.__bc.post.grade.uniforms.uGrain.value = 0; });
 await frames(2);
 const cap = await page.screenshot({ path: path.join(out, 'f104_03_silueta.png') });
-const azul = (r, g, b) => b > r + 35 && b > g + 8 && b > 110;
+const azul = (r, g, b) => b > r + 25 && b > g + 6 && b > 100;
 const azules = countPx(cap, [0.3, 0.15, 0.7, 0.75], azul);
 const sinAliado = await (async () => { await P(() => { const bc = window.__bc, p = bc.player, g = bc.session.game; const ally = g.operators.find((o) => o.team === p.team && o !== p && o.state === 'alive'); ally.frozen = true; }); await frames(3); const b = await page.screenshot({ path: path.join(out, 'f104_03b_sin_aliado.png') }); await P(() => { const bc = window.__bc, p = bc.player, g = bc.session.game; const ally = g.operators.find((o) => o.team === p.team && o !== p && o.state === 'alive'); ally.frozen = false; }); return b; })();
 const meanDiff = (A, B, box) => { const a = readPNG(A), b = readPNG(B); const x0 = Math.floor(box[0] * a.w), y0 = Math.floor(box[1] * a.h), x1 = Math.floor(box[2] * a.w), y1 = Math.floor(box[3] * a.h); let n = 0, d = 0; for (let y = y0; y < y1; y++) for (let x = x0; x < x1; x++) { const i = (y * a.w + x) * a.ch; for (let c = 0; c < 3; c++) d += Math.abs(a.data[i + c] - b.data[i + c]); n += 3; } return d / n; };
-const pecho = meanDiff(cap, sinAliado, [0.485, 0.515, 0.515, 0.545]);
+const pecho = meanDiff(cap, sinAliado, [0.492, 0.515, 0.508, 0.54]);
 console.log('  aliado:', JSON.stringify({ ...al, azules, pecho: +pecho.toFixed(1) }));
 check(al.silueta && !al.enemigo && al.dist < 40, `el aliado a ${al.dist} m lleva contorno (y el enemigo no)`);
 check(al.nombres.includes(al.nombre), `su nombre en pantalla (${al.nombres.join(', ')})`);
-check(azules > 40, `el contorno azul se ve a través de la pared (${azules} píxeles azules)`);
-check(pecho < 12, `el contorno no tapa lo que hay detrás: el pecho del aliado conserva la pared (diferencia media ${pecho.toFixed(1)})`);
+check(azules > 25 && azules < 600, `el contorno azul se ve a través de la pared y es solo un anillo (${azules} píxeles azules)`);
+check(pecho < 8, `el contorno no tapa lo que hay detrás: el pecho del aliado conserva la pared (diferencia media ${pecho.toFixed(1)})`);
 // a la vista, sin contorno: los mismos píxeles azules con el ajuste encendido y apagado
 const vista = await (async () => {
-  await P(() => { const bc = window.__bc, p = bc.player, g = bc.session.game, map = bc.map; const ally = g.operators.find((o) => o.team === p.team && o !== p && o.state === 'alive'); const r = map.rooms.find((q) => q.id === 'F_recibidor'); const ax = (r.x0 + r.x1) / 2, az = (r.z0 + r.z1) / 2; bc.place(ax, 0, az - 3, Math.PI, 0.0); for (let i = 0; i < 3; i++) window.__step(1 / 60); });
+  await P(() => { const bc = window.__bc; bc.place(6.5, 0, 3.5, Math.PI, 0.0); for (let i = 0; i < 3; i++) window.__step(1 / 60); });
   await frames(3);
-  const on = countPx(await page.screenshot({ path: path.join(out, 'f104_03c_a_la_vista.png') }), [0.4, 0.42, 0.6, 0.88], azul);
+  const con = await page.screenshot({ path: path.join(out, 'f104_03c_a_la_vista.png') });
   await P(() => { window.__bc.settings.allyOutline = false; });
   await frames(3);
-  const off = countPx(await page.screenshot(), [0.4, 0.42, 0.6, 0.88], azul);
-  await P(() => { window.__bc.settings.allyOutline = true; window.__bc.post.grade.uniforms.uGrain.value = 0.035; });
-  return { on, off };
+  const sin = await page.screenshot();
+  await P(() => { window.__bc.settings.allyOutline = true; window.__bc.post.grade.uniforms.uGrain.value = 0.035; document.getElementById('markers').style.visibility = ''; });
+  return { diff: +meanDiff(con, sin, [0.35, 0.3, 0.65, 0.9]).toFixed(2), azules: countPx(con, [0.35, 0.3, 0.65, 0.9], azul) };
 })();
-check(Math.abs(vista.on - vista.off) <= 6, `a la vista no hay contorno (azules con el ajuste: ${vista.on}, sin él: ${vista.off})`);
+check(vista.diff < 1.5, `a la vista no hay contorno: con el ajuste y sin él la imagen es la misma (diferencia media ${vista.diff}, azules ${vista.azules})`);
 // y a más de 40 m, sin contorno
 const lejos = await P(async () => {
   const bc = window.__bc, g = bc.session.game, p = bc.player;
@@ -153,7 +155,7 @@ check(!lejos.sil && lejos.dist > 40, `a más de 40 m (${lejos.dist} m), sin cont
 // escala y exposición (V1): el ajuste adaptativo nunca quita el MSAA; la exposición no pasa de 1,2 en el hall
 const calidad = await P(async () => {
   const bc = window.__bc;
-  bc.post.setAdaptiveLevel(4, 'alta'); const msaaMin = bc.post.msaa; bc.post.setAdaptiveLevel(0, 'alta');
+  bc.post.setQuality('alta'); bc.post.setAdaptiveLevel(4, 'alta'); const msaaMin = bc.post.msaa; bc.post.setAdaptiveLevel(0, 'alta'); bc.post.setQuality('baja');
   bc.place(17, 0, 12, 0, 0);
   await new Promise((res) => { let k = 0; const f = () => (++k >= 70 ? res() : requestAnimationFrame(f)); requestAnimationFrame(f); });
   return { msaaMin, exposicion: +bc.renderer.toneMappingExposure.toFixed(2) };
