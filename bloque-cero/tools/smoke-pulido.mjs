@@ -91,6 +91,7 @@ check(la.timer > 1 && skipped.hidden, `Espacio la salta (quedaban ${la.timer} s)
 
 // ---------------------------------------------------------------- la silueta y el nombre de un aliado tras una pared
 console.log('aliados');
+await page.addStyleTag({ content: '#intro, #toast { display: none !important; }' });   // (sin el rótulo de ronda ni avisos sobre las capturas)
 await P(() => { const m = window.__bc.match; m.timer = 0.3; });
 await page.waitForFunction(() => window.__bc.match.phase === 'action', null, { timeout: 30000 });
 const al = await P(async () => {
