@@ -104,7 +104,7 @@ const al = await P(async () => {
   const ally = g.operators.find((o) => o.team === p.team && o !== p && o.state === 'alive');
   const foe = g.operators.find((o) => o.team !== p.team && o.state === 'alive');
   const ax = 6.5, az = 6.5;
-  bc.place(ax, 0.01, az, Math.PI, 0); for (let i = 0; i < 4; i++) window.__step(1 / 60);   // (la altura del suelo en su sitio)
+  bc.place(ax, 0.3, az, Math.PI, 0); for (let i = 0; i < 30; i++) window.__step(1 / 60);   // (cae hasta el suelo de su sitio: una alfombra es una capa sólida de 0,125 m)
   ally.body.pos.x = ax; ally.body.pos.y = p.body.pos.y; ally.body.pos.z = az; ally.yaw = Math.PI;
   bc.place(ax, 0, -7, Math.PI, 0.02);
   for (let i = 0; i < 3; i++) window.__step(1 / 60);
@@ -133,7 +133,7 @@ check(azules > 25 && azules < 600, `el contorno azul se ve a través de la pared
 check(pecho < 8, `el contorno no tapa lo que hay detrás: el pecho del aliado conserva la pared (diferencia media ${pecho.toFixed(1)})`);
 // a la vista, sin contorno: los mismos píxeles azules con el ajuste encendido y apagado
 const vista = await (async () => {
-  await P(() => { const bc = window.__bc; bc.place(6.5, 0, 3.5, Math.PI, 0.0); for (let i = 0; i < 3; i++) window.__step(1 / 60); });
+  await P(() => { const bc = window.__bc; bc.place(6.5, 0.3, 3.5, Math.PI, 0.0); for (let i = 0; i < 30; i++) window.__step(1 / 60); });
   await frames(3);
   const con = await page.screenshot({ path: path.join(out, 'f104_03c_a_la_vista.png') });
   await P(() => { window.__bc.settings.allyOutline = false; });

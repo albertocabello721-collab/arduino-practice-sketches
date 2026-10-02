@@ -108,7 +108,7 @@ await page.evaluate(() => {
   const bc = window.__bc, g = bc.game, p = bc.player, map = bc.map;
   const ally = g.operators.find((o) => o.team === p.team && o !== p && o.state === 'alive');
   const ax = 6.5, az = 6.5;      // (el salón, entre las dos ventanas de la fachada: tras la pared de ladrillo)
-  bc.place(ax, 0.01, az, Math.PI, 0); for (let i = 0; i < 4; i++) window.__step(1 / 60);   // (la altura del suelo en su sitio)
+  bc.place(ax, 0.3, az, Math.PI, 0); for (let i = 0; i < 30; i++) window.__step(1 / 60);   // (cae hasta el suelo de su sitio: una alfombra es una capa sólida de 0,125 m)
   const floorY = p.body.pos.y;
   ally.body.pos.x = ax; ally.body.pos.y = floorY; ally.body.pos.z = az; ally.yaw = Math.PI; ally.body.vel.x = ally.body.vel.y = ally.body.vel.z = 0;
   window.__allyY = floorY;
@@ -123,8 +123,8 @@ await page.evaluate(() => {
   const bc = window.__bc, g = bc.game, p = bc.player, map = bc.map;
   const ally = g.operators.find((o) => o.team === p.team && o !== p && o.state === 'alive');
   const ax = 6.5, az = 6.5;
-  bc.place(ax, 0.01, az - 3, Math.PI, 0.0);
-  for (let i = 0; i < 3; i++) window.__step(1 / 60);
+  bc.place(ax, 0.3, az - 3, Math.PI, 0.0);
+  for (let i = 0; i < 30; i++) window.__step(1 / 60);
   ally.body.pos.x = ax; ally.body.pos.y = window.__allyY; ally.body.pos.z = az; ally.yaw = Math.PI;
   window.__step(1 / 60);
 });
