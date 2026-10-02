@@ -2,6 +2,7 @@
 // barricadas, drones y cámaras), acción, desactivador, fin de ronda y de partida.
 // El jugador ocupa la ranura 0 del equipo 0 (azul); el rival es naranja.
 import { Session } from './session.js';
+import { emblemURL } from '../ui/emblems.js';
 import { bindGameFx } from './fx.js';
 import { FeedController } from './feeds.js';
 import { TeamChat } from './chat.js';
@@ -487,7 +488,14 @@ export class MatchSession extends Session {
     if (cd !== this.countShown) { this.countShown = cd; if (cd) { this.ui.showCount(cd); audio.countdown(cd); } }
     const cl = clutchFor(m, this.player, this.myTeam), ck = cl ? cl.key : '';
     if (ck !== this.clutchKey) { this.clutchKey = ck; if (cl) this.ui.showClutch(cl); }
-    hud.hints(!this.feed.active && (m.phase === 'prep' || (m.phase === 'action' && m.round === 1 && m.timeLeft > m.rules.actionTime - 12)));
+    // la ayuda (V1): sola, 8 s al empezar la preparación; N la oculta o la vuelve a mostrar
+    const wantHints = !this.feed.active && (m.phase === 'prep' || (m.phase === 'action' && m.round === 1 && m.timeLeft > m.rules.actionTime - 12));
+    const nowH = performance.now();
+    if (wantHints && !this.hintsAutoWas) this.hintsUntil = nowH + 8000;
+    this.hintsAutoWas = wantHints;
+    const showingHints = !!this.hintsManual || (wantHints && nowH < (this.hintsUntil || 0));
+    if (input.pressed('help')) { this.hintsManual = !showingHints; this.hintsUntil = 0; }
+    hud.hints(this.hintsManual ? !this.feed.active : showingHints);
     this.ui.showScoreboard(m, input.isDown('scoreboard'));
     const view = this.viewOp;
     const p = this.player;
@@ -717,6 +725,15 @@ export class MatchSession extends Session {
     if (pm !== this._padMode) { this._padMode = pm; if (this.prepRaw) this.ui.setPrepInfo(this._t(this.prepRaw)); }
   }
 
+  /** El emblema de un aliado para su marcador (V1, como en Siege: icono de operador y nombre sobre la cabeza). */
+  _mateIcon(op) {
+    const sl = this.match.slots.find((s) => s.op === op), id = sl && sl.opId;
+    if (!id) return '';
+    const C = this._iconCache || (this._iconCache = new Map());
+    if (!C.has(id)) C.set(id, emblemURL(id, '#ffffff', 40));
+    return C.get(id);
+  }
+
   _markers(view) {
     const m = this.match, list = [];
     const cam = this.ctx.camera.position;
@@ -738,7 +755,7 @@ export class MatchSession extends Session {
       if (op.team === 0) {
         if (op === view) continue;
         const far = Math.hypot(h.x - cam.x, h.z - cam.z) > 40;     // (su nombre, a menos de 40 m: F10.4)
-        list.push({ x: h.x, y: h.y + 0.45, z: h.z, cls: 'mate' + (op.state === 'downed' ? ' down' : ''), icon: '', label: far && op.state !== 'downed' ? '' : op.name });
+        list.push({ x: h.x, y: h.y + 0.45, z: h.z, cls: 'mate' + (op.state === 'downed' ? ' down' : ''), icon: '', img: this._mateIcon(op), label: far && op.state !== 'downed' ? '' : op.name });
       } else if (m.recon.isSpottedFor(op, 0)) {
         list.push({ x: h.x, y: h.y + 0.5, z: h.z, cls: 'spot', icon: '', label: op.name });
       }

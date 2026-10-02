@@ -255,12 +255,12 @@ export class MatchUI {
       V.set(it.x, it.y, it.z).project(cam);
       const behind = V.z > 1;
       if (behind || Math.abs(V.x) > 1.05 || Math.abs(V.y) > 1.05) { if (m.key !== 'off') { m.el.style.display = 'none'; m.key = 'off'; } continue; }
-      const key = `${it.cls}|${it.icon}|${it.label}`;
+      const key = `${it.cls}|${it.icon}|${it.img || ''}|${it.label}`;
       if (m.key !== key) {
         m.key = key;
         m.el.style.display = '';
         m.el.className = 'mk ' + (it.cls || '');
-        m.ic.textContent = it.icon || '';
+        if (it.img) m.ic.innerHTML = `<img src="${it.img}" alt="">`; else m.ic.textContent = it.icon || '';   // (aliados: su emblema, V1)
         m.lb.textContent = it.label || '';
       }
       m.el.style.left = `${((V.x + 1) / 2 * W).toFixed(1)}px`;

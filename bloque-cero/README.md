@@ -35,8 +35,8 @@ Lo pequeño que faltaba del documento, con las diferencias a propósito como est
   dura más de lo que dice. La selección de operador dura **20 s** (antes 25).
 - **Humo del cañón**: tras 8 disparos seguidos (menos de 0,3 s entre ellos) la boca del arma humea
   1,5 s (más si sigues disparando). Solo se ve: ni los bots ni nadie lo nota.
-- **Aliados**: a menos de 40 m, su silueta azul a través de las paredes (el mismo esqueleto, pintado
-  solo donde algo lo tapa) y su nombre encima (antes, el nombre solo a 22 m); los enemigos, no.
+- **Aliados**: a menos de 40 m, su contorno a través de las paredes y su emblema y su nombre encima
+  (desde la V1; antes una silueta rellena); los enemigos, no.
 - **Ajustes → Sombras**: altas (mapa de 4096), bajas (2048) o sin sombras (sin la pasada del sol).
 - **Ajustes → Apuntar**: mantener o alternar (clic derecho y LT).
 - **Sin captura del ratón**: si el navegador no deja capturar el puntero, el ratón mueve la vista
@@ -46,9 +46,36 @@ Lo pequeño que faltaba del documento, con las diferencias a propósito como est
 - El cielo sin la franja oscura del horizonte (las «colinas lejanas»).
 - Rendimiento: lo mismo que la F12.5 (`tools/perf-partida.mjs`: 375 llamadas de dibujo y 169k
   triángulos las dos versiones; el coste de CPU de personajes, arma, poses y tick, dentro del ruido).
-  Las siluetas de los aliados son una malla más por aliado (solo donde algo lo tapa) y el humo del
+  El contorno de los aliados son dos mallas más por aliado (solo donde algo lo tapa) y el humo del
   cañón, partículas de polvo de las de siempre.
 - Prueba: `tools/smoke-pulido.mjs`.
+
+## V1 · Arreglos directos (rumbo réplica de Siege)
+
+Tras la auditoría V0 (`docs/auditoria-v0.md`): lo que más alejaba la imagen de Siege por el precio.
+
+- **Escala 1,0 con suavizado siempre**: la calidad alta ya no pide 1,5 píxeles por píxel de ventana
+  (en un MacBook Air con Retina eran 2,25 veces los píxeles y la GPU no llegaba a 60 fps); el ajuste
+  automático baja la resolución si hace falta, pero nunca quita el MSAA (antes lo apagaba y salían
+  bordes de sierra).
+- **Exposición con tope 1,2** (antes llegaba a 1,9 dentro de la casa y la imagen salía lavada), curva
+  de contraste alrededor del gris medio (1,12) y un 60 % menos de neblina dentro de la casa.
+- **Fuera las motas de polvo pegadas a la cámara**. El polvo solo existe tras explosiones y al romper
+  paredes (y, cuando lleguen, en los haces de luz).
+- **Aliados como en Siege**: su emblema y su nombre sobre la cabeza; tras una pared, un contorno de
+  1 px a media opacidad solo en la parte tapada, sin relleno, que se desvanece de 30 a 40 m. Nunca
+  enemigos, en ningún modo (en vivo, espectador, repetición). Ajustes → «Contorno de los aliados».
+  Cómo se dibuja (`src/render/character.js`): dos pasadas al final del fotograma con la prueba de
+  profundidad «más lejos que lo dibujado»; la primera escribe la profundidad del cuerpo (también
+  sobre sí mismo, así su propio torso no deja parches), la segunda dibuja el cuerpo inflado 1 px en
+  pantalla (por caja, con las esquinas cerradas) y solo pasa donde la pared es más cercana. Esto quita
+  el fallo de la v37: un aliado a la vista se pintaba de azul por las partes que tapaba su propio cuerpo.
+- **La ayuda** se oculta sola a los 8 s y **N** la oculta o la vuelve a mostrar (I es inspeccionar;
+  F1 pide fn en Mac).
+- Prueba: `tools/smoke-pulido.mjs` (anillo azul a través de la pared, el pecho del aliado conserva el
+  color de la pared, a la vista los mismos píxeles azules con el ajuste encendido y apagado, sin
+  contorno a más de 40 m, MSAA 4 con el ajuste adaptativo al mínimo, exposición ≤ 1,2 en el hall).
+  Capturas antes y después: `docs/auditoria-v0/` (V0) y `docs/v1/`.
 
 ## Bots de noche (Fase 10.4a)
 
@@ -159,7 +186,7 @@ los bots son iguales a cualquier hora.
   - la nevera de la cocina (un zumbido que arranca 22 s y para 11);
   - crujidos del piso de arriba, si hay piso encima;
   - motas de polvo que flotan y solo se ven donde hay luz: junto a las ventanas de día, bajo las
-    lámparas de noche (`src/render/dust.js`).
+    lámparas de noche (`src/render/dust.js`). (quitadas en la V1: el polvo pegado a la cámara se veía feo; volverá solo en los haces de luz)
 - Los bots no oyen nada de esto: no son ruidos de la partida (no pasan por la simulación).
 - De día solo cambia un detalle: la luz del aplique de la puerta principal ya no se corta de golpe a
   4 m de la fachada (la luz ambiente ahora llega a la calle). Dentro de la casa, la misma luz, celda

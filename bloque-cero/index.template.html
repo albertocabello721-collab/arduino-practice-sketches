@@ -184,7 +184,8 @@
   .mk .lb { font-size: 12px; letter-spacing: .1em; text-transform: uppercase; color: #fff; }
   .mk.def .ic { background: var(--red); color: #fff; }
   .mk.drop .ic { background: #fff; }
-  .mk.mate .ic { width: 12px; height: 12px; background: var(--blue); }
+  .mk.mate .ic { width: 22px; height: 22px; background: var(--blue); clip-path: none; border: 1px solid rgba(255,255,255,.45); box-shadow: 0 1px 3px rgba(0,0,0,.6); }
+  .mk.mate .ic img { display: block; width: 20px; height: 20px; }
   .mk.mate .lb { color: #cfe6fb; font-size: 12px; }
   .mk.mate.down .ic { background: var(--red); }
 
@@ -462,6 +463,7 @@
       </label>
       <label class="toggle"><input type="checkbox" id="set-lean"> Asomarse alterna (Q/E), como en Siege</label>
       <label class="toggle"><input type="checkbox" id="set-crouch"> Agacharse alterna (C)</label>
+      <label class="toggle"><input type="checkbox" id="set-outline"> Contorno de los aliados tras las paredes</label>
       <label class="setting">Apuntar (clic derecho o LT)
         <select id="set-ads"><option value="hold">Mantener</option><option value="toggle">Alternar</option></select><span></span>
       </label>

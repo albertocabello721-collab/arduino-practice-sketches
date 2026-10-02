@@ -103,6 +103,31 @@ await page.evaluate(() => {
 });
 console.log('operador:', await page.evaluate(() => window.__foe));
 await shot('05_operador_5m');
+// 7) un aliado tras la pared: el jugador en la calle mirando a la fachada, el aliado dentro del recibidor
+await page.evaluate(() => {
+  const bc = window.__bc, g = bc.game, p = bc.player, map = bc.map;
+  const ally = g.operators.find((o) => o.team === p.team && o !== p && o.state === 'alive');
+  const r = map.rooms.find((q) => q.id === 'F_recibidor');
+  const ax = (r.x0 + r.x1) / 2, az = (r.z0 + r.z1) / 2;
+  ally.body.pos.x = ax; ally.body.pos.y = 0; ally.body.pos.z = az; ally.yaw = Math.PI; ally.body.vel.x = ally.body.vel.y = ally.body.vel.z = 0;
+  bc.place(ax, 0.01, -7, Math.PI, 0.02);
+  for (let i = 0; i < 3; i++) window.__step(1 / 60);
+  ally.body.pos.x = ax; ally.body.pos.z = az; ally.yaw = Math.PI;
+  window.__step(1 / 60);
+});
+await shot('07_aliado_tras_pared');
+// 8) el mismo aliado a la vista, a 3 m
+await page.evaluate(() => {
+  const bc = window.__bc, g = bc.game, p = bc.player, map = bc.map;
+  const ally = g.operators.find((o) => o.team === p.team && o !== p && o.state === 'alive');
+  const r = map.rooms.find((q) => q.id === 'F_recibidor');
+  const ax = (r.x0 + r.x1) / 2, az = (r.z0 + r.z1) / 2;
+  bc.place(ax, 0.01, az - 3, Math.PI, 0.0);
+  for (let i = 0; i < 3; i++) window.__step(1 / 60);
+  ally.body.pos.x = ax; ally.body.pos.z = az; ally.yaw = Math.PI;
+  window.__step(1 / 60);
+});
+await shot('08_aliado_a_la_vista');
 // datos del render para el informe
 const info = await page.evaluate(() => { const r = window.__bc.renderer, i = r.info.render; return { llamadas: i.calls, triangulos: i.triangles, exposicion: +r.toneMappingExposure.toFixed(2), escala: r.getPixelRatio(), msaa: window.__bc.post.msaa, sombras: window.__bc.settings.shadows }; });
 console.log(JSON.stringify(info));

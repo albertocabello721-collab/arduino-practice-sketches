@@ -224,7 +224,7 @@ function withPlayer(seed, { startSide = 'def', prepTime = 150 } = {}) {
   const sq = new BotSquad(m, 'normal', { nav });
   m.on('roundStart', () => { sq.reset(); for (const [op, B] of [...sq.brains]) if (B.side !== startSide) sq.brains.delete(op); });
   m.start();
-  while (m.phase === 'select') m.tick(TICK);
+  while (m.phase === 'select' || m.phase === 'load') m.tick(TICK);
   const me = m.player;
   const allies = [...sq.brains.values()].filter((B) => B.team === me.team);
   return { m, sq, me, allies };

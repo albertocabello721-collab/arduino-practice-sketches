@@ -81,7 +81,7 @@ test('en partida: operadores únicos por equipo, gadget elegido y MURALLA solo c
   assert.ok(m.choose(me, { opId: 'muralla' }));
   assert.ok(m.choose(me, { secondary: 1, gadget: 1 }));
   m.setReady(me, true);
-  for (let i = 0; i < 120 && m.phase === 'select'; i++) m.tick(TICK);
+  for (let i = 0; i < 400 && (m.phase === 'select' || m.phase === 'load'); i++) m.tick(TICK);
   const p = m.player;
   assert.equal(p.opDef.id, 'muralla');
   assert.deepEqual(p.weapons.map((w) => w.def.id), ['revolver']);

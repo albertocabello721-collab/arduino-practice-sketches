@@ -11,7 +11,7 @@ export const BINDINGS = {
   leanLeft: 'KeyQ', leanRight: 'KeyE', vault: 'Space',
   reload: 'KeyR', interact: 'KeyF', gadget: 'KeyG', ability: 'KeyX',
   primary: 'Digit1', secondary: 'Digit2', melee: 'KeyV', drone: 'Digit5', mark: 'KeyT', orders: 'KeyH', fireMode: 'KeyB', inspect: 'KeyI',
-  scoreboard: 'Tab', perf: 'KeyM', debug: 'KeyP',
+  scoreboard: 'Tab', perf: 'KeyM', debug: 'KeyP', help: 'KeyN',   // (N: oculta o muestra la ayuda; I ya es inspeccionar)
 };
 
 export class Input {

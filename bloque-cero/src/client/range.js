@@ -150,7 +150,12 @@ export class RangeSession extends Session {
     F.frame(dt, { canExit: true });
     this.statusHud(this.viewOp);
     this.promptText = this.feed.active ? '' : (this.rappel.hint(this._player) || this.fortifyHud(this.fort, this._player) || this.lineupName());
-    this.ctx.hud.hints(!this.feed.active);
+    // la ayuda (V1): 8 s al entrar; N la oculta o la vuelve a mostrar
+    const nowH = performance.now();
+    if (this.hintsUntil === undefined) this.hintsUntil = nowH + 8000;
+    const showingHints = !!this.hintsManual || (!this.feed.active && nowH < this.hintsUntil);
+    if (this.ctx.input.pressed('help')) { this.hintsManual = !showingHints; this.hintsUntil = 0; }
+    this.ctx.hud.hints(this.hintsManual ? !this.feed.active : showingHints);
     this.ctx.hud.setTopbar('Campo de pruebas', 'Fase 4');
   }
 

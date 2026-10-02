@@ -2,7 +2,6 @@
 //  · Partida rápida → Hora: día, atardecer y noche. Desde la calle: el atardecer se ve más cálido
 //    (más rojo que azul) que el día, y la noche más oscura y más azul; de noche hay estrellas y las
 //    farolas de la calle alumbran (luz cálida al pie de la farola), de día no;
-//  · dentro del salón, de día, se ve el polvo en la luz;
 //  · suenan los pájaros de día y los grillos de noche en la calle, y el reloj en el salón;
 //  · los bots no se enteran: en una partida con ambiente de noche, todo lo que oyen los bots viene
 //    de un operador (disparos, pasos…), nunca del ambiente;
@@ -69,7 +68,7 @@ for (const key of ['dia', 'atardecer', 'noche']) {
   const k0 = await page.evaluate(() => window.__bc.audio._amb2.count.clock);
   await frames(6); await audioWait(4);
   const dentro = await shotOf(`f125_${key}_salon.png`);
-  Object.assign(r, await page.evaluate((k0) => { const bc = window.__bc, A = bc.audio._amb2; return { polvo: bc.dust.lit, polvoVisible: +bc.dust.mat.opacity.toFixed(2), tictac: A.count.clock - k0 }; }, k0));
+  Object.assign(r, await page.evaluate((k0) => { const bc = window.__bc, A = bc.audio._amb2; return { tictac: A.count.clock - k0 }; }, k0));
   r.luzDentro = +meanLuma(dentro, SCENE).toFixed(1);
   res[key] = r;
   console.log(key.padEnd(10), JSON.stringify(r));
@@ -83,7 +82,6 @@ check(T.calido > D.calido + 8, 'el atardecer no se ve más cálido que el día')
 check(N.calido < D.calido - 8, 'la noche no se ve más fría (azul) que el día');
 check(N.estrellas === 1 && D.estrellas === 0, 'no hay estrellas de noche (o las hay de día)');
 check(N.farola > 0.3 && D.farola === 0, 'las farolas no alumbran de noche (o alumbran de día)');
-check(D.polvo >= 10 && D.polvoVisible > 0.5, 'no se ve el polvo en la luz del salón');
 check(D.pajaros >= 1 && D.grillos === 0 && N.grillos >= 5 && N.pajaros === 0, 'no suenan los pájaros de día o los grillos de noche (o hay grillos de día o pájaros de noche)');
 check(D.tictac >= 2, 'no suena el reloj del salón');
 

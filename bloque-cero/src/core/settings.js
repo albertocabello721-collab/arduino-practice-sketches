@@ -20,6 +20,7 @@ export const DEFAULT_SETTINGS = {
   padRumble: true,
   quality: 'alta',      // 'baja' | 'media' | 'alta'
   shadows: 'altas',     // sombras del sol: 'altas' (4096) | 'bajas' (2048) | 'sin' (F10.4)
+  allyOutline: true,    // contorno de los aliados tras las paredes (V1)
   showPerf: false,
   allyVoice: false,     // leer en voz alta los avisos de radio de los aliados
   announcer: true,      // el locutor anuncia las fases de la ronda (F12.2)

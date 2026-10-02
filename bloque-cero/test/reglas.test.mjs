@@ -222,7 +222,7 @@ test('preparación: los bots de la defensa hacen su trabajo sin intentar salir',
     m.on('roundStart', () => sq.reset());
     m.on('boundary', () => { tries++; });
     m.start();
-    while (m.phase === 'select' || m.phase === 'prep') { sq.update(TICK); m.tick(TICK); }
+    while (m.phase === 'select' || m.phase === 'load' || m.phase === 'prep') { sq.update(TICK); m.tick(TICK); }
     fortified += m.fort.panels.length + m.fort.barricades.length;
     sq.dispose();
   }

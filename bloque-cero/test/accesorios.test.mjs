@@ -216,7 +216,7 @@ test('selección: el jugador elige mira y accesorios de cada arma y los lleva en
   assert.deepEqual(me.kits.ar, { sight: 'x25', barrel: 'suppressor', grip: 'angled', laser: true });
   assert.equal(me.kits[op.secondaries[0]].sight, KIT_RULES[op.secondaries[0]].sights.includes('x25') ? 'x25' : defaultKit(WEAPONS[op.secondaries[0]]).sight);
   m.setReady(me, true);
-  for (let n = 0; n < 60 * 40 && m.phase === 'select'; n++) m.tick(TICK);
+  for (let n = 0; n < 60 * 40 && (m.phase === 'select' || m.phase === 'load'); n++) m.tick(TICK);   // (y la pantalla de carga, F10.4)
   assert.notEqual(m.phase, 'select');
   const mine = me.op.weapons[0];
   assert.equal(mine.base.id, 'ar');

@@ -31,7 +31,6 @@ import { thermalOn, scopeZoom, THERMAL_SCOPE } from './sim/abilities.js';
 import { FEEL, lowHealth } from './client/feel.js';
 import { Speech } from './client/voice.js';
 import { timeOf, TIMES } from './render/timeofday.js';
-import { DustMotes } from './render/dust.js';
 
 const $ = (id) => document.getElementById(id);
 const nextFrame = () => new Promise((r) => requestAnimationFrame(() => r()));
@@ -62,7 +61,7 @@ async function boot() {
   renderer.info.autoReset = false;
   // calidad adaptativa: si los FPS reales caen por debajo de 55, se baja la resolución interna
   let adaptiveScale = 1, adaptiveLevel = 0;
-  const pixelRatio = () => Math.min(window.devicePixelRatio || 1, settings.quality === 'alta' ? 1.5 : settings.quality === 'media' ? 1 : 0.75) * adaptiveScale;
+  const pixelRatio = () => Math.min(window.devicePixelRatio || 1, settings.quality === 'baja' ? 0.75 : 1) * adaptiveScale;   // (V1: escala 1,0 como mucho; a 1,5 un MacBook Air no llega a 60 fps y el ajuste bajaba a 0,72)
   renderer.setPixelRatio(pixelRatio());
   renderer.setSize(window.innerWidth, window.innerHeight, false);
 
@@ -86,7 +85,6 @@ async function boot() {
   const effects = new Effects(scene, world, wr);
   const lasers = new Lasers(scene);   // haces de los láseres (F10.3)
   const ropes = new Ropes(scene);     // cuerdas del rappel (F10.2a)
-  const dust = new DustMotes(scene);  // polvo en la luz, dentro de la casa (F12.5)
   const chars = new CharacterRenderer(scene, wr.uniforms, world);
   const props = new PropRenderer(scene, wr);
   const vm = new ViewModel();
@@ -230,6 +228,7 @@ async function boot() {
   bindRange('set-padsens', 'out-padsens', 'padSens', (v) => v.toFixed(2));
   bindCheck('set-padinvert', 'padInvertY');
   bindCheck('set-padrumble', 'padRumble');
+  bindCheck('set-outline', 'allyOutline');
   bindCheck('set-perf', 'showPerf');
   bindCheck('set-voice', 'allyVoice', () => { if (!settings.allyVoice) { try { if (window.speechSynthesis) window.speechSynthesis.cancel(); } catch (e) { /* sin voz */ } } });
   bindCheck('set-announcer', 'announcer', () => { if (!settings.announcer) ctx.voice.cancel(); });
@@ -299,6 +298,7 @@ async function boot() {
     vm.setAspect(w / h);
     post.setSize(w, h);
     effects.setViewport(h * renderer.getPixelRatio(), camera.fov);
+    chars.setViewport(h * renderer.getPixelRatio());
   }
   window.addEventListener('resize', resize);
   resize();
@@ -443,7 +443,8 @@ async function boot() {
     const lum = 0.05 + lightS.sky * lightS.sky * 0.95 * tod.skyLight + lightS.warm * lightS.warm * 0.62 + lightS.cool * lightS.cool * 0.5;
     lightV.sky = lightS.sky * Math.sqrt(tod.skyLight); lightV.warm = lightS.warm; lightV.cool = lightS.cool;
     const indoorK = clamp((0.85 - lightS.sky) / 0.45, 0, 1);   // 0 en la calle … 1 dentro de la casa
-    const target = clamp(0.6 / lum, 0.55, 1.9) * tod.exposure;
+    wr.uniforms.uFogDensity.value = tod.fogDensity * (1 - 0.6 * indoorK);   // (dentro de la casa, menos neblina: V1)
+    const target = Math.min(1.2, clamp(0.6 / lum, 0.55, 1.9) * tod.exposure);   // (tope 1,2: a 1,9 la imagen salía lavada, V1)
     exposure = damp(exposure, target, 1.6, dt);
     renderer.toneMappingExposure = exposure;
     if (audio.ctx) {
@@ -458,12 +459,11 @@ async function boot() {
     wr.update(dt, camera.position, 6);
     wr.renderShadowIfNeeded();
     effects.update(gdt, camera.position);
-    dust.update(paused ? 0 : gdt, camera.position, indoorK, wr.lightVolume, tod.skyLight);
     // visor térmico de LUMEN (apuntando con la principal y quieto): enemigos calientes, humo transparente
     const thermal = !!v && thermalOn(v);
     chars.setHeat(thermal, v ? v.team : 0, THERMAL_SCOPE.range, camera.position);
     effects.setThermal(thermal);
-    chars.update(paused ? 0 : gdt, v, camera.position, s && s.allyTeam !== undefined ? s.allyTeam : -1);      // (en pausa, los que caen se quedan quietos)
+    chars.update(paused ? 0 : gdt, v, camera.position, settings.allyOutline && s && s.allyTeam !== undefined ? s.allyTeam : -1);      // (en pausa, los que caen se quedan quietos)
     // los láseres encendidos (en la repetición de muerte, ninguno: serían los de ahora)
     const LG = s && s.game;
     lasers.update(LG ? LG.operators : [], world, LG ? LG.time : 0, v, camera, !!(s && s.replay && s.replay.active));
@@ -517,7 +517,7 @@ async function boot() {
 
   // ---------------------------------------------------------------- depuración / tests automáticos
   window.__bc = {
-    THREE, world, map, wr, effects, dust, renderer, camera, settings, state, hud, audio, post, ctx, debug: debugView, times: TIMES,   // (times: las horas, para las mediciones)
+    THREE, world, map, wr, effects, renderer, camera, settings, state, hud, audio, post, ctx, debug: debugView, times: TIMES,   // (times: las horas, para las mediciones)
     get session() { return session; },
     get game() { return session ? session.game : null; },
     get player() { return session ? session.player : null; },

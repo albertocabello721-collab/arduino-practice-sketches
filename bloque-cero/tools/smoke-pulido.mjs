@@ -2,7 +2,7 @@
 //  · la pantalla de carga de 3 s con el plano: defendiendo, con las salas A y B en naranja; atacando,
 //    sin ellas; Espacio la salta; si no, pasa sola a los 3 s; la selección dura 20 s;
 //  · humo del cañón tras 8 disparos seguidos (1,5 s) y no antes;
-//  · un aliado tras una pared a menos de 40 m: su silueta azul (píxeles azules en la pared) y su nombre;
+//  · un aliado tras una pared a menos de 40 m: su contorno azul (un anillo, el interior sigue siendo la pared) y su nombre;
 //  · Ajustes → Sombras: altas (4096), bajas (2048) y sin sombras (sin la pasada);
 //  · sin captura del ratón (falla el bloqueo): el ratón mueve la vista igual, aviso una vez, sin flecha;
 //  · M enseña el medidor (F3 ya no); el cielo sin la franja de colinas; sin errores.
@@ -113,13 +113,33 @@ const al = await P(async () => {
   return { nombre: ally.name, dist: +dist.toFixed(1), silueta: v.sil.visible, enemigo: vf.sil.visible, nombres: names, sala: map.roomAt(ally.body.pos.x, 1, ally.body.pos.z) && map.roomAt(ally.body.pos.x, 1, ally.body.pos.z).name };
 });
 await frames(3);
+// el contorno (V1): un anillo azul en el borde del aliado tapado; el interior conserva la pared
+await page.evaluate(() => { window.__bc.post.grade.uniforms.uGrain.value = 0; });
+await frames(2);
 const cap = await page.screenshot({ path: path.join(out, 'f104_03_silueta.png') });
-const azules = countPx(cap, [0.3, 0.15, 0.7, 0.75], (r, g, b) => b > 150 && b > r + 50 && b > g + 20);
-console.log('  aliado:', JSON.stringify({ ...al, azules }));
-check(al.silueta && !al.enemigo && al.dist < 40, `el aliado a ${al.dist} m lleva silueta (y el enemigo no)`);
+const azul = (r, g, b) => b > r + 35 && b > g + 8 && b > 110;
+const azules = countPx(cap, [0.3, 0.15, 0.7, 0.75], azul);
+const sinAliado = await (async () => { await P(() => { const bc = window.__bc, p = bc.player, g = bc.session.game; const ally = g.operators.find((o) => o.team === p.team && o !== p && o.state === 'alive'); ally.frozen = true; }); await frames(3); const b = await page.screenshot({ path: path.join(out, 'f104_03b_sin_aliado.png') }); await P(() => { const bc = window.__bc, p = bc.player, g = bc.session.game; const ally = g.operators.find((o) => o.team === p.team && o !== p && o.state === 'alive'); ally.frozen = false; }); return b; })();
+const meanDiff = (A, B, box) => { const a = readPNG(A), b = readPNG(B); const x0 = Math.floor(box[0] * a.w), y0 = Math.floor(box[1] * a.h), x1 = Math.floor(box[2] * a.w), y1 = Math.floor(box[3] * a.h); let n = 0, d = 0; for (let y = y0; y < y1; y++) for (let x = x0; x < x1; x++) { const i = (y * a.w + x) * a.ch; for (let c = 0; c < 3; c++) d += Math.abs(a.data[i + c] - b.data[i + c]); n += 3; } return d / n; };
+const pecho = meanDiff(cap, sinAliado, [0.485, 0.515, 0.515, 0.545]);
+console.log('  aliado:', JSON.stringify({ ...al, azules, pecho: +pecho.toFixed(1) }));
+check(al.silueta && !al.enemigo && al.dist < 40, `el aliado a ${al.dist} m lleva contorno (y el enemigo no)`);
 check(al.nombres.includes(al.nombre), `su nombre en pantalla (${al.nombres.join(', ')})`);
-check(azules > 150, `la silueta azul se ve a través de la pared (${azules} píxeles azules)`);
-// y a más de 40 m, sin silueta
+check(azules > 40, `el contorno azul se ve a través de la pared (${azules} píxeles azules)`);
+check(pecho < 12, `el contorno no tapa lo que hay detrás: el pecho del aliado conserva la pared (diferencia media ${pecho.toFixed(1)})`);
+// a la vista, sin contorno: los mismos píxeles azules con el ajuste encendido y apagado
+const vista = await (async () => {
+  await P(() => { const bc = window.__bc, p = bc.player, g = bc.session.game, map = bc.map; const ally = g.operators.find((o) => o.team === p.team && o !== p && o.state === 'alive'); const r = map.rooms.find((q) => q.id === 'F_recibidor'); const ax = (r.x0 + r.x1) / 2, az = (r.z0 + r.z1) / 2; bc.place(ax, 0, az - 3, Math.PI, 0.0); for (let i = 0; i < 3; i++) window.__step(1 / 60); });
+  await frames(3);
+  const on = countPx(await page.screenshot({ path: path.join(out, 'f104_03c_a_la_vista.png') }), [0.4, 0.42, 0.6, 0.88], azul);
+  await P(() => { window.__bc.settings.allyOutline = false; });
+  await frames(3);
+  const off = countPx(await page.screenshot(), [0.4, 0.42, 0.6, 0.88], azul);
+  await P(() => { window.__bc.settings.allyOutline = true; window.__bc.post.grade.uniforms.uGrain.value = 0.035; });
+  return { on, off };
+})();
+check(Math.abs(vista.on - vista.off) <= 6, `a la vista no hay contorno (azules con el ajuste: ${vista.on}, sin él: ${vista.off})`);
+// y a más de 40 m, sin contorno
 const lejos = await P(async () => {
   const bc = window.__bc, g = bc.session.game, p = bc.player;
   const ally = g.operators.find((o) => o.team === p.team && o !== p && o.state === 'alive');
@@ -129,7 +149,18 @@ const lejos = await P(async () => {
   const d = Math.hypot(ally.body.pos.x - p.body.pos.x, ally.body.pos.z - p.body.pos.z);
   return { sil: bc.ctx.chars.views.get(ally.id).sil.visible, dist: +d.toFixed(1) };
 });
-check(!lejos.sil && lejos.dist > 40, `a más de 40 m (${lejos.dist} m), sin silueta`);
+check(!lejos.sil && lejos.dist > 40, `a más de 40 m (${lejos.dist} m), sin contorno`);
+// escala y exposición (V1): el ajuste adaptativo nunca quita el MSAA; la exposición no pasa de 1,2 en el hall
+const calidad = await P(async () => {
+  const bc = window.__bc;
+  bc.post.setAdaptiveLevel(4, 'alta'); const msaaMin = bc.post.msaa; bc.post.setAdaptiveLevel(0, 'alta');
+  bc.place(17, 0, 12, 0, 0);
+  await new Promise((res) => { let k = 0; const f = () => (++k >= 70 ? res() : requestAnimationFrame(f)); requestAnimationFrame(f); });
+  return { msaaMin, exposicion: +bc.renderer.toneMappingExposure.toFixed(2) };
+});
+console.log('  calidad:', JSON.stringify(calidad));
+check(calidad.msaaMin === 4, `con el ajuste adaptativo al mínimo el MSAA sigue a 4 (${calidad.msaaMin})`);
+check(calidad.exposicion <= 1.21 && calidad.exposicion >= 0.6, `la exposición en el hall no pasa de 1,2 (${calidad.exposicion})`);
 
 // ---------------------------------------------------------------- humo del cañón
 console.log('humo del cañón');

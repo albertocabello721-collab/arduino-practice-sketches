@@ -1,5 +1,5 @@
 // Post-proceso: render HDR (con MSAA) → arma en primera persona encima →
-// bloom → gradación (viñeta, grano, tinte) → tone mapping ACES + sRGB.
+// bloom → gradación (contraste, viñeta, grano, tinte) → tone mapping ACES + sRGB.
 import * as THREE from 'three';
 import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
@@ -53,10 +53,11 @@ const GradeShader = {
     uSmoke: { value: 0 },     // dentro de una nube de humo (0..1)
     uBlind: { value: 0 },     // cegado por una cegadora (0..1)
     uGas: { value: 0 },       // dentro de una nube de gas de TIZÓN (0..1)
+    uContrast: { value: 1.12 },   // curva de contraste alrededor del gris medio, en lineal (V1)
   },
   vertexShader: `varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }`,
   fragmentShader: /* glsl */ `
-    uniform sampler2D tDiffuse; uniform float uTime, uVignette, uGrain, uSat, uDamage, uFlash, uFeed, uStatic, uSmoke, uBlind, uGas; uniform vec3 uTint, uDmgDir; uniform vec2 uRes;
+    uniform sampler2D tDiffuse; uniform float uTime, uVignette, uGrain, uSat, uDamage, uFlash, uFeed, uStatic, uSmoke, uBlind, uGas, uContrast; uniform vec3 uTint, uDmgDir; uniform vec2 uRes;
     varying vec2 vUv;
     float h(vec2 p){ return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453); }
     void main(){
@@ -71,6 +72,8 @@ const GradeShader = {
         c = vec3(texture2D(tDiffuse, uv + ca).r, texture2D(tDiffuse, uv).g, texture2D(tDiffuse, uv - ca).b);
         if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0) c = vec3(0.0);
       } else c = texture2D(tDiffuse, uv).rgb;
+      // contraste: las sombras más hondas y las luces más vivas, con pivote en el gris medio (V1)
+      c = pow(max(c, vec3(0.0)) / 0.18, vec3(uContrast)) * 0.18;
       float l = dot(c, vec3(0.2126, 0.7152, 0.0722));
       c = mix(vec3(l), c, uSat) * uTint;
       if (uFeed > 0.5 && uFeed < 1.5) {
@@ -159,8 +162,7 @@ export class PostFX {
   setAdaptiveLevel(level, base = 'alta') {
     this.bloom.enabled = level < 3 && base !== 'baja';
     this.grade.uniforms.uGrain.value = level < 4 ? 0.035 : 0.0;
-    const baseS = base === 'alta' ? 4 : base === 'media' ? 2 : 0;
-    this.setSamples(level >= 3 ? 0 : level >= 2 ? Math.min(baseS, 2) : baseS);
+    // (V1: el suavizado no se toca; el ajuste baja la resolución, nunca el MSAA)
   }
   render(dt) {
     this.grade.uniforms.uTime.value += dt;
