@@ -118,14 +118,14 @@ await page.evaluate(() => {
   window.__step(1 / 60);
 });
 await shot('07_aliado_tras_pared');
-// 8) el mismo aliado a la vista, a 3 m
+// 8) el mismo aliado a la vista, a 3 m, en la acera (sin nada por medio)
 await page.evaluate(() => {
-  const bc = window.__bc, g = bc.game, p = bc.player, map = bc.map;
+  const bc = window.__bc, g = bc.game, p = bc.player;
   const ally = g.operators.find((o) => o.team === p.team && o !== p && o.state === 'alive');
-  const ax = 6.5, az = 6.5;
-  bc.place(ax, 0.3, az - 3, Math.PI, 0.0);
-  for (let i = 0; i < 30; i++) window.__step(1 / 60);
-  ally.body.pos.x = ax; ally.body.pos.y = window.__allyY; ally.body.pos.z = az; ally.yaw = Math.PI;
+  bc.place(13.5, 0.3, -7, Math.PI, 0); for (let i = 0; i < 30; i++) window.__step(1 / 60);
+  ally.body.pos.x = 13.5; ally.body.pos.y = p.body.pos.y; ally.body.pos.z = -7; ally.yaw = 0; ally.body.vel.x = ally.body.vel.y = ally.body.vel.z = 0;
+  bc.place(13.5, 0.3, -10, Math.PI, 0.0); for (let i = 0; i < 30; i++) window.__step(1 / 60);
+  ally.body.pos.x = 13.5; ally.body.pos.z = -7; ally.yaw = 0;
   window.__step(1 / 60);
 });
 await shot('08_aliado_a_la_vista');
