@@ -1,0 +1,2 @@
+# Solo se guardan las hojas de contacto (antes y después); las capturas sueltas se regeneran con tools/capturas-v0.mjs
+0*.png
