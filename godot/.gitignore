@@ -1,0 +1,3 @@
+# caché de importación y datos locales del editor de Godot (se regeneran al abrir el proyecto)
+.godot/
+*.tmp
