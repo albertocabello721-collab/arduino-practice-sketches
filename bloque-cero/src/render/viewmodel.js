@@ -722,6 +722,55 @@ export class ViewModel {
     this.camera.updateProjectionMatrix();
   }
 
+  /**
+   * V1.5 (muestra «recursos reales»): sustituye el arma procedural `kind` por un modelo real: un grupo en
+   * metros, con el cañón hacia -Z y las piezas con nombre, hijas directas. `a`, los anclajes medidos del
+   * modelo: sightY (línea de sus miras de hierro), rail {y, z} (el riel donde van las miras), muzzle [x,y,z],
+   * grip {zv, za, y0} (empuñaduras bajo el guardamanos), laser [x,y,z], hand {grip, fore} (muñecas),
+   * mag y bolt (nombres del cargador y la palanca de carga), boltTravel y sightMeshes (las piezas de su
+   * mira de hierro: se ven solo con la mira de hierro elegida). Lo procedural se guarda para clearModel.
+   */
+  setModel(kind, group, a) {
+    this.clearModel(kind);
+    const info = { sightY: a.sightY, muzzle: new THREE.Vector3(...a.muzzle), mag: null, grip: new THREE.Vector3(...a.hand.grip), fore: new THREE.Vector3(...a.hand.fore) };
+    const part = (n) => (n ? group.getObjectByName(n) : null) || null;
+    const mag = part(a.mag);
+    if (mag) {
+      const sz = new THREE.Box3().setFromObject(mag).getSize(new THREE.Vector3());
+      info.mag = mag; info.magRest = arr(mag.position); info.magRot = mag.rotation.clone(); info.magSize = [sz.x, sz.y, sz.z]; info.magColor = [0.05, 0.055, 0.06];
+    }
+    const bolt = part(a.bolt);
+    if (bolt) { info.bolt = bolt; info.boltRest = arr(bolt.position); info.boltTravel = a.boltTravel || 0.055; }
+    fitKit(kind, group, info, { iron: a.sightY, sightAt: { y: a.rail.y, z: a.rail.z, front: a.rail.z - 0.05, rear: a.rail.z + 0.08 }, muzzle: a.muzzle, grip: a.grip, laser: a.laser });
+    if (a.sightMeshes && info.kit.sights.iron) {
+      const sg = new THREE.Group(); sg.name = 'MiraDeHierro';
+      for (const n of a.sightMeshes) { const m = part(n); if (m) sg.add(m); }
+      group.add(sg);
+      info.kit.sights.iron.group = sg;
+      info.kit.key = null;   // (applyKit vuelve a repartir la visibilidad con la mira nueva)
+    }
+    group.visible = false;
+    this.procGuns = this.procGuns || {};
+    this.procGuns[kind] = this.guns[kind];
+    this.root.remove(this.guns[kind].group);
+    this.root.add(group);
+    this.guns[kind] = { group, info };
+    this.act.plan = null; this.act.w = 0;   // (la recarga en curso se vuelve a planificar con las piezas nuevas)
+  }
+  /** Vuelve al arma procedural `kind` (si había un modelo real). */
+  clearModel(kind) {
+    const P = this.procGuns && this.procGuns[kind];
+    if (!P) return;
+    this.root.remove(this.guns[kind].group);
+    P.group.visible = false;
+    this.root.add(P.group);
+    this.guns[kind] = P;
+    delete this.procGuns[kind];
+    this.act.plan = null; this.act.w = 0;
+  }
+  /** ¿Lleva `kind` un modelo real ahora? */
+  hasModel(kind) { return !!(this.procGuns && this.procGuns[kind]); }
+
   // mano izquierda en reposo (en el guardamanos o, en las pistolas, bajo la empuñadura)
   _rest(info) { return [info.fore.x - 0.01, info.fore.y - 0.035, info.fore.z]; }
 

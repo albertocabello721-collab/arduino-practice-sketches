@@ -20,6 +20,7 @@ import { breachRect, explodeSphere } from '../world/destruction.js';
 import { MATS, SOLID } from '../world/materials.js';
 import { kitPanel } from '../ui/matchui.js';
 import { saveSettings } from '../core/settings.js';
+import { RealAssets, CREDITS } from './realassets.js';
 
 const SPAWN = { x: 15.5, y: 0, z: -4.5, yaw: Math.PI };
 const LOADOUTS = [['ar', 'pistol', 'shotgun', 'smg'], ['ar2', 'revolver', 'lmg', 'dmr'], ['smg2', 'mpistol', 'shotgun', 'ar']];
@@ -55,6 +56,9 @@ export class RangeSession extends Session {
       onMeRevived: () => { this.control.stance = 'crouch'; },
       onMeKilled: () => { hud.setDeath(true, 'Pulsa R para volver a empezar'); },
     }));
+    // la muestra «recursos reales» (V1.5): U la enciende y la apaga; se carga la primera vez
+    this.real = new RealAssets(ctx);
+    this.realOn = false;
     hud.setMode('range');
     hud.setDeath(false); hud.setDowned(false);
     // panel de equipo (O): mira y accesorios de las cuatro armas, con el ratón suelto
@@ -140,6 +144,7 @@ export class RangeSession extends Session {
     if (take('KeyJ')) { const mate = this.dummies.find((d) => d.team === 0); if (mate && mate.state === 'alive') this._game.damage(mate, mate.hp, { by: null, zone: 'body' }); }
     if (take('KeyK')) this.reset();
     if (take('KeyL') || input.padEvent('select')) this.setLoadout(this.loadoutIdx + 1);     // (mando: Select)
+    if (take('KeyU')) this.toggleReal();
     if (this._player.state === 'dead' && input.pressed('reload')) this.respawn();
   }
 
@@ -157,6 +162,20 @@ export class RangeSession extends Session {
     if (this.ctx.input.pressed('help')) { this.hintsManual = !showingHints; this.hintsUntil = 0; }
     this.ctx.hud.hints(this.hintsManual ? !this.feed.active : showingHints);
     this.ctx.hud.setTopbar('Campo de pruebas', 'Fase 4');
+  }
+
+  /** U: recursos reales (M4A1, yeso y parqué junto a la puerta, disparo grabado) o lo procedural. */
+  async toggleReal() {
+    const R = this.real, { hud } = this.ctx;
+    if (R.loading) return;
+    this.realOn = !this.realOn;
+    if (!R.loaded) {
+      hud.toast('Cargando recursos reales…', 3);
+      await R.load();
+      if (this.disposed) return;
+      console.info(`[recursos] créditos: ${CREDITS}`);
+    }
+    hud.toast(R.enable(this.realOn), 4);
   }
 
   setLoadout(i) {
@@ -233,6 +252,8 @@ export class RangeSession extends Session {
 
   dispose() {
     super.dispose();
+    this.disposed = true;
+    this.real.dispose();
     this.feed.exit();
     this.ctx.chars.clear();
     this.ctx.props.clear();

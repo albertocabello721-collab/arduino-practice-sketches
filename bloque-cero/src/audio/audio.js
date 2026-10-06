@@ -193,6 +193,15 @@ export class AudioEngine {
     o.start(t); o.stop(t + a + d + 0.05);
   }
 
+  // ------------------------------------------------------------ muestra de disparo grabado (V1.5)
+  /**
+   * Grabación del disparo del fusil (AudioBuffer o null). mode: 'sample' (solo la grabación),
+   * 'layered' (la grabación para el chasquido y la cola, debajo el golpe grave sintético) o 'synth'.
+   */
+  setShotSample(buffer, mode = 'layered') { this.shotSample = buffer || null; this.shotMode = buffer ? mode : 'synth'; }
+  /** Decodifica un archivo de sonido (ArrayBuffer) con el contexto del motor. */
+  decode(ab) { return this.ctx ? this.ctx.decodeAudioData(ab.slice(0)) : Promise.reject(new Error('audio sin iniciar')); }
+
   // ------------------------------------------------------------ disparos
   // quiet: con supresor (F10.3): sin chasquido ni grano, un soplo apagado y mucho más bajo
   gunshot(kind, pos, local = false, occl = 0, quiet = false) {
@@ -227,13 +236,23 @@ export class AudioEngine {
       bus.connect(mix); bus.connect(sh).connect(k).connect(mix);
     }
     bus.gain.value = local ? 0.55 : 0.5;
-    // chasquido supersónico
-    this._burst(bus, t, { type: 'highpass', freq: 2200 * vary, q: 0.7, a: 0.0006, peak: P.crack * (dist > 30 ? 0.5 : 1), d: 0.035 });
-    // cuerpo
-    this._burst(bus, t, { type: 'bandpass', freq: P.bodyF * vary, q: 0.9, a: 0.001, peak: P.body * 1.4, d: P.len, pink: true });
-    this._burst(bus, t + 0.004, { type: 'lowpass', freq: 1400 * vary, q: 0.5, a: 0.002, peak: P.body * 0.6, d: P.len * 1.4 });
-    // golpe grave
-    this._tone(bus, t, { f0: P.thumpF * 1.8 * vary, f1: P.thumpF * 0.4, a: 0.001, peak: P.thump * 1.2, d: 0.09 });
+    const sample = local && kind === 'rifle' && this.shotSample && this.shotMode !== 'synth';
+    if (sample) {
+      // V1.5 (muestra): la grabación, limpia (sin el grano), por la misma salida que lo sintético
+      const src = ctx.createBufferSource(); src.buffer = this.shotSample; src.playbackRate.value = 0.97 + Math.random() * 0.06;
+      const g = ctx.createGain(); g.gain.value = this.sampleGain || 1;
+      src.connect(g).connect(out); src.start(t);
+      // en capas: debajo, el golpe grave sintético (la grabación es de un arma corta: le falta pecho)
+      if (this.shotMode === 'layered') this._tone(bus, t, { f0: P.thumpF * 1.8 * vary, f1: P.thumpF * 0.4, a: 0.001, peak: P.thump * (this.thumpGain || 1.2), d: 0.09 });
+    } else {
+      // chasquido supersónico
+      this._burst(bus, t, { type: 'highpass', freq: 2200 * vary, q: 0.7, a: 0.0006, peak: P.crack * (dist > 30 ? 0.5 : 1), d: 0.035 });
+      // cuerpo
+      this._burst(bus, t, { type: 'bandpass', freq: P.bodyF * vary, q: 0.9, a: 0.001, peak: P.body * 1.4, d: P.len, pink: true });
+      this._burst(bus, t + 0.004, { type: 'lowpass', freq: 1400 * vary, q: 0.5, a: 0.002, peak: P.body * 0.6, d: P.len * 1.4 });
+      // golpe grave
+      this._tone(bus, t, { f0: P.thumpF * 1.8 * vary, f1: P.thumpF * 0.4, a: 0.001, peak: P.thump * 1.2, d: 0.09 });
+    }
     // mecánica del arma (solo cerca)
     if (local || dist < 8) this._burst(out, t + 0.012, { type: 'bandpass', freq: 4200, q: 3, a: 0.0005, peak: P.click * (local ? 1 : 0.4), d: 0.012 });
     // casquillo

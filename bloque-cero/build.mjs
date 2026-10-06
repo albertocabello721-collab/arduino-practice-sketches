@@ -26,6 +26,8 @@ async function build() {
   const tpl = fs.readFileSync('index.template.html', 'utf8');
   const fragment = tpl.replace('/*__SCRIPT__*/', () => js);
   fs.mkdirSync('dist', { recursive: true });
+  // los archivos de apoyo (V1.5: recursos CC0 de la muestra) al lado de la página, como se publican
+  if (fs.existsSync('recursos')) fs.cpSync('recursos', 'dist/recursos', { recursive: true });
   // el artefacto publicado: con el envoltorio de documento y el título que tiene en claude.ai
   // («Bloque Cero»; se conservan tal como los dejó la última versión publicada)
   fs.writeFileSync('dist/artifact.html', ARTIFACT_HEAD + fragment + ARTIFACT_TAIL);
