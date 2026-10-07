@@ -1,0 +1,17 @@
+{
+  "name": "relay",
+  "version": "0.1.0",
+  "description": "Planner/builder/reviewer handoffs between Claude Code sessions, with an Obsidian inbox/outbox bridge for Claude chat and Cowork.",
+  "author": {
+    "name": "albertocabello721-collab"
+  },
+  "types": "./types/index.d.ts",
+  "userConfig": {
+    "vaultPath": {
+      "type": "string",
+      "title": "Obsidian vault path",
+      "description": "Absolute path of the Obsidian vault (must contain a .obsidian folder). Relay keeps its files under <vault>/_relay/ (handoffs/, inbox/, inbox/done/, outbox/).",
+      "default": "/Users/albertoc/Documents/GitHub/second-brain"
+    }
+  }
+}
