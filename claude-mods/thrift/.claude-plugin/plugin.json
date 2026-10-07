@@ -1,0 +1,23 @@
+{
+  "name": "thrift",
+  "version": "0.1.0",
+  "description": "Sends cheap work to cheaper models: read-only subagents to haiku, trivial and routine turns to haiku or sonnet, with a per-request ledger that counts cache misses.",
+  "author": {
+    "name": "albertocabello721-collab"
+  },
+  "types": "./types/index.d.ts",
+  "userConfig": {
+    "maxContextTokens": {
+      "type": "number",
+      "title": "Context ceiling for rerouting",
+      "description": "A main-conversation turn whose context already holds more than this many tokens stays on your chosen model (a switch would rewrite that whole context into the cheaper model's cache).",
+      "default": 30000
+    },
+    "haikuAgents": {
+      "type": "string",
+      "title": "Subagent types sent to haiku",
+      "description": "Comma-separated read-only subagent types (search, exploration, docs lookup) that run on haiku unless the call names a model itself.",
+      "default": "Explore, claude-code-guide"
+    }
+  }
+}
