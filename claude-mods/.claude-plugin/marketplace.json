@@ -1,0 +1,10 @@
+{
+  "name": "albertoc-mods",
+  "owner": { "name": "albertocabello721-collab" },
+  "metadata": { "description": "Alberto's Claude Code mods: relay (session handoffs), thrift (cheaper models with a cache-aware ledger), deck (dashboard pane)." },
+  "plugins": [
+    { "name": "relay", "source": "./relay", "description": "Planner/builder/reviewer handoffs between sessions, with an Obsidian inbox/outbox bridge." },
+    { "name": "thrift", "source": "./thrift", "description": "Read-only subagents to haiku, trivial turns to haiku or sonnet, with a ledger that counts cache misses." },
+    { "name": "deck", "source": "./deck", "description": "Dashboard pane: agents, usage, brain (Obsidian vault), handoffs." }
+  ]
+}

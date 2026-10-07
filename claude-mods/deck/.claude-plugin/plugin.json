@@ -1,0 +1,15 @@
+{
+  "name": "deck",
+  "version": "0.1.0",
+  "description": "Dashboard pane with Agents, Usage, Brain (Obsidian vault) and Handoffs tabs; falls back to a band above the prompt, then to text.",
+  "author": { "name": "albertocabello721-collab" },
+  "types": "./types/index.d.ts",
+  "userConfig": {
+    "vaultPath": {
+      "type": "string",
+      "title": "Obsidian vault path",
+      "description": "Absolute path of the Obsidian vault (must contain a .obsidian folder). The Brain tab reads notes changed in the last 7 days, the Inbox folder and Inbox/Tasks.md. Read-only.",
+      "default": "/Users/albertoc/Documents/GitHub/second-brain"
+    }
+  }
+}
