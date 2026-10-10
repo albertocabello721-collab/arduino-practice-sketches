@@ -1,0 +1,103 @@
+:root {
+  --hud-font: 'Chakra Petch', 'Avenir Next Condensed', 'Arial Narrow', system-ui, sans-serif;
+  --ink: #f4f1ea;
+  --ink-dim: rgba(244, 241, 234, 0.62);
+  --panel: rgba(12, 14, 18, 0.55);
+}
+
+html,
+body {
+  margin: 0;
+  height: 100%;
+  overflow: hidden;
+  background: #0d0f12;
+}
+
+#app,
+#app canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.hud {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  font-family: var(--hud-font);
+  color: var(--ink);
+  user-select: none;
+}
+
+.hud-speed {
+  position: absolute;
+  right: 28px;
+  bottom: 22px;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  text-shadow: 0 2px 12px rgba(0, 0, 0, 0.45);
+}
+
+.hud-speed-value {
+  font-size: 64px;
+  font-weight: 700;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+  min-width: 3ch;
+  text-align: right;
+}
+
+.hud-speed-unit {
+  font-size: 18px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  color: var(--ink-dim);
+}
+
+.hud-telemetry {
+  position: absolute;
+  left: 16px;
+  top: 14px;
+  padding: 6px 10px;
+  border-radius: 6px;
+  background: var(--panel);
+  font-size: 13px;
+  font-weight: 500;
+  letter-spacing: 0.03em;
+  font-variant-numeric: tabular-nums;
+  white-space: pre;
+}
+
+.hud-keys {
+  position: absolute;
+  left: 16px;
+  bottom: 16px;
+  margin: 0;
+  padding: 10px 12px;
+  list-style: none;
+  border-radius: 8px;
+  background: var(--panel);
+  display: grid;
+  gap: 5px;
+  font-size: 13px;
+  color: var(--ink-dim);
+}
+
+.hud-keys li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.hud-keys kbd {
+  min-width: 46px;
+  padding: 1px 6px;
+  border: 1px solid rgba(244, 241, 234, 0.3);
+  border-radius: 4px;
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  text-align: center;
+  color: var(--ink);
+}
