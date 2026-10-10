@@ -1,6 +1,6 @@
 {
   "name": "thrift",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Sends cheap work to cheaper models: read-only subagents to haiku, trivial and routine turns to haiku or sonnet, with a per-request ledger that counts cache misses.",
   "author": {
     "name": "albertocabello721-collab"
@@ -18,6 +18,18 @@
       "title": "Subagent types sent to haiku",
       "description": "Comma-separated read-only subagent types (search, exploration, docs lookup) that run on haiku unless the call names a model itself.",
       "default": "Explore, claude-code-guide"
+    },
+    "haikuModel": {
+      "type": "string",
+      "title": "Model for trivial turns",
+      "description": "Full model id a trivial main-conversation turn is sent to. It goes to the API as written, so an alias such as haiku does not work here.",
+      "default": "claude-haiku-5-5"
+    },
+    "sonnetModel": {
+      "type": "string",
+      "title": "Model for routine turns",
+      "description": "Full model id a routine main-conversation turn is sent to. It goes to the API as written, so an alias such as sonnet does not work here.",
+      "default": "claude-sonnet-5-5"
     }
   }
 }

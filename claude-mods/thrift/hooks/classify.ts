@@ -10,7 +10,26 @@ export const tierOf = (model: string | undefined): ThriftTier => {
   return 2
 }
 
-export const ALIAS: Record<0 | 1, string> = { 0: 'haiku', 1: 'sonnet' }
+/** What `agent.spawn` takes for a subagent: the Agent tool's own alias, which the engine resolves for the account. */
+export const SPAWN_MODEL = 'haiku'
+
+/**
+ * What `turn.step` takes for a tier. The engine sends a step's `model` to the API as given, with no
+ * alias resolved, so these are full ids (the ones `haiku` and `sonnet` resolve to; options haikuModel, sonnetModel).
+ */
+export const STEP_MODEL: Record<0 | 1, string> = { 0: 'claude-haiku-5-5', 1: 'claude-sonnet-5-5' }
+
+/** Family and version of a model id, whatever its provider prefix, date or `[1m]` suffix. */
+const keyOf = (model: string): string => {
+  const m = model.toLowerCase()
+  const named = /claude-([a-z]+)-(\d{1,2})(?!\d)(?:-(\d{1,2})(?!\d))?/.exec(m)
+  if (named) return `${named[1]}-${named[2]}-${named[3] ?? ''}`
+  const legacy = /claude-(\d{1,2})(?!\d)(?:-(\d{1,2})(?!\d))?-([a-z]+)/.exec(m)
+  return legacy ? `${legacy[3]}-${legacy[1]}-${legacy[2] ?? ''}` : m
+}
+
+/** `claude-haiku-4-5` and the `claude-haiku-4-5-20251001` the API reports for it are one model. */
+export const isSameModel = (a: string, b: string): boolean => keyOf(a) === keyOf(b)
 
 const JUDGMENT =
   /\b(architect\w*|design|redesign|migrat\w*|rewrite|across|all (the )?(files|modules|services|tests|call ?sites)|every|entire|whole|debug\w*|investigat\w*|root cause|why\b|flaky|race|concurren\w*|deadlock|performance|optimi[sz]\w*|security|vulnerab\w*|audit|review|plan|strategy|trade-?offs?|think|carefully|complex|subtle|should|would|best|approach|recommend|suggest|opinion|structure)\b/i

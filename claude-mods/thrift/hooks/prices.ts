@@ -1,7 +1,11 @@
 import type { ModelUsage } from 'claude-code'
 
-/** API list prices in USD per million tokens, as of 2026-09; cache writes at the 5-minute rate (1.25x input). */
+/** API list prices in USD per million tokens, as of 2026-10; cache writes at the 5-minute rate (1.25x input). */
 type Price = { input: number; output: number; cacheRead: number; cacheWrite: number }
+
+/** Haiku 5.5 bills a request whose prompt is longer than this at HAIKU_5_LONG. */
+const HAIKU_5_LONG_PROMPT = 100_000
+const HAIKU_5_LONG: Price = { input: 0.5, output: 2.5, cacheRead: 0.05, cacheWrite: 0.625 }
 
 const ROWS: readonly [RegExp, Price][] = [
   [/fable|mythos/, { input: 10, output: 50, cacheRead: 0.25, cacheWrite: 12.5 }],
@@ -9,16 +13,20 @@ const ROWS: readonly [RegExp, Price][] = [
   [/opus/, { input: 5, output: 25, cacheRead: 0.5, cacheWrite: 6.25 }],
   [/sonnet-4/, { input: 3, output: 15, cacheRead: 0.3, cacheWrite: 3.75 }],
   [/sonnet/, { input: 2, output: 10, cacheRead: 0.2, cacheWrite: 2.5 }],
+  [/haiku-5/, { input: 0.1, output: 0.5, cacheRead: 0.01, cacheWrite: 0.125 }],
   [/haiku/, { input: 1, output: 5, cacheRead: 0.1, cacheWrite: 1.25 }],
 ]
 const UNKNOWN: Price = { input: 4, output: 20, cacheRead: 0.2, cacheWrite: 5 }
 
-export const priceOf = (model: string): Price =>
-  ROWS.find(([family]) => family.test(model.toLowerCase()))?.[1] ?? UNKNOWN
+export const priceOf = (model: string, promptTokens = 0): Price => {
+  const m = model.toLowerCase()
+  if (promptTokens > HAIKU_5_LONG_PROMPT && /haiku-5/.test(m)) return HAIKU_5_LONG
+  return ROWS.find(([family]) => family.test(m))?.[1] ?? UNKNOWN
+}
 
 /** Estimated USD for one request's token counts on `model`. */
 export function costOf(model: string, usage: ModelUsage): number {
-  const p = priceOf(model)
+  const p = priceOf(model, usage.input_tokens + usage.cache_read_input_tokens + usage.cache_creation_input_tokens)
   return (
     (usage.input_tokens * p.input +
       usage.output_tokens * p.output +
